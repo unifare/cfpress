@@ -232,8 +232,16 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
  // `handleApi` already speaks (`/api/v1/...`). One API implementation, reached
  // by two prefixes; the reconstructed URL must therefore drop `adminBase`
  // exactly, with nothing prepended (prepending `/api` here would double it).
+ //
+ // ⚠️ `u.search` is carried across, and that is not a detail. The first version
+ // rebuilt the URL from `u.origin` alone, so **every query parameter vanished**
+ // on the prefixed route: `?site=` (the tenant selector), `?withCounts=1`,
+ // `?locale=`, pagination — all silently dropped, on every admin request that
+ // used one, while `/api/*` kept working. The admin is addressed through the
+ // prefix, so "some parameters work and others do not" was the whole surface.
+ // A route that rewrites a URL has to carry *all* of it, not just the path.
  if(p===adminBase+"/api/v1/auth/login"&&request.method==="POST")return loginRequest(env,request,adminBase);
- if(p.startsWith(adminBase+"/api/"))return handleApi(env,new Request(new URL(p.slice(adminBase.length),u.origin),request));
+ if(p.startsWith(adminBase+"/api/"))return handleApi(env,new Request(new URL(p.slice(adminBase.length)+u.search,u.origin),request));
  if(p.startsWith(adminBase+"/"))return env.ASSETS.fetch(new Request(new URL("/admin"+p.slice(adminBase.length),u.origin),request));
  // ⚠️ 旧入口与旧登录端点一律 404：重定向会把新路径交给扫描器。
  // （admin.path 仍是 /admin 时二者就是本尊，此条不适用。）

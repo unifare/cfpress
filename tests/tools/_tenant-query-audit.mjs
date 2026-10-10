@@ -111,18 +111,21 @@ const REVIEWED = {
   // ⚠️ These keys are `file:line`, so **any edit above a reviewed statement
   // re-keys it**. Batch 16 added the media block to `api.ts` and moved the
   // `theme_installs` update down; `frontend.ts` had already drifted from batch
-  // 10's line numbers without anyone noticing. Re-keyed here rather than left
-  // as NEW, so the next reader sees only genuinely new statements.
-  "src/api.ts:1610": "UPDATE theme_installs … WHERE name IN (SELECT value FROM settings WHERE key='theme.active') — theme_installs is PLATFORM-GLOBAL; `active` means 'some site uses it', so the cross-site subquery is the intent",
+  // 10's line numbers without anyone noticing. Batch 28 added the Sites
+  // `withCounts` aggregate (~52 lines) and shifted the whole uninstall/activate
+  // block again — 795→907, 801→913, 1610→1958, 1665→2013. Re-keyed here rather
+  // than left as NEW, so the next reader sees only genuinely new statements.
+  "src/api.ts:1958": "UPDATE theme_installs … WHERE name IN (SELECT value FROM settings WHERE key='theme.active') — theme_installs is PLATFORM-GLOBAL; `active` means 'some site uses it', so the cross-site subquery is the intent",
   "src/extensions/plugin/notify.ts:108": "UPDATE notification_log … WHERE id=? — the row is this send's own claim, addressed by the PK minted a few lines above for this siteId; ok/error are not identity",
   "src/extensions/theme/runtime-worker.ts:411": "menu_items … WHERE menu_id=? AND site_id=? — ⚠️ rewritten in batch 16: `menu_id` is only unique per site (menus is UNIQUE(site_id,id)), so the earlier `WHERE menu_id=?` leaked another tenant's items onto this site's nav; `site_id` is required, not optional",
   "src/extensions/theme/tables.ts:383": "UPDATE theme_table_defs WHERE id=? — registry row addressed by its own PK",
   "src/extensions/theme/tables.ts:404": "SELECT theme_table_defs … WHERE site_id=? AND owner_type=? AND owner_name=? AND logical_name=? — reads back the mapping this same call just wrote, to repair a recorded i18n_table whose table is gone; fully site-scoped",
   "src/platform/frontend.ts:186": "menu_items … WHERE menu_id=? AND site_id=? — ⚠️ rewritten in batch 16 (see runtime-worker:411): `menu_id` is only unique per site, so the earlier site-blind filter rendered the shop site's nav item on the default site's front page",
-  "src/api.ts:795": "SELECT theme_table_defs … WHERE owner_type='theme' AND owner_name=? — theme uninstall gathers every site's generated tables for a theme being removed entirely; owner-scoped by design, no site_id on purpose",
-  "src/api.ts:801": "DELETE FROM theme_table_defs WHERE owner_name=? — same uninstall: the theme is leaving the platform, so every site's mapping goes with it",
+  "src/api.ts:907": "SELECT theme_table_defs … WHERE owner_type='theme' AND owner_name=? — theme uninstall gathers every site's generated tables for a theme being removed entirely; owner-scoped by design, no site_id on purpose",
+  "src/api.ts:913": "DELETE FROM theme_table_defs WHERE owner_name=? — same uninstall: the theme is leaving the platform, so every site's mapping goes with it",
   "src/api.ts:1665": "SELECT settings … WHERE key='theme.active' AND value=? — uninstall's active-site check deliberately scans all sites: the 409 must name every site that still renders this theme",
   "src/shared/scheduler.ts:23": "UPDATE posts … WHERE id=? — the site was just read from that very row",
+  "src/platform/admin-menus.ts:268": "DELETE FROM admin_menu_registry WHERE owner_type=? AND owner_name=? — this is `clearOwnerMenusAllSites`, and install-wide is its *name*: an activation interrupted before it wrote `theme.active` leaves menus on sites that no longer select the theme, pointing at tables an uninstall is about to drop. Owner-scoped by design",
 };
 
 const unreviewed = hits.filter((h) => !(h.where in REVIEWED));

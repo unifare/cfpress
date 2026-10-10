@@ -2329,7 +2329,11 @@ SPA 的 `if (d.error)` 分支因此不可达，错误对话框要 `explain(err.m
    a) **SPA 不硬编码前缀。** `serveAdminIndex` 重写 `index.html` 三处 `"/admin/…"` 资产
       路径并注入 `window.CFP_ADMIN_BASE`；`state.js`/`i18n.js`（leaf，各自读同一个全局）
       与登录 fetch 全部由它拼 URL
-   b) **后台 API 整套挂前缀之下**（`{前缀}/api/…`，剥前缀交给 `handleApi`），不只登录门
+   b) **后台 API 整套挂前缀之下**（`{前缀}/api/…`，剥前缀交给 `handleApi`），不只登录门。
+      ⚠️ **重写 URL 必须带上 `u.search`**：第一版只从 `u.origin` 重建，经前缀进来的请求
+      **所有查询参数全丢**（`?site=`/`?withCounts=1`/`?locale=`/分页），而 `/api/*` 拿原始
+      request 照常工作——「有些参数生效、有些不生效」铺满后台，且**没有一个请求报错**
+      （`?site=` 掉了就是「当前站点」= 默认值）。批次 28 站点屏看不到计数才发现
    c) **旧地址一律 404**：旧路由、旧 `/admin/*` **资产**、旧 `/api/v1/auth/login`——
       只 404 页面而放行 `/admin/admin.js` 等于留指路牌
    d) **cookie `cfpress_admin` + `Path=<前缀>`**（前台响应必须不含它；`Path=/` 会把后台

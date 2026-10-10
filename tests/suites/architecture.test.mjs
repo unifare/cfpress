@@ -2285,6 +2285,14 @@ section("The admin prefix is injected and scoped (rule 75)");
     "the admin API is mounted under the prefix, not just the login door (rule 75b)",
     /p\.startsWith\(adminBase\+"\/api\/"\)\)return handleApi\(/.test(indexSrc)
   );
+  // Rebuilding a request URL must carry its query string. The first version of
+  // the prefix mount rebuilt from `u.origin` alone, so `?site=`, `?withCounts=1`,
+  // `?locale=` and pagination all vanished on the prefixed route while `/api/*`
+  // kept working — "some parameters work, others do not", across the whole admin.
+  check(
+    "the prefixed API mount carries the query string across (rule 75b)",
+    /new URL\(p\.slice\(adminBase\.length\)\+u\.search,u\.origin\)/.test(indexSrc)
+  );
   check(
     "the retired login endpoint answers 404 (rule 75c)",
     /if\(p==="\/api\/v1\/auth\/login"\)return new Response\("Not Found",\{status:404\}\)/.test(indexSrc)

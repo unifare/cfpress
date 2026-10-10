@@ -1059,6 +1059,21 @@ const SCENARIOS = [
   },
   // --- sites: the aggregate has to be per site, and count what it claims ---
   {
+    // The historical shape of the prefix mount, verbatim: the request URL was
+    // rebuilt from `u.origin` alone, so **every query parameter vanished** on
+    // the prefixed route while unprefixed `/api/*` (handed the original request)
+    // kept working. Nothing 500s: `?site=` falling off reads as "the current
+    // site", which is the default, so the tenant selector silently resolved to
+    // the wrong site and `?withCounts=1` just returned the older payload shape.
+    // This is the defect the Sites screen surfaced, and it lives on a line that
+    // looks like a faithful rewrite.
+    label: "the prefixed API mount drops the query string",
+    file: INDEX,
+    before: [' if(p.startsWith(adminBase+"/api/"))return handleApi(env,new Request(new URL(p.slice(adminBase.length)+u.search,u.origin),request));\n'],
+    after: [' if(p.startsWith(adminBase+"/api/"))return handleApi(env,new Request(new URL(p.slice(adminBase.length),u.origin),request));\n'],
+    runs: [["tests/suites/admin-contract.test.mjs", "?site= survives the prefix mount"]],
+  },
+  {
     // The historical shape of "one number for many tenants": a COUNT with no
     // `GROUP BY site_id`. It answers *something* (the platform total), which is
     // exactly why it survives review — every row shows a plausible number, and
@@ -1075,12 +1090,23 @@ const SCENARIOS = [
     // `activeTheme()` answers "which theme should *render* this site" — it
     // probes storage and will name a theme that merely happens to be installed.
     // For a report of "what did this site choose" that marks an unthemed site
-    // as themed. Swapping the `settings` read for it must turn the empty-site
-    // assertion red.
-    label: "the site's theme is reported from the renderer instead of its choice",
+    // as themed.
+    //
+    // ⚠️ The first version of this scenario substituted `activeTheme()` for the
+    // whole read, which made the site that *did* choose report the wrong name
+    // too — so the "never chose reports empty" assertion stayed green and the
+    // run failed as INVALID. An injection that trips a *different* assertion
+    // proves nothing about the guard under test. This shape keeps the chosen
+    // site correct (its row is read normally) and only fabricates a value for
+    // sites that *have no row*, which is exactly the defect: a site that chose
+    // nothing must not borrow the renderer's answer.
+    label: "a site with no chosen theme borrows the renderer's answer",
     file: join(ROOT, "src/api.ts"),
-    before: ['        env.DB.prepare("SELECT site_id, value FROM settings WHERE key=\'theme.active\'").all(),'],
-    after: ['        (await Promise.all(items.map(async (s) => ({ site_id: s.id, value: (await activeTheme(env, s.id)).name })))),'],
+    before: ["      const themes = Object.fromEntries(((themeRows.results as any[]) ?? []).map((r) => [String(r.site_id), String(r.value ?? \"\")]));\n"],
+    after: [
+      "      const themes = Object.fromEntries(((themeRows.results as any[]) ?? []).map((r) => [String(r.site_id), String(r.value ?? \"\")]));\n" +
+        "      for (const s of items) if (!(s.id in themes)) themes[s.id] = (await activeTheme(env, s.id)).name;\n",
+    ],
     runs: [["tests/suites/admin-contract.test.mjs", "a site that never chose reports empty, not the default's theme"]],
   },
   {

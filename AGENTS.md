@@ -788,16 +788,18 @@ sidebars）；行为断言在 `admin-contract.test.mjs` §14（scoped CRUD + 三
 | 规则 | 说明 |
 |---|---|
 | 75a | **SPA 不得硬编码前缀。** 服务器在 `/admin/index.html` 里把三处 `"/admin/…"` 资产路径重写成当前前缀，并注入 `<script>window.CFP_ADMIN_BASE="…"</script>`；SPA 的 `state.js`、`i18n.js`（leaf，不能 import state.js，故各自读同一个全局）与登录 fetch 全部由它拼 URL。改前缀后 SPA 仍能用，是这个变量的唯一目的 |
-| 75b | **后台 API 整套挂在前缀之下**（`{前缀}/api/…`），不只是登录门。`index.ts` 剥掉前缀后交给 `handleApi`——一份实现、两个前缀（`/api/*` 旧路径仍在，批次 D 才动） |
+| 75b | **后台 API 整套挂在前缀之下**（`{前缀}/api/…`），不只是登录门。`index.ts` 剥掉前缀后交给 `handleApi`——一份实现、两个前缀（`/api/*` 旧路径仍在，批次 D 才动）。⚠️ **重写 URL 必须带上 `u.search`**：第一版只从 `u.origin` 重建，于是经前缀进来的请求**所有查询参数全丢**（`?site=`/`?withCounts=1`/`?locale=`/分页），而 `/api/*` 那条因为拿的是原始 request 所以照常工作——「有些参数生效、有些不生效」铺满整个后台，且**没有一个请求会报错**（`?site=` 掉了就是「当前站点」，正是默认值）。批次 28 的站点屏因此看不到计数才发现 |
 | 75c | **旧地址一律 404**，不重定向（重定向把新前缀交给扫描器）。旧 `/admin` 路由、旧 `/admin/*` **资产**、旧 `/api/v1/auth/login` 都要 404——只 404 页面而放行 `/admin/admin.js` 等于留了指路牌 |
 | 75d | **会话 cookie 叫 `cfpress_admin` 且 `Path=<前缀>`**。不用 `cfpress_session`（与批次 D 的 `cfpress_member` 区分）；`Path=/` 会把后台会话带上每个前台请求——验收检查的就是前台响应**不含** `Set-Cookie: cfpress_admin` |
 
 守卫在 `admin-spa.test.mjs`（规则 75 节，**5 条**：源码无裸绝对 URL / shell 仍有 ≥3 个
 `/admin/…` 锚点 / `state.js` 与 `i18n.js` 都读全局 / 运行时每个请求都带前缀）；
-行为断言在 `admin-contract.test.mjs` §0b/§0c（cookie Path 是前缀 / 旧登录 404 / 公开端点不
-Set-Cookie / 连错 6 次 429 / 把 `admin.path` 移到 `/manage` 后新前缀可用且旧前缀连资产全 404）；
-注入场景在 `_skeleton-inject.mjs`（`state.js` 硬编码 `/api/v1/` + cookie `Path=/` +
-cookie 名退回 `cfpress_session`——三条都是历史形状）。
+行为断言在 `admin-contract.test.mjs` §0b/§0c/§15b（cookie Path 是前缀 / 旧登录 404 / 公开端点不
+Set-Cookie / 连错 6 次 429 / 把 `admin.path` 移到 `/manage` 后新前缀可用且旧前缀连资产全 404 /
+**经前缀的 `?site=` 与 `?withCounts=1` 真的到达 API**）；结构守卫在 `architecture.test.mjs`
+（规则 75 节，**8 条**，含「前缀挂载带 `u.search`」）；注入场景在 `_skeleton-inject.mjs`
+（`state.js` 硬编码 `/api/v1/` + cookie `Path=/` + cookie 名退回 `cfpress_session` +
+**前缀挂载丢 query**——四条都是历史形状）。
 
 > ⚠️ **写守卫时别在 `//` 行注释里写 `/*`。** `architecture.test.mjs` 的 `blankComments()`
 > 用非贪婪 `/\/\*[\s\S]*?\*\//g` 抹注释，行注释里的一个 `/*` 会一路吞到后文某个 `*/`，

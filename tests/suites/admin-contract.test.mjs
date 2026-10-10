@@ -604,6 +604,41 @@ async function main() {
   const pRoot = await req(worker, env, "/api/v1/platform-settings", { method: "POST", headers: json, body: JSON.stringify({ key: "admin.path", value: "/" }) });
   check("the backend path cannot be the site root", pRoot.status, 400);
 
+  console.log("\n15b. The prefixed API route carries the whole request, query included");
+  // The admin addresses its API through the prefix (`/admin/api/v1/…`), so the
+  // prefix mount rebuilds the request URL. The first version rebuilt it from
+  // `u.origin` alone and **every query parameter vanished** — `?site=`,
+  // `?withCounts=1`, `?locale=`, pagination — while the unprefixed `/api/*`
+  // route, which is handed the original request, kept working. Nothing failed:
+  // `?site=` falling off just means "use the current site", which is the
+  // default, so the tenant selector silently resolved to the wrong site.
+  //
+  // Assert the *behaviour*, through the real prefix, because that is the only
+  // thing that distinguishes "the parameter arrived" from "it was dropped and
+  // the default happened to be right".
+  {
+    // A tenant-scoped read whose answer differs by site: `?site=adm` must name
+    // `adm`, and without the parameter it names `default`. Same URL, one query
+    // apart, so a dropped `?site=` is observable rather than coincidental.
+    const viaPrefix = await (await req(worker, env, "/admin/api/v1/theme/post-types?site=adm", { headers: auth })).json();
+    check("?site= survives the prefix mount", viaPrefix.site, "adm");
+    const viaPrefixNoSite = await (await req(worker, env, "/admin/api/v1/theme/post-types", { headers: auth })).json();
+    check("and it really changed the answer (the default differs)", viaPrefixNoSite.site !== "adm", true);
+
+    // A boolean-style flag that selects a whole different payload shape. Without
+    // the query the route answers the v1 shape, which has no `counts` at all —
+    // exactly the symptom that surfaced this defect on the Sites screen.
+    const counted = await (await req(worker, env, "/admin/api/v1/sites?withCounts=1", { headers: auth })).json();
+    check("withCounts survives the prefix mount", counted.items.every((x) => x.counts !== undefined), true);
+    const uncounted = await (await req(worker, env, "/admin/api/v1/sites", { headers: auth })).json();
+    check("without it the payload is the old shape", uncounted.items.every((x) => x.counts === undefined), true);
+
+    // Pagination is the third reader: `?page=`/`?limit=` are parsed off the same
+    // URL, so a dropped query breaks paging without breaking the first page.
+    const paged = await (await req(worker, env, "/admin/api/v1/media?limit=1&page=1", { headers: auth })).json();
+    checkTruthy("pagination parameters survive too", typeof paged === "object");
+  }
+
   console.log("\n16. Sites: per-row content counts, the site's own theme, and its languages");
   // The Sites screen is a management view: every row answers "where is this
   // site's front end, how much is in it, what does it render with". All three

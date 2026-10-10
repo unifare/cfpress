@@ -237,9 +237,16 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
  // rebuilt the URL from `u.origin` alone, so **every query parameter vanished**
  // on the prefixed route: `?site=` (the tenant selector), `?withCounts=1`,
  // `?locale=`, pagination — all silently dropped, on every admin request that
- // used one, while `/api/*` kept working. The admin is addressed through the
- // prefix, so "some parameters work and others do not" was the whole surface.
- // A route that rewrites a URL has to carry *all* of it, not just the path.
+ // used one, while the unprefixed `/api/…` route kept working. The admin is
+ // addressed through the prefix, so "some parameters work and others do not"
+ // was the whole surface. A route that rewrites a URL has to carry *all* of it,
+ // not just the path.
+ //
+ // ⚠️ Do **not** write a slash-star glob in this comment: `blankComments()` in
+ // the architecture suite strips block comments with a non-greedy regex, and a
+ // stray opener swallows every line down to the next real close — which blanked
+ // this entire routing block and turned six guards red on correct code. Same
+ // trap, same line, as the note further down this file.
  if(p===adminBase+"/api/v1/auth/login"&&request.method==="POST")return loginRequest(env,request,adminBase);
  if(p.startsWith(adminBase+"/api/"))return handleApi(env,new Request(new URL(p.slice(adminBase.length)+u.search,u.origin),request));
  if(p.startsWith(adminBase+"/"))return env.ASSETS.fetch(new Request(new URL("/admin"+p.slice(adminBase.length),u.origin),request));

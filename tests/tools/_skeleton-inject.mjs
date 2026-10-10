@@ -1042,7 +1042,11 @@ const SCENARIOS = [
     // guard red (and the admin-contract behavioural checks with it).
     label: "the admin API is not mounted under the prefix",
     file: INDEX,
-    before: [' if(p.startsWith(adminBase+"/api/"))return handleApi(env,new Request(new URL(p.slice(adminBase.length),u.origin),request));\n'],
+    // The anchor tracks the current line verbatim (`+u.search` was added in
+    // batch 28's follow-up). An anchor that no longer matches reports
+    // "appears 0x" and skips the scenario — which is a *failure*, not a pass,
+    // precisely so a stale anchor cannot masquerade as a validated guard.
+    before: [' if(p.startsWith(adminBase+"/api/"))return handleApi(env,new Request(new URL(p.slice(adminBase.length)+u.search,u.origin),request));\n'],
     after: [""],
     runs: [["tests/suites/architecture.test.mjs", "the admin API is mounted under the prefix, not just the login door (rule 75b)"]],
   },

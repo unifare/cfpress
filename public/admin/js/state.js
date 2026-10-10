@@ -72,6 +72,10 @@ export const state = {
  *
  * The fallback (`"/admin"`) only applies if the shell was somehow loaded
  * without the injection; it matches the default prefix rather than guessing.
+ * `architecture.test.mjs` anchors its rule-75 guard on this exact expression,
+ * so the read has to stay `window.CFP_ADMIN_BASE` with an `|| "/admin"` tail
+ * on one statement — a guard that matches the shape rather than a substring
+ * stops matching the moment the expression is rewritten.
  */
 export const adminBase =
   (typeof window !== "undefined" && window.CFP_ADMIN_BASE) || "/admin";

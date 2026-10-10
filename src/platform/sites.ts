@@ -15,6 +15,7 @@
  * that turns a `Request` into a `siteId`.
  */
 import { Env } from "../shared/types";
+import { seedSiteLocales } from "./i18n/locale-registry";
 
 export const DEFAULT_SITE_ID = "default";
 
@@ -202,6 +203,24 @@ export async function createSite(
   )
     .bind(safeId, name, host, prefix, ts, ts)
     .run();
+  // Give the new site its language switch rows.
+  //
+  // ⚠️ This call was **missing**, and `seedSiteLocales`'s own doc comment
+  // claimed it happened ("Called when a site is created, so the 'no rows →
+  // serve the dictionary' fallback stays a safety net rather than the normal
+  // path"). It was not called from anywhere in the runtime, so every site
+  // created through the admin spent its life on that fallback: it served the
+  // whole dictionary and had **no `is_default` row at all**, which is precisely
+  // the "new site is a shell with an unchosen language" symptom the Sites
+  // screen's next-step prompt exists to paper over. Seeding here makes the
+  // fallback what it says it is — a safety net for databases migrated from
+  // before 0011, not the path every new site takes.
+  //
+  // Failure is not swallowed: a site whose languages were not seeded would
+  // render in an arbitrary language and nothing would say why. The insert is
+  // already done, so this surfaces as an error the caller can report rather
+  // than a silently half-built site.
+  await seedSiteLocales(env, safeId);
   return { id: safeId };
 }
 

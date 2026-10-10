@@ -2337,6 +2337,25 @@ SPA 的 `if (d.error)` 分支因此不可达，错误对话框要 `explain(err.m
    守卫：`admin-spa.test.mjs`（规则 75 节，5 条）；行为：`admin-contract.test.mjs`
    §0b/§0c（cookie Path / 旧登录 404 / 前台不 Set-Cookie / 连错 429 / 移动前缀后旧资产全 404）；
    注入 `_skeleton-inject.mjs`（SPA 硬编码 `/api/v1/` + cookie `Path=/` + cookie 名，历史形状）
+
+【计数按站点分组，主题报「选了什么」】（AGENTS.md 规则 76，批次 28）
+76. 站点屏是**管理**视图：每行要答「前台在哪、里面有多少、用什么渲染」。三个错答案
+    都长得像对的答案，且都只在多站点时显形：
+   a) **一个聚合、按站点分组。** `GET sites?withCounts=1` 用 `GROUP BY site_id` 的 `COUNT`
+      给出每站 posts/pages/media。**丢掉 `GROUP BY` 的 `COUNT` 是最像对的错答案**——它给
+      平台总数，每行都是个像样的数字，只有第二个站点存在时才看得出错。不带 `withCounts`
+      时 payload 与从前**逐字节一致**（`counts`/`theme` 不出现），站点切换器与 `themes.js`
+      都读这个端点
+   b) **主题列 = 该站点选了什么**（`settings['theme.active']`），**不是** `activeTheme()`。
+      后者答「该用什么渲染」、探测存储并按「装了就算数」命名主题，用于报表会把没选过主题
+      的站点标成有主题。未选 = **空字符串**
+   c) **新建站点当场播下语言行。** `seedSiteLocales` 的 doc 写着"called when a site is
+      created"，却**从没被调用**（`createSite` 里补上）。新站点因此一辈子骑「无行 → 服务
+      整个字典」的兜底且**没有 `is_default` 行**——"新站点是空壳、语言没人选过"的来源。
+      断言读**表里的行**，不读服务出来的语言列表：兜底让两者一样，这就是它隐身的原因
+   守卫：`admin-contract.test.mjs` §16（23 条）；注入 `_skeleton-inject.mjs`
+   （`COUNT` 丢 `GROUP BY` + 主题改走 `activeTheme()` + 新建站点不播语言行，历史形状）
+   另：站点屏前台预览链接由**该站点自己的**前缀/host 拼（`siteFrontEnd()`），拼当前站点的是错的
 ```
 
 ---

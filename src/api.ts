@@ -1120,6 +1120,58 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   // Sites registry (multi-site)
   if (path === "sites" && method === "GET") {
     const items = await listSites(env);
+    // `?withCounts=1` adds, for **every** site, its content volumes and the
+    // theme it has chosen. The Sites screen needs per-row figures, and the only
+    // alternatives are an N+1 (one request per site, per row) or a client that
+    // counts nothing — the first is a query storm, the second is the "declared
+    // but never provided" shape this codebase keeps paying for.
+    //
+    // Three things this deliberately does NOT do:
+    //   - it does not count only the requested site: the screen lists every
+    //     site, so a count for one of them is the N+1 in a different costume;
+    //   - it does not use `activeTheme()` for the theme column: that answers
+    //     "which theme should *render*", probes R2, and would name a theme that
+    //     merely happens to be installed for a report of "what did this site
+    //     choose" (see the note on `extensions/themes`);
+    //   - it does not invent a media count. Media goes through the same policy
+    //     and owner clause the media list and the dashboard card use, so the
+    //     figure here is the figure the library will show.
+    //
+    // The counts are **one query per measure, grouped by site**, so the cost is
+    // constant in the number of sites rather than linear in it.
+    if (url.searchParams.get("withCounts") === "1") {
+      const mediaPolicy = await readMediaPolicy(env, siteId);
+      const mediaOwner = mediaOwnerClause(mediaPolicy, user.id);
+      const [posts, pages, media, themeRows] = await Promise.all([
+        env.DB.prepare("SELECT site_id, COUNT(*) AS count FROM posts WHERE type='post' GROUP BY site_id").all(),
+        env.DB.prepare("SELECT site_id, COUNT(*) AS count FROM posts WHERE type='page' GROUP BY site_id").all(),
+        env.DB.prepare(`SELECT site_id, COUNT(*) AS count FROM media_files WHERE 1=1${mediaOwner.sql} GROUP BY site_id`)
+          .bind(...mediaOwner.binds).all(),
+        env.DB.prepare("SELECT site_id, value FROM settings WHERE key='theme.active'").all(),
+      ]);
+      // Absent is 0, not `undefined`: the screen renders a number for every
+      // row, and a site with no rows at all is exactly the empty site the
+      // screen exists to make visible.
+      const bySite = (r: any) => Object.fromEntries(((r.results as any[]) ?? []).map((x) => [String(x.site_id), Number(x.count) || 0]));
+      const postCounts = bySite(posts);
+      const pageCounts = bySite(pages);
+      const mediaCounts = bySite(media);
+      const themes = Object.fromEntries(((themeRows.results as any[]) ?? []).map((r) => [String(r.site_id), String(r.value ?? "")]));
+      return ok({
+        items: items.map((s) => ({
+          ...s,
+          counts: {
+            posts: postCounts[s.id] ?? 0,
+            pages: pageCounts[s.id] ?? 0,
+            media: mediaCounts[s.id] ?? 0,
+          },
+          // Empty string, not null, when the site has never chosen: the column
+          // is "which theme did this site select", and "none yet" is a real
+          // answer the screen has to be able to say out loud.
+          theme: themes[s.id] ?? "",
+        })),
+      });
+    }
     return ok({ items });
   }
   if (path === "sites" && method === "POST") {

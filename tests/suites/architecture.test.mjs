@@ -2308,6 +2308,64 @@ section("The admin prefix is injected and scoped (rule 75)");
 }
 
 // ---------------------------------------------------------------------------
+section("Site counts are grouped per site, and the theme is the site's choice (rule 76)");
+// ---------------------------------------------------------------------------
+
+/**
+ * Batch 28 §3.1: the Sites screen became a management view. Two structural
+ * facts carry it, and both have a wrong version that looks right in a
+ * single-site install — which is the only configuration anyone tests by hand:
+ *
+ *   - the aggregate groups **by site**. The ungrouped `COUNT` answers the
+ *     platform total, so every row still shows a plausible number and the
+ *     defect needs a *second* site to become visible;
+ *   - the theme column reads the site's own `theme.active` setting, not the
+ *     renderer. `activeTheme()` probes storage and names a theme that merely
+ *     happens to be installed, which would mark an unthemed site as themed.
+ *
+ * The seeds live here too: `createSite` has to give the new site its language
+ * rows, because the "no rows → serve the whole dictionary" fallback makes a
+ * missing seed invisible (the *served* list is identical either way).
+ */
+{
+  const apiSrc = blankComments(read(join(ROOT, "src", "api.ts")));
+  const sitesSrc = blankComments(read(join(ROOT, "src", "platform", "sites.ts")));
+  const screenSrc = read(join(ROOT, "public", "admin", "js", "screens", "sites.js"));
+
+  check(
+    "the site counts are grouped by site, not collapsed into one total (rule 76a)",
+    /GROUP BY site_id/.test(apiSrc) && /withCounts/.test(apiSrc)
+  );
+  // The guard has to fail on the *ungrouped* shape specifically, so assert the
+  // absence of a posts count that has no grouping — matching the defect rather
+  // than the fix. Without this, deleting the `GROUP BY` from one of the three
+  // counts is caught only by the behavioural suite.
+  check(
+    "no site count is computed without a per-site grouping (rule 76a)",
+    !/COUNT\(\*\) AS count FROM posts WHERE type='(post|page)'(?![\s\S]{0,80}GROUP BY site_id)/.test(apiSrc)
+  );
+  check(
+    "the theme column reads the site's own theme.active setting, not the renderer (rule 76b)",
+    /settings WHERE key='theme\.active'/.test(apiSrc)
+  );
+  check(
+    "a newly created site is given its language rows (rule 76c)",
+    /seedSiteLocales\(env, safeId\)/.test(sitesSrc)
+  );
+  // The screen's preview URL is built per site. Asserting the helper exists and
+  // reads the site's own fields stops a rewrite to the *current* site's prefix
+  // — which opens a different site and calls it a preview.
+  check(
+    "the Sites screen builds each preview URL from that site's own prefix or host (rule 76)",
+    /function siteFrontEnd\(s\)/.test(screenSrc) && /s\?\.path_prefix/.test(screenSrc) && /s\?\.host/.test(screenSrc)
+  );
+  check(
+    "the Sites screen asks for the counts in one request, not one per row (rule 76a)",
+    /api\("sites\?withCounts=1"\)/.test(screenSrc)
+  );
+}
+
+// ---------------------------------------------------------------------------
 section("This suite's own assertions can actually fail (meta-guard)");
 // ---------------------------------------------------------------------------
 

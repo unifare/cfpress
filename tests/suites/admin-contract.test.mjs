@@ -604,6 +604,127 @@ async function main() {
   const pRoot = await req(worker, env, "/api/v1/platform-settings", { method: "POST", headers: json, body: JSON.stringify({ key: "admin.path", value: "/" }) });
   check("the backend path cannot be the site root", pRoot.status, 400);
 
+  console.log("\n16. Sites: per-row content counts, the site's own theme, and its languages");
+  // The Sites screen is a management view: every row answers "where is this
+  // site's front end, how much is in it, what does it render with". All three
+  // are contracts, and each has a wrong answer that looks right.
+  //
+  // Fixtures are written **directly** rather than through the API on purpose:
+  // the point is what the aggregate reports for sites whose content was not
+  // created through this request, and going through the API would also go
+  // through the code under test.
+  sqlite.exec("DELETE FROM site_locales WHERE site_id='cnt'");
+  sqlite.exec("DELETE FROM sites WHERE id='cnt'");
+  sqlite.exec("DELETE FROM media_files WHERE site_id='cnt'");
+  sqlite.exec("DELETE FROM posts WHERE site_id='cnt'");
+
+  // ── A site created through the API must arrive with its language rows ──
+  // `seedSiteLocales`'s doc says it is "called when a site is created"; it was
+  // not called from anywhere, so every admin-created site lived on the
+  // "no rows → serve the whole dictionary" fallback and had no default at all.
+  // Assert the *rows*, not the served list: the fallback makes the served list
+  // look identical, which is exactly why the missing call was invisible.
+  sqlite.exec("INSERT INTO locales(code,name,native_name,direction,enabled,sort_order,is_default) VALUES ('en','English','English','ltr',1,0,1) ON CONFLICT(code) DO NOTHING");
+  const mk = await req(worker, env, "/api/v1/sites", { method: "POST", headers: json, body: JSON.stringify({ id: "cnt", name: "Counter" }) });
+  check("a site can be created for the count fixtures", mk.status, 201);
+  const seeded = sqlite.prepare("SELECT code,is_default,enabled FROM site_locales WHERE site_id='cnt' ORDER BY code").all();
+  checkTruthy("a newly created site has its own language switch rows", seeded.length > 0);
+  check("exactly one of them is the default", seeded.filter((r) => Number(r.is_default) === 1).length, 1);
+  check("all of them are enabled", seeded.every((r) => Number(r.enabled) === 1), true);
+
+  // ── Content that belongs to `cnt` and to `default`, and to neither ──
+  const post = (id, site, type, status = "published") =>
+    sqlite.exec(`INSERT INTO posts(id,site_id,author_id,type,status,slug,created_at,updated_at) VALUES ('${id}','${site}','admin','${type}','${status}','${id}',1,1)`);
+  post("cnt_p1", "cnt", "post");
+  post("cnt_p2", "cnt", "post");
+  post("cnt_pg1", "cnt", "page");
+  post("cnt_d1", "cnt", "post", "draft");
+  // A neighbour site's rows, to prove the counts are per site and not global.
+  sqlite.exec("INSERT INTO sites(id,name,host,path_prefix,is_default,status,created_at,updated_at) VALUES ('cnt2','Counter Two',NULL,NULL,0,'active',1,1) ON CONFLICT(id) DO NOTHING");
+  post("cnt2_p1", "cnt2", "post");
+  // And the same ids on the default site, so a missing `site_id` filter counts
+  // *something* rather than nothing — a no-op bug would otherwise pass.
+  const defBefore = sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE site_id='default' AND type='post'").get().n;
+  for (let i = 0; i < 3; i++) post(`def_p${i}`, "default", "post");
+  sqlite.exec("INSERT INTO media_files(id,site_id,object_key,filename,mime_type,size,created_at,uploaded_by) VALUES ('cnt_m1','cnt','uploads/cnt/1/a.png','a.png','image/png',10,1,NULL)");
+  sqlite.exec("INSERT INTO media_files(id,site_id,object_key,filename,mime_type,size,created_at,uploaded_by) VALUES ('cnt_m2','cnt','uploads/cnt/1/b.png','b.png','image/png',10,1,NULL)");
+
+  const wc = await req(worker, env, "/api/v1/sites?withCounts=1", { headers: auth });
+  check("sites?withCounts=1 answers an admin", wc.status, 200);
+  const wcBody = await wc.json();
+  const cntRow = wcBody.items.find((x) => x.id === "cnt");
+  check("the fixture site carries counts", Boolean(cntRow?.counts), true);
+  // Three posts: two published plus the draft. The draft counts on purpose —
+  // this is "how much content does this site hold", not "what is published"
+  // (the dashboard's `drafts` card answers that one). If the count only saw
+  // published rows it would read 2, and a reviewer comparing the two numbers
+  // would have no way to tell which question was being answered.
+  check("posts are counted for that site, drafts included", cntRow?.counts?.posts, 3);
+  check("pages are counted separately from posts", cntRow?.counts?.pages, 1);
+  check("media is counted for that site", cntRow?.counts?.media, 2);
+  // The isolation half: `cnt2` has exactly one post, so a global COUNT or a
+  // missing `GROUP BY site_id` reports 6 and 3 respectively.
+  const cnt2Row = wcBody.items.find((x) => x.id === "cnt2");
+  check("a neighbour site's post count is its own", cnt2Row?.counts?.posts, 1);
+  check("and it has no pages", cnt2Row?.counts?.pages, 0);
+  // A site with nothing must report 0, not `undefined`: the screen renders a
+  // number in every cell and `undefined` renders as the string "undefined".
+  sqlite.exec("INSERT INTO sites(id,name,host,path_prefix,is_default,status,created_at,updated_at) VALUES ('cnt3','Empty',NULL,NULL,0,'active',1,1) ON CONFLICT(id) DO NOTHING");
+  const wc2 = await (await req(worker, env, "/api/v1/sites?withCounts=1", { headers: auth })).json();
+  const empty = wc2.items.find((x) => x.id === "cnt3");
+  check("an empty site reports zeroes, not nothing", empty?.counts, { posts: 0, pages: 0, media: 0 });
+
+  // ── The theme column is the site's *choice*, not what would render ──
+  // `activeTheme()` probes R2 and names a theme that merely happens to be
+  // installed; a report that used it would mark a site as themed when it has
+  // chosen nothing. Pin the two letters of the contract: the site that chose
+  // reports its choice, the site that did not reports empty.
+  sqlite.exec("INSERT INTO settings(id,site_id,key,value,autoload) VALUES ('theme-active-cnt','cnt','theme.active','admtheme',1) ON CONFLICT(site_id,key) DO UPDATE SET value='admtheme'");
+  const wc3 = await (await req(worker, env, "/api/v1/sites?withCounts=1", { headers: auth })).json();
+  check("a site reports the theme it has chosen", wc3.items.find((x) => x.id === "cnt")?.theme, "admtheme");
+  check("a site that never chose reports empty, not the default's theme", wc3.items.find((x) => x.id === "cnt3")?.theme, "");
+
+  // ── Without the flag the payload is exactly what it always was ──
+  // The v1 shape is consumed by every other reader of this endpoint (the site
+  // switcher, `themes.js`); adding fields to it would be a silent contract
+  // change. `withCounts` is opt-in, so opting out must return the old rows.
+  const plain = await (await req(worker, env, "/api/v1/sites", { headers: auth })).json();
+  const plainRow = plain.items.find((x) => x.id === "cnt");
+  check("without withCounts no counts field is added", plainRow?.counts, undefined);
+  check("without withCounts no theme field is added", plainRow?.theme, undefined);
+
+  // ── The new site's languages are reachable through the per-site read ──
+  // The Sites screen's next-step prompt reads this to offer the choice, and the
+  // per-locale PATCH that applies it must resolve the same site from `?site=`.
+  const loc = await (await req(worker, env, "/api/v1/i18n/locales?site=cnt", { headers: auth })).json();
+  check("a newly created site exposes its languages", loc.site, "cnt");
+  checkTruthy("and names a default", Boolean(loc.default));
+  const codes = Array.isArray(loc.enabled) ? loc.enabled : [];
+  checkTruthy("with at least one enabled language", codes.length > 0);
+  if (codes.length) {
+    const pin = await req(worker, env, `/api/v1/i18n/locales/${encodeURIComponent(codes[0])}?site=cnt`, { method: "PATCH", headers: json, body: JSON.stringify({ is_default: true }) });
+    check("the default language of a non-current site can be pinned", pin.status, 200);
+    const after = await (await req(worker, env, "/api/v1/i18n/locales?site=cnt", { headers: auth })).json();
+    check("and it took effect on that site", after.default, codes[0]);
+    // The isolation half: pinning `cnt`'s default must not have touched the
+    // site the admin is on. Reading `default` back from the *other* site is the
+    // only way to see that, and it is the failure mode a missing `?site=` in
+    // the client produces.
+    const other = await (await req(worker, env, "/api/v1/i18n/locales", { headers: auth })).json();
+    check("pinning one site's default leaves the current site alone", other.site, "default");
+  }
+
+  // Clean up: this section wrote directly, so it removes directly.
+  for (const sql of [
+    "DELETE FROM media_files WHERE site_id='cnt'",
+    "DELETE FROM posts WHERE site_id IN ('cnt','cnt2') OR id LIKE 'def_p%'",
+    "DELETE FROM settings WHERE site_id IN ('cnt','cnt2','cnt3')",
+    "DELETE FROM site_locales WHERE site_id IN ('cnt','cnt2','cnt3')",
+    "DELETE FROM sites WHERE id IN ('cnt','cnt2','cnt3')",
+  ]) { try { sqlite.exec(sql); } catch { /* ok */ } }
+  check("the count fixtures are gone", sqlite.prepare("SELECT COUNT(*) AS n FROM sites WHERE id IN ('cnt','cnt2','cnt3')").get().n, 0);
+  void defBefore; // the default site's own posts are swept by `sweep()` below.
+
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail) console.log("Failed: " + failures.join(", "));
   sqlite.close();

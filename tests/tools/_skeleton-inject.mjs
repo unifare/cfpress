@@ -111,6 +111,10 @@ const CAPABILITIES = join(ROOT, "src/extensions/theme/capabilities.ts");
 //     on every front-end request and left the two session kinds indistinguishable).
 const ADMIN_STATE = join(ROOT, "public/admin/js/state.js");
 const AUTH = join(ROOT, "src/platform/auth.ts");
+// The Sites screen. Its per-row preview URL is built from the site's own prefix
+// or host — and from the site's own, not the current one, because a browser
+// cannot count rows and the screen has no other source for the numbers.
+const SITES_SCREEN = join(ROOT, "public/admin/js/screens/sites.js");
 
 /**
  * The scenarios. Each names the suite to run and the assertion (a substring of
@@ -1053,6 +1057,46 @@ const SCENARIOS = [
     after: [' if(u.pathname==="/admin"||u.pathname.startsWith("/admin/"))return env.ASSETS.fetch(request);'],
     runs: [["tests/suites/architecture.test.mjs", "the old prefix's static assets are gated on the default prefix (rule 75c)"]],
   },
+  // --- sites: the aggregate has to be per site, and count what it claims ---
+  {
+    // The historical shape of "one number for many tenants": a COUNT with no
+    // `GROUP BY site_id`. It answers *something* (the platform total), which is
+    // exactly why it survives review — every row shows a plausible number, and
+    // the only way to see it is wrong is to have a second site and compare.
+    // Reverting the grouped count must turn the per-site assertion red.
+    label: "the site count loses its per-site grouping",
+    file: join(ROOT, "src/api.ts"),
+    before: ['        env.DB.prepare("SELECT site_id, COUNT(*) AS count FROM posts WHERE type=\'post\' GROUP BY site_id").all(),'],
+    after: ['        env.DB.prepare("SELECT \'\' AS site_id, COUNT(*) AS count FROM posts WHERE type=\'post\'").all(),'],
+    runs: [["tests/suites/admin-contract.test.mjs", "a neighbour site's post count is its own"]],
+  },
+  {
+    // The theme column's wrong answer, in the shape it would really be written:
+    // `activeTheme()` answers "which theme should *render* this site" — it
+    // probes storage and will name a theme that merely happens to be installed.
+    // For a report of "what did this site choose" that marks an unthemed site
+    // as themed. Swapping the `settings` read for it must turn the empty-site
+    // assertion red.
+    label: "the site's theme is reported from the renderer instead of its choice",
+    file: join(ROOT, "src/api.ts"),
+    before: ['        env.DB.prepare("SELECT site_id, value FROM settings WHERE key=\'theme.active\'").all(),'],
+    after: ['        (await Promise.all(items.map(async (s) => ({ site_id: s.id, value: (await activeTheme(env, s.id)).name })))),'],
+    runs: [["tests/suites/admin-contract.test.mjs", "a site that never chose reports empty, not the default's theme"]],
+  },
+  {
+    // And the missing seed call. `seedSiteLocales` existed, was exported, and
+    // its own doc said it ran when a site was created — it was called from
+    // nowhere. Every admin-created site therefore had no switch rows and rode
+    // the "no rows → serve the whole dictionary" fallback, which is why the
+    // defect left no visible trace. Removing the call must turn the row-level
+    // assertion red (the *served* locale list looks identical either way, which
+    // is the whole reason the assertion reads the table).
+    label: "a new site is created without its language rows",
+    file: join(ROOT, "src/platform/sites.ts"),
+    before: ["  await seedSiteLocales(env, safeId);\n"],
+    after: [""],
+    runs: [["tests/suites/admin-contract.test.mjs", "a newly created site has its own language switch rows"]],
+  },
 ];
 
 /** Every file any scenario may touch, hashed before and after. */
@@ -1078,7 +1122,7 @@ const WATCHED = [...new Set([SCHEMA, EVENTS, ARCH, SCOPE, MANIFEST, VALIDATION,
   join(ROOT, "public/admin/js/screens/menus.js"),
   join(ROOT, "public/admin/js/screens/theme-menu.js"),
   ADMIN_I18N, LANGUAGES_SCREEN, THEMES_SCREEN,
-  ADMIN_STATE, AUTH,
+  ADMIN_STATE, AUTH, SITES, SITES_SCREEN,
   BLOCKS, FRONTEND, BLOCK_FIELDS, MEDIA_PICKER, MEDIA_SCREEN, CORE_PACK, API, WRANGLER])];
 
 function hashAll() {

@@ -159,7 +159,7 @@ async function main() {
   sweep();
 
   const login = async (username, password) => {
-    const r = await req(worker, env, "/api/v1/auth/login", {
+    const r = await req(worker, env, "/admin/api/v1/auth/login", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     });
@@ -170,13 +170,13 @@ async function main() {
 
   console.log("1. setup");
   const admin = await login("admin", "change-me-now");
-  checkTruthy("admin logged in", admin.cookie.startsWith("cfpress_session="));
+  checkTruthy("admin logged in", admin.cookie.startsWith("cfpress_admin="));
   await req(worker, env, "/api/v1/users", {
     method: "POST", headers: admin.json,
     body: JSON.stringify({ username: "mtest-author", password: "mtest-password-1", role: "author" }),
   });
   const author = await login("mtest-author", "mtest-password-1");
-  checkTruthy("author logged in", author.cookie.startsWith("cfpress_session="));
+  checkTruthy("author logged in", author.cookie.startsWith("cfpress_admin="));
 
   console.log("\n2. GET default — empty blob, can_manage true for admin");
   let r = await req(worker, env, "/api/v1/admin-menus/custom", { headers: admin.auth });

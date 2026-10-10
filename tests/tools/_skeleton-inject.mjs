@@ -102,6 +102,15 @@ const THEME_MANIFEST = join(ROOT, "content/themes/default/theme.json");
 // installed.
 const INDEX = join(ROOT, "src/index.ts");
 const CAPABILITIES = join(ROOT, "src/extensions/theme/capabilities.ts");
+// Batch C: the admin prefix. Two independent invariants, each with a historical
+// shape worth injecting:
+//   - the SPA must build every URL from the injected base, never hard-code
+//     `/api/v1/…` (that is what broke the moment the prefix became movable);
+//   - the session cookie must be named `cfpress_admin` and scoped to the admin
+//     prefix, not `cfpress_session` with `Path=/` (which put the admin session
+//     on every front-end request and left the two session kinds indistinguishable).
+const ADMIN_STATE = join(ROOT, "public/admin/js/state.js");
+const AUTH = join(ROOT, "src/platform/auth.ts");
 
 /**
  * The scenarios. Each names the suite to run and the assertion (a substring of
@@ -978,6 +987,72 @@ const SCENARIOS = [
     after: ['  { table: "admin_menu_registry", tenant: "site", locale: null, note:'],
     runs: [["tests/suites/architecture.test.mjs", "every site-scoped table declares an onSiteDelete policy"]],
   },
+  // --- the admin prefix is injected, not hard-coded (batch C) ----------------
+  {
+    // The historical shape, verbatim: `state.js` built every admin API URL from
+    // the literal `/api/v1/`. That is correct only while the prefix is exactly
+    // `/admin`; the moment an operator moves the admin, the SPA calls a prefix
+    // that no longer exists and loads blank against a wall of 404s. The guard is
+    // a source scan for a bare absolute URL, so reverting one call site to the
+    // literal must turn "no SPA module hard-codes an API or admin asset URL" red.
+    label: "an SPA module hard-codes the API base again",
+    file: ADMIN_STATE,
+    before: ['const res = await fetch(adminBase + "/api/v1/" + path, opts);'],
+    after: ['const res = await fetch("/api/v1/" + path, opts);'],
+    runs: [["tests/suites/admin-spa.test.mjs", "no SPA module hard-codes an API or admin asset URL"]],
+  },
+  {
+    // The cookie half of batch C. The session cookie used to be `cfpress_session`
+    // with `Path=/`, so it rode along on every front-end request and shared a
+    // generic name with the member cookie that arrives in batch D. Reverting the
+    // `Path` to `/` must turn the cookie-scope assertion red — the assertion is
+    // the only thing standing between "admin session is scoped" and "it is on
+    // every page".
+    label: "the admin session cookie is scoped to / instead of the prefix",
+    file: AUTH,
+    before: [
+      "      \"Set-Cookie\": `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=${cookiePath}; HttpOnly; SameSite=Lax; Secure; Max-Age=${SESSION_TTL}`",
+    ],
+    after: [
+      "      \"Set-Cookie\": `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=${SESSION_TTL}`",
+    ],
+    runs: [["tests/suites/admin-contract.test.mjs", "the session cookie path is the admin prefix, not /"]],
+  },
+  {
+    // And the name: a shared `cfpress_session` name is how "an admin is logged
+    // in" and (batch D's) "a member is logged in" get conflated by the next
+    // reader. Every suite that logs in asserts the name; this injection is the
+    // proof those assertions are not vacuous.
+    label: "the admin session cookie reverts to the shared name",
+    file: AUTH,
+    before: ['const SESSION_COOKIE = "cfpress_admin";'],
+    after: ['const SESSION_COOKIE = "cfpress_session";'],
+    runs: [["tests/suites/admin-contract.test.mjs", "logged in"]],
+  },
+  {
+    // The structural half of rule 75b: the admin API must be mounted under the
+    // prefix by *stripping* it and handing the request to `handleApi`. The
+    // historical bug was exactly this missing branch — only the login endpoint
+    // was special-cased, so `/admin/api/v1/platform-settings` fell through to
+    // the asset layer and 404'd. Reverting the mount must turn the architecture
+    // guard red (and the admin-contract behavioural checks with it).
+    label: "the admin API is not mounted under the prefix",
+    file: INDEX,
+    before: [' if(p.startsWith(adminBase+"/api/"))return handleApi(env,new Request(new URL(p.slice(adminBase.length),u.origin),request));\n'],
+    after: [""],
+    runs: [["tests/suites/architecture.test.mjs", "the admin API is mounted under the prefix, not just the login door (rule 75b)"]],
+  },
+  {
+    // Rule 75c's second half: serving the old `/admin/*` assets when a custom
+    // prefix is set is how the hidden admin stays discoverable — a scanner that
+    // finds `/admin/admin.js` has found the admin. Dropping the `adminBase`
+    // gate on the asset bail-out must turn the guard red.
+    label: "the old prefix's assets are served again",
+    file: INDEX,
+    before: [' if(adminBase==="/admin"&&(u.pathname==="/admin"||u.pathname.startsWith("/admin/")))return env.ASSETS.fetch(request);'],
+    after: [' if(u.pathname==="/admin"||u.pathname.startsWith("/admin/"))return env.ASSETS.fetch(request);'],
+    runs: [["tests/suites/architecture.test.mjs", "the old prefix's static assets are gated on the default prefix (rule 75c)"]],
+  },
 ];
 
 /** Every file any scenario may touch, hashed before and after. */
@@ -1003,6 +1078,7 @@ const WATCHED = [...new Set([SCHEMA, EVENTS, ARCH, SCOPE, MANIFEST, VALIDATION,
   join(ROOT, "public/admin/js/screens/menus.js"),
   join(ROOT, "public/admin/js/screens/theme-menu.js"),
   ADMIN_I18N, LANGUAGES_SCREEN, THEMES_SCREEN,
+  ADMIN_STATE, AUTH,
   BLOCKS, FRONTEND, BLOCK_FIELDS, MEDIA_PICKER, MEDIA_SCREEN, CORE_PACK, API, WRANGLER])];
 
 function hashAll() {

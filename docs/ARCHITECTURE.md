@@ -2322,6 +2322,21 @@ SPA 的 `if (d.error)` 分支因此不可达，错误对话框要 `explain(err.m
    守卫：`architecture.test.mjs`（规则 74 节，5 条）；行为：`admin-contract.test.mjs`
    §14 + `theme-integration.test.mjs` §12（四类型渲染 + 禁用/异语言/跨站均不出现）；
    注入 `_skeleton-inject.mjs`（渲染丢 site_id + 作用域无 widgets，历史形状）
+
+【后台前缀是注入的，cookie 被它限定】（AGENTS.md 规则 75，批次 C）
+75. 后台前缀可配（平台级 `admin.path`，默认 `/admin`），把整个后台挪到猜不到的位置。
+    页照样渲染，所以失效是静默的：
+   a) **SPA 不硬编码前缀。** `serveAdminIndex` 重写 `index.html` 三处 `"/admin/…"` 资产
+      路径并注入 `window.CFP_ADMIN_BASE`；`state.js`/`i18n.js`（leaf，各自读同一个全局）
+      与登录 fetch 全部由它拼 URL
+   b) **后台 API 整套挂前缀之下**（`{前缀}/api/…`，剥前缀交给 `handleApi`），不只登录门
+   c) **旧地址一律 404**：旧路由、旧 `/admin/*` **资产**、旧 `/api/v1/auth/login`——
+      只 404 页面而放行 `/admin/admin.js` 等于留指路牌
+   d) **cookie `cfpress_admin` + `Path=<前缀>`**（前台响应必须不含它；`Path=/` 会把后台
+      会话带上每个前台请求；名字与批次 D 的 `cfpress_member` 区分）
+   守卫：`admin-spa.test.mjs`（规则 75 节，5 条）；行为：`admin-contract.test.mjs`
+   §0b/§0c（cookie Path / 旧登录 404 / 前台不 Set-Cookie / 连错 429 / 移动前缀后旧资产全 404）；
+   注入 `_skeleton-inject.mjs`（SPA 硬编码 `/api/v1/` + cookie `Path=/` + cookie 名，历史形状）
 ```
 
 ---

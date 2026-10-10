@@ -372,6 +372,8 @@ let tmpDir = null;
 let modules = null;
 let contentEl = null;
 let routeTable = null;
+/** Every URL the SPA handed to `fetch`, in order — the base section reads it. */
+let requestedUrls = null;
 try {
   tmpDir = mkdtempSync(join(tmpdir(), "cfpress-admin-"));
   cpSync(ADMIN, tmpDir, { recursive: true });
@@ -385,6 +387,7 @@ try {
   // shape every screen already handles. Declared outside the `try` so the
   // render sections below can add routes.
   routeTable = new Map();
+  requestedUrls = [];
   // One row, shaped so the list screens' row builders actually run (see the
   // fetch stub below). Fields are deliberately over-supplied: a screen reads
   // whichever ones it needs, and `undefined` is what a real sparse row looks
@@ -407,7 +410,18 @@ try {
   const store = new Map();
   winStub = { matchMedia: () => ({ matches: false, addEventListener() {} }), addEventListener() {}, removeEventListener() {}, scrollY: 0 };
 
+  // ⚠️ The real shell is served by `serveAdminIndex`, which injects the admin
+  // prefix as `window.CFP_ADMIN_BASE` — the SPA builds every API URL and asset
+  // URL from it (there is no hard-coded `/admin` left, on purpose). The harness
+  // is the fake shell, so it has to provide the same global; without it the SPA
+  // falls back to `/admin` and every stubbed route below answers from the
+  // default branch, which is how this suite went red the moment the base
+  // landed. A *different* base here (see the base section) proves the SPA
+  // actually reads it rather than the fallback.
+  const TEST_ADMIN_BASE = "/admin";
+
   globalThis.window = winStub;
+  winStub.CFP_ADMIN_BASE = TEST_ADMIN_BASE;
   globalThis.document = {
     documentElement: makeEl("html"),
     body: makeEl("body"),
@@ -429,7 +443,12 @@ try {
     removeItem: (k) => store.delete(k),
   };
   globalThis.fetch = async (url, init) => {
-    const path = String(url).replace(/^https?:\/\/[^/]+/, "").split("?")[0];
+    let path = String(url).replace(/^https?:\/\/[^/]+/, "").split("?")[0];
+    // The SPA now prefixes every API call with `CFP_ADMIN_BASE`, so the route
+    // table (keyed by `/api/v1/...`) only matches after the base is stripped.
+    // Recording the raw URLs lets the base section assert on what was requested.
+    requestedUrls.push(String(url));
+    if (path.startsWith(TEST_ADMIN_BASE + "/")) path = path.slice(TEST_ADMIN_BASE.length);
     if (routeTable.has(path)) {
       // A route may pin a status (`{ __status: 400, error: … }`) so a caller's
       // *failure* path is reachable from here. Without it every route answers
@@ -973,6 +992,96 @@ check(
   /export async function setUiLocale[\s\S]*?await loadMessages\(\)/.test(i18nSrc),
   "setUiLocale() must end with `await loadMessages()` — a caller cannot be trusted to remember it, and forgetting it is the original bug"
 );
+
+// ---------------------------------------------------------------------------
+section("The admin prefix is injected, never hard-coded");
+// ---------------------------------------------------------------------------
+//
+// The admin can be moved (`admin.path`), and when it is, every absolute URL in
+// the SPA points at a prefix that no longer exists — the SPA loads and then
+// 404s on its own assets and API. The server injects the prefix into the shell
+// as `window.CFP_ADMIN_BASE` and the SPA builds every URL from it, so the
+// prefix lives in exactly one place per request.
+//
+// Two ways this regresses, and both are silent (the page renders, the network
+// tab shows 404s a developer may not look at):
+//
+//   1. a module hard-codes `/api/v1/…` or `"/admin/…"` again;
+//   2. the shell (`index.html`) drops the literal `/admin/` that
+//      `serveAdminIndex` rewrites — the rewrite then has nothing to anchor on
+//      and a moved admin keeps the old asset URLs.
+//
+// So the guard is a source scan for (1) plus a check that the shell still
+// carries the anchors (2), and a runtime check that what the SPA *actually
+// requested* came out prefixed.
+
+/** The base the harness injected — the value the SPA must build URLs from. */
+const baseCheck = [];
+for (const f of jsFiles) {
+  const src = stripComments(read(f));
+  // A *bare* absolute URL: a string literal that begins `/api/v1`, `/api/` or
+  // `/admin/` and is NOT the right-hand side of a concatenation. Correct code
+  // always looks like `adminBase + "/api/v1/…"` (or a template), so the literal
+  // is preceded by `+`; a bare one is passed straight to `fetch`/`api`. Comments
+  // are already stripped, so surviving prose mentioning `/api/v1` is out.
+  for (const m of src.matchAll(/(\S)(\s*)(["'`])(\/(?:api\/v1|api|admin)\/[^"'`]*)\3/g)) {
+    const prev = m[1];
+    if (prev === "+" || prev === "$" || prev === "{") continue; // concatenated / interpolated
+    baseCheck.push(`${rel(f)}: ${m[4]}`);
+  }
+}
+check(
+  "no SPA module hard-codes an API or admin asset URL",
+  baseCheck.length === 0,
+  baseCheck.length
+    ? `bare absolute URLs (build them from \`adminBase\` instead): ${baseCheck.join(", ")}`
+    : ""
+);
+
+const shellSrc = read(join(ADMIN, "index.html"));
+// The three anchors `serveAdminIndex` rewrites. If the shell stops containing
+// them the rewrite is a no-op and a moved admin serves a shell pointing at
+// `/admin/…` — the exact bug the injection exists to prevent.
+const shellAnchors = (shellSrc.match(/["']\/admin\//g) || []).length;
+check(
+  "the shell still carries the /admin/ asset anchors the injection rewrites",
+  shellAnchors >= 3,
+  `found ${shellAnchors} quoted "/admin/…" anchors in index.html — serveAdminIndex expects at least the favicon, the stylesheet and the entry module`
+);
+
+// `state.js` and `i18n.js` are the two modules that talk to the network; both
+// must derive the base from the global. One reads it as an exported const, the
+// other inline (i18n.js is a leaf and cannot import state.js without a cycle),
+// which is why this asserts the *global read*, not the import.
+check(
+  "state.js derives the API base from window.CFP_ADMIN_BASE",
+  /window\.CFP_ADMIN_BASE/.test(stripComments(read(join(ADMIN, "js/state.js")))),
+  "state.js must read window.CFP_ADMIN_BASE — a fallback constant alone re-hardcodes the prefix"
+);
+check(
+  "i18n.js derives its API base from window.CFP_ADMIN_BASE too",
+  /window\.CFP_ADMIN_BASE/.test(i18nSrc),
+  "i18n.js is a leaf (cannot import state.js) so it reads the global directly — see the comment there"
+);
+
+if (modules && !bootError) {
+  // Everything the SPA fetched during boot must have gone out under the
+  // injected base. This is the runtime half of the two checks above: a scan
+  // proves the source has no bare literal, this proves the requests are
+  // prefixed. "Unprefixed" means it starts at `/api/…` (the base itself is
+  // `/admin`, so a correct API URL starts with `/admin/`).
+  const bare = requestedUrls.filter((u) => {
+    const p = String(u).replace(/^https?:\/\/[^/]+/, "");
+    return p.startsWith("/api/");
+  });
+  check(
+    "every request the SPA made carried the injected base",
+    requestedUrls.length > 0 && bare.length === 0,
+    bare.length
+      ? `unprefixed requests: ${[...new Set(bare)].slice(0, 5).join(", ")}`
+      : "no requests were recorded — the stub is not seeing the SPA's traffic, so this proves nothing"
+  );
+}
 
 if (modules && !bootError) {
   const i18n = await import(pathToFileURL(join(tmpDir, "js/i18n.js")).href);

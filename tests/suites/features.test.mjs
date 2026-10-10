@@ -193,12 +193,12 @@ async function main() {
   const bare = makeEnv(sqlite);
   {
     await req(bare, "/api/v1/health");
-    const lr = await req(bare, "/api/v1/auth/login", {
+    const lr = await req(bare, "/admin/api/v1/auth/login", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username: "admin", password: "change-me-now" }),
     });
     var cookie = lr.headers.get("set-cookie")?.split(";")[0] ?? "";
-    checkTruthy("logged in", cookie.startsWith("cfpress_session="));
+    checkTruthy("logged in", cookie.startsWith("cfpress_admin="));
   }
 
   // -----------------------------------------------------------------------
@@ -268,12 +268,12 @@ async function main() {
 
     sqlite.exec("DELETE FROM role_permissions WHERE role='author' AND permission='settings.manage'");
 
-    const lr2 = await req(bare, "/api/v1/auth/login", {
+    const lr2 = await req(bare, "/admin/api/v1/auth/login", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username: "features-probe", password: "features-probe-pw-1" }),
     });
     const probeCookie = lr2.headers.get("set-cookie")?.split(";")[0] ?? "";
-    checkTruthy("the non-admin probe user can sign in", probeCookie.startsWith("cfpress_session="));
+    checkTruthy("the non-admin probe user can sign in", probeCookie.startsWith("cfpress_admin="));
 
     const forbidden = await req(bare, "/api/v1/features", {
       method: "POST",

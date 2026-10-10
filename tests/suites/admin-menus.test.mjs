@@ -334,7 +334,7 @@ async function main() {
   // -- 6. bootstrap + auth -------------------------------------------------
   console.log("\n6. Admin bootstrap & auth");
   await req(worker, env, "/api/v1/auth/me");
-  const loginRes = await req(worker, env, "/api/v1/auth/login", {
+  const loginRes = await req(worker, env, "/admin/api/v1/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: "admin", password: "change-me-now" }),

@@ -79,6 +79,8 @@ const EN: Pack = {
   "core.auth.password": "Password",
   "core.auth.defaultHint": "First login default: admin / change-me-now. Change it before production use.",
   "core.auth.failed": "Sign-in failed",
+  "core.auth.invalid": "Invalid username or password.",
+  "core.auth.throttled": "Too many attempts. Wait a few minutes and try again.",
 
   // -- account (self-service credentials) ---------------------------------
   "core.account.title": "Account",
@@ -583,6 +585,8 @@ const ZH_CN: Pack = {
   "core.auth.password": "密码",
   "core.auth.defaultHint": "首次登录默认账户：admin / change-me-now。正式使用前请修改。",
   "core.auth.failed": "登录失败",
+  "core.auth.invalid": "用户名或密码错误。",
+  "core.auth.throttled": "尝试次数过多，请等待几分钟后重试。",
 
   "core.account.title": "账户",
   "core.account.sub": "修改你自己的登录凭据。对本安装的所有站点生效。",

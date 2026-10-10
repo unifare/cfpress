@@ -412,7 +412,7 @@ async function main() {
   await req(worker, env, "/api/v1/health");
   await req(worker, env, "/api/v1/auth/me"); // triggers bootstrapAdmin
 
-  const loginRes = await req(worker, env, "/api/v1/auth/login", {
+  const loginRes = await req(worker, env, "/admin/api/v1/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: "admin", password: "change-me-now" }),
@@ -420,7 +420,7 @@ async function main() {
   const loginBody = await loginRes.json();
   checkTruthy("admin can log in", loginBody.user);
   const cookie = loginRes.headers.get("set-cookie")?.split(";")[0] ?? "";
-  checkTruthy("session cookie issued", cookie.startsWith("cfpress_session="));
+  checkTruthy("session cookie issued", cookie.startsWith("cfpress_admin="));
 
   const authHeaders = { Cookie: cookie };
 

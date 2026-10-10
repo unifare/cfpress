@@ -2254,6 +2254,60 @@ section("Widgets are site-scoped end to end (rule 74)");
 }
 
 // ---------------------------------------------------------------------------
+section("The admin prefix is injected and scoped (rule 75)");
+// ---------------------------------------------------------------------------
+
+/**
+ * Batch C: the admin moves to a configurable prefix (`admin.path`). Three
+ * structural facts make that work, and each is a one-line edit away from
+ * silently regressing — the page still renders, so nobody notices until a
+ * moved admin loads blank:
+ *
+ *   - the shell is *served through a rewriter* that injects the base
+ *     (`serveAdminIndex`), not handed to the asset layer as a static file;
+ *   - the admin API is mounted **under** the prefix and handed to the one API
+ *     implementation after the prefix is stripped;
+ *   - the old prefix, and the old login door, answer 404.
+ *
+ * The behavioural half lives in `admin-contract.test.mjs` (§0b/§0c) and the
+ * SPA half in `admin-spa.test.mjs` (its own rule-75 section).
+ */
+{
+  const indexSrc = blankComments(read(join(ROOT, "src", "index.ts")));
+  const shellSrc = read(join(ROOT, "public", "admin", "index.html"));
+  const authSrc = blankComments(read(join(ROOT, "src", "platform", "auth.ts")));
+
+  check(
+    "the shell is served through a base-injecting rewriter (rule 75a)",
+    /function serveAdminIndex\(/.test(indexSrc) && /CFP_ADMIN_BASE/.test(indexSrc)
+  );
+  check(
+    "the admin API is mounted under the prefix, not just the login door (rule 75b)",
+    /p\.startsWith\(adminBase\+"\/api\/"\)\)return handleApi\(/.test(indexSrc)
+  );
+  check(
+    "the retired login endpoint answers 404 (rule 75c)",
+    /if\(p==="\/api\/v1\/auth\/login"\)return new Response\("Not Found",\{status:404\}\)/.test(indexSrc)
+  );
+  check(
+    "the old prefix's static assets are gated on the default prefix (rule 75c)",
+    /adminBase==="\/admin"&&\(u\.pathname==="\/admin"/.test(indexSrc)
+  );
+  check(
+    "the session cookie is named cfpress_admin (rule 75d)",
+    /const SESSION_COOKIE = "cfpress_admin";/.test(authSrc)
+  );
+  check(
+    "the session cookie path is the admin prefix, not a constant / (rule 75d)",
+    /Path=\$\{cookiePath\}/.test(authSrc) && !/Set-Cookie[^\n]*Path=\/;/.test(authSrc)
+  );
+  check(
+    "the shell still carries the /admin/ asset anchors the injection rewrites (rule 75a)",
+    (shellSrc.match(/["']\/admin\//g) || []).length >= 3
+  );
+}
+
+// ---------------------------------------------------------------------------
 section("This suite's own assertions can actually fail (meta-guard)");
 // ---------------------------------------------------------------------------
 

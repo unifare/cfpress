@@ -263,12 +263,12 @@ async function main() {
   console.log("0. Admin bootstrap & auth");
   await req(worker, env, "/api/v1/health");
   await req(worker, env, "/api/v1/auth/me");
-  const loginRes = await req(worker, env, "/api/v1/auth/login", {
+  const loginRes = await req(worker, env, "/admin/api/v1/auth/login", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: "admin", password: "change-me-now" }),
   });
   const cookie = loginRes.headers.get("set-cookie")?.split(";")[0] ?? "";
-  checkTruthy("session cookie issued", cookie.startsWith("cfpress_session="));
+  checkTruthy("session cookie issued", cookie.startsWith("cfpress_admin="));
   const auth = { Cookie: cookie };
 
   // -- 1. sites registry ---------------------------------------------------

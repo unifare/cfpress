@@ -274,12 +274,12 @@ async function main() {
     const env = makeEnv(sqlite, makeFakeLoader(), worker);
     await req(worker, env, "/api/v1/health");
     await req(worker, env, "/api/v1/auth/me");
-    const lr = await req(worker, env, "/api/v1/auth/login", {
+    const lr = await req(worker, env, "/admin/api/v1/auth/login", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username: "admin", password: "change-me-now" }),
     });
     var cookie = lr.headers.get("set-cookie")?.split(";")[0] ?? "";
-    checkTruthy("logged in", cookie.startsWith("cfpress_session="));
+    checkTruthy("logged in", cookie.startsWith("cfpress_admin="));
   }
   const auth = { Cookie: cookie };
 

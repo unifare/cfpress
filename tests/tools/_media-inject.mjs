@@ -100,8 +100,13 @@ const SCENARIOS = [
     // correct branch still in place every behaviour test stays green.
     label: "the /media/ branch is matched again above site resolution",
     file: INDEX,
-    before: [" resetSiteListMemo(env);\n"],
-    after: [' resetSiteListMemo(env);\n if(u.pathname.startsWith("/media/"))return media(env,request,u.pathname,resolved.siteId);\n'],
+    // Anchored on the reset line that opens the request. It used to be
+    // `resetSiteListMemo(env);` alone; batch C added `resetAdminPathMemo(env)`
+    // on the same line, so the anchor now carries both — an anchor that no
+    // longer matches makes the scenario *unexecuted*, which the runner reports
+    // as a problem rather than a pass (see the runner's "anchor appears 0x").
+    before: [" resetSiteListMemo(env);resetAdminPathMemo(env);\n"],
+    after: [' resetSiteListMemo(env);resetAdminPathMemo(env);\n if(u.pathname.startsWith("/media/"))return media(env,request,u.pathname,resolved.siteId);\n'],
     runs: [[ARCH_SUITE, "the /media/ branch is matched after the site is resolved"]],
   },
 ];

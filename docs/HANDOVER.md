@@ -1,6 +1,9 @@
 # CFPress (CFCMS) 交接文档
 
-> 更新时间：2026-10-10 (GMT+8) ｜ 交接基线：**批次 27 —— 小工具站点隔离 + 前台接线（规则 74）**
+> 更新时间：2026-10-11 (GMT+8) ｜ 交接基线：**AUTH 计划批次 C —— 后台隐身（规则 75）**
+> （本仓库同时有两份活动计划：`docs/MENUS-WIDGETS-SITES-PLAN.md`（批次 26–28，26/27 已完成）
+> 与 `docs/AUTH-ISOLATION-PLAN.md`（批次 A–F，A/B/C 已完成）。两套编号**互相独立**，勿混。
+> 上一条交接基线：批次 27 —— 小工具站点隔离 + 前台接线（规则 74）。
 > （批次 26 菜单管理落地 + 菜单位置确定性（规则 73）；批次 25 拒绝必须带出口：主题强制卸载（规则 72）；
 > 批次 24 后台多语言：列表按默认语言取代表行 + 语言过滤/版本徽标 + 编辑器语言切换重新取数（规则 71）；
 > 批次 23 post_meta 语言维度（B5）+ 列表 reading_time + /blog 归档路由 + 单页字段修复；
@@ -205,7 +208,46 @@ x-default）；`/{locale}/feed.xml`；`lang_nav` 切换器进 scope。规则 56�
 **新基线**：**23 套件 + `_schema-scope`，24 项 / 1240 条 / 0 失败**；`tsc --noEmit` src/ 0 错误；
 `_tenant-query-audit` 每条命中都有裁决；`_media-inject` 7/7 场景有效。
 
-**批次 27（小工具站点隔离 + 前台接线）—— ✅ 本轮完成**
+**AUTH 计划批次 C（后台隐身：前缀可配 + cookie 收紧 + SPA base）—— ✅ 本轮完成**
+
+来自 `docs/AUTH-ISOLATION-PLAN.md`（与 MENUS 计划的批次编号互相独立）。目标：把**整个后台**
+（SPA + 资产 + API + 登录端点）挪到一个可配、猜不到的前缀，并让后台会话 cookie 只在该前缀下发送。
+
+**改了什么**
+
+1. **cookie 收紧**（`src/platform/auth.ts`）：`SESSION_COOKIE` 改名 `cfpress_session` →
+   **`cfpress_admin`**；`login`/`logout`/`loginRequest` 接受 `cookiePath`，`Set-Cookie` 的
+   `Path` 从写死的 `/` 改为**当前后台前缀**（`Path=/` 会把后台会话带上每个前台请求；
+   名字要与批次 D 的 `cfpress_member` 区分）。
+2. **前缀路由 + SPA base**（`src/index.ts`）：新增 `serveAdminIndex()`——不再把
+   `/admin/index.html` 当静态文件直出，而是取回后**重写三处 `/admin/…` 资产路径**并注入
+   `<script>window.CFP_ADMIN_BASE="…"</script>`；**后台 API 整套挂前缀之下**
+   （`if(p.startsWith(adminBase+"/api/"))return handleApi(env, 剥前缀的 request)`——原来只有
+   登录端点被特殊处理，其余落在 ASSETS 分支 404）；`/admin/*` 静态兜底加 `adminBase==="/admin"`
+   门控，自定义前缀时旧资产也 404。
+3. **SPA 全面改读注入的 base**：`state.js` 导出 `adminBase`（读 `window.CFP_ADMIN_BASE`）；
+   `i18n.js`（leaf，不能 import state.js，故内联读同一个全局）两处 fetch 改用它；
+   `auth.js` 登录 fetch 改用它，并区分 429（限流）与凭据错。
+4. **测试**：`admin-spa` 新增规则 75 节（5 条，源码无裸绝对 URL / shell 锚点 / 两模块读全局 /
+   运行时请求全带前缀）；`admin-contract` 新增 §0b/§0c（cookie Path / 旧登录 404 / 前台不
+   Set-Cookie / 连错 6 次 429 / **把 `admin.path` 移到 `/manage`** 后新前缀可用且旧前缀连
+   资产全 404，`finally` 里通过已移动的前缀改回）；`architecture` 新增规则 75 节（7 条结构守卫）；
+   12 个套件的 cookie 名断言批量改 `cfpress_admin`。
+5. **规则 75**（三处同步：AGENTS.md + ARCHITECTURE.md §10 + architecture.test.mjs）。
+
+**验证**：`architecture` **154/0**（147→154，规则 75 节 7 条）；`admin-contract` **105/0**
+（88→105，§0b/§0c 十七条）；`admin-spa` **79/0**（74→79，规则 75 节 5 条）；**24 套件逐个跑
+/ 0 失败**（合计 **1548** + 26 = **1574**）；`tsc --noEmit` src/ 0 错误；
+`_skeleton-inject` **80 场景 / 0 问题**（+3 batch-C 场景 +2 architecture 结构场景）。
+**真实浏览器验收**（Chromium 驱动真 dev server）：shell 加载 / base 注入 / SPA 登录并渲染 /
+所有 API 调用都在前缀下 / 无未捕获错误——**前缀默认与移到 `/manage` 两种情形各 5/5 通过**。
+
+> ⚠️ **本轮踩到的坑（值得记）**：在 `src/index.ts` 的 `//` 行注释里写了 `` `/admin/*` ``，
+> 其中 `/*` 让 `architecture.test.mjs` 的 `blankComments()`（非贪婪 `/\/\*[\s\S]*?\*\//g`）
+> 一路吞到后文 `catch{/* ignore */}` 的 `*/`，**把整段路由抹成空白**——media 守卫的两个锚点
+> 都变 `-1`，报「非空性」失败。代码是对的，是**注释里的字符**弄瞎了守卫。已记进 AGENTS.md。
+
+**批次 27（小工具站点隔离 + 前台接线）—— ✅ 上轮完成**
 
 批次 26 体检的延续：小工具是三无（无内容编辑、无删改、**前台零接线**），且
 `widget_instances` 建表时**没有 site_id**、唯一读路径连租户过滤都没有——多站点下每个
@@ -1135,7 +1177,7 @@ theme-api 站点与主题头可伪造、`?? "default"` 地雷、四处 `|| "en"`
   以证明 `null` 是"没行"而不是"过滤被丢掉"）。
 
 
-## 6. 测试与验证（当前全绿：24 套件 / 1495 条 / 0 失败，另有 `_schema-scope` 26 条 —— 合计 25 项 / 1521 条）
+## 6. 测试与验证（当前全绿：24 套件 / 1548 条 / 0 失败，另有 `_schema-scope` 26 条 —— 合计 25 项 / 1574 条）
 
 ```bash
 npx tsc --noEmit                 # src/ 0 错误（node_modules 里的 lib 冲突是既有的，忽略）

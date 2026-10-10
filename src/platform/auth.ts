@@ -1,7 +1,27 @@
 import { Env, SessionUser } from "../shared/types";
 import { cookieValue, hashPassword, randomId, verifyPassword } from "../shared/crypto";
 
-const SESSION_COOKIE = "cfpress_session";
+/**
+ * The admin session cookie.
+ *
+ * Two things about it are load-bearing:
+ *
+ *   - **The name is `cfpress_admin`, not `cfpress_session`.** When the front-end
+ *     member cookie (`cfpress_member`, batch D) arrives, the two must be
+ *     distinguishable at a glance and in a `Cookie:` header — a shared generic
+ *     name is how "an admin is logged in" and "a member is logged in" get
+ *     conflated by the next reader.
+ *   - **Its `Path` is the admin prefix, not `/`.** With `Path=/`, every front-end
+ *     request carries the admin session — a byte in the headers of pages that
+ *     have nothing to do with the admin. Narrowing the path means the cookie is
+ *     only ever sent where it is needed, and it is the front-end response the
+ *     acceptance check inspects: it must NOT carry `Set-Cookie: cfpress_admin`.
+ *
+ * `Path` is per-request (the prefix is configurable), so it is passed in rather
+ * than read from a constant here — `platform/` does not reach for a settings
+ * read on every cookie write.
+ */
+const SESSION_COOKIE = "cfpress_admin";
 const SESSION_TTL = 60 * 60 * 24 * 14;
 
 export async function bootstrapAdmin(env: Env) {
@@ -24,7 +44,7 @@ export async function bootstrapAdmin(env: Env) {
   ).run();
 }
 
-export async function login(env: Env, username: string, password: string): Promise<Response> {
+export async function login(env: Env, username: string, password: string, cookiePath = "/admin"): Promise<Response> {
   const user = await env.DB.prepare(
     "SELECT id, username, email, password_hash, role, status FROM site_users WHERE username = ? LIMIT 1"
   ).bind(username).first<any>();
@@ -44,18 +64,18 @@ export async function login(env: Env, username: string, password: string): Promi
   }}), {
     headers: {
       "Content-Type": "application/json",
-      "Set-Cookie": `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=${SESSION_TTL}`
+      "Set-Cookie": `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=${cookiePath}; HttpOnly; SameSite=Lax; Secure; Max-Age=${SESSION_TTL}`
     }
   });
 }
 
-export async function logout(env: Env, request: Request): Promise<Response> {
+export async function logout(env: Env, request: Request, cookiePath = "/admin"): Promise<Response> {
   const sid = cookieValue(request, SESSION_COOKIE);
   if (sid) await env.DB.prepare("DELETE FROM admin_sessions WHERE id = ?").bind(sid).run();
   return new Response(JSON.stringify({ ok: true }), {
     headers: {
       "Content-Type": "application/json",
-      "Set-Cookie": `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=0`
+      "Set-Cookie": `${SESSION_COOKIE}=; Path=${cookiePath}; HttpOnly; SameSite=Lax; Secure; Max-Age=0`
     }
   });
 }
@@ -181,4 +201,44 @@ export async function requireAdmin(env: Env, request: Request): Promise<SessionU
   if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
   if (!["admin", "editor", "author"].includes(user.role)) return Response.json({ error: "Forbidden" }, { status: 403 });
   return user;
+}
+
+/**
+ * Login with a per-isolate brute-force throttle, plus the JSON response.
+ *
+ * This is the endpoint a scanner can brute-force, so it is the one that gets
+ * throttled. ⚠️ The throttle is **per isolate**: an attacker hitting several
+ * isolates in parallel sees a higher limit. It is a speed bump, not a lock;
+ * the primary mitigation is that the endpoint is not guessable (it lives
+ * under the configurable admin prefix). A D1-backed counter would be shared
+ * across isolates if that ever matters.
+ */
+const ATTEMPT_WINDOW_MS = 60_000;
+const MAX_ATTEMPTS = 5;
+const LOCK_MS = 300_000;
+const attempts = new Map<string, { count: number; firstAt: number; blockedUntil: number }>();
+
+export async function loginRequest(env: Env, request: Request, cookiePath = "/admin"): Promise<Response> {
+  const jsonHeaders = { "Content-Type": "application/json" };
+  const ip = request.headers.get("cf-connecting-ip") || "local";
+  const body = (await request.json().catch(() => ({}))) as any;
+  const username = String(body?.username ?? "");
+  const gate = `${ip}|${username}`;
+  const now = Date.now();
+  const rec = attempts.get(gate);
+  if (rec && rec.blockedUntil > now) {
+    return new Response(JSON.stringify({ error: "too many attempts; try again later" }), { status: 429, headers: jsonHeaders });
+  }
+  const res = await login(env, username, String(body?.password ?? ""), cookiePath);
+  if (res.status >= 400) {
+    const cur = attempts.get(gate);
+    if (!cur || now - cur.firstAt > ATTEMPT_WINDOW_MS) attempts.set(gate, { count: 1, firstAt: now, blockedUntil: 0 });
+    else {
+      cur.count++;
+      if (cur.count >= MAX_ATTEMPTS) { cur.blockedUntil = now + LOCK_MS; attempts.delete(gate); attempts.set(gate, { count: 0, firstAt: now, blockedUntil: cur.blockedUntil }); }
+    }
+    return res;
+  }
+  attempts.delete(gate);
+  return res;
 }

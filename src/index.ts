@@ -1,7 +1,7 @@
 import{Env}from "./shared/types";import{handleApi}from "./api";import{findContent,contentAlternates,siteInfo,locales,defaultLocale}from "./platform/frontend";import{robots,sitemap,feed}from "./platform/seo";import{seedBundledExtensions,bootPluginRuntime,doAction,applyFilters,renderShortcodes}from "./extensions/plugin/runtime";import{setPluginTableSync}from "./extensions/plugin/menus";import{syncOwnerTables}from "./extensions/theme/tables";import{setHostHooks}from "./extensions/contract/hooks";import{renderThemePage,runThemeQuery,activeTheme,type ThemeRenderOptions}from "./extensions/theme/runtime-declarative";import{tryRenderWithThemeWorker,handleThemeApi}from "./extensions/theme/runtime-worker";import{processScheduled}from "./shared/scheduler";import{resolveSite,siteListMemo,listSites,resetSiteListMemo}from "./platform/sites";
 // The media read path's three gates (tenant / session / owner) live in one
 // module so this route and the admin media API cannot answer differently.
-import{currentUser}from "./platform/auth";import{readMediaPolicy,mediaReadDecision}from "./platform/media-policy";import{listRoutes,findPostTypeBySlug,listPostTypes}from "./extensions/theme/capabilities";
+import{currentUser,loginRequest}from "./platform/auth";import{adminPath,resetAdminPathMemo}from "./platform/settings";import{readMediaPolicy,mediaReadDecision}from "./platform/media-policy";import{listRoutes,findPostTypeBySlug,listPostTypes}from "./extensions/theme/capabilities";
 // Rule 4 forbids `plugin/` from importing `theme/`, so the bundled-theme
 // seeder cannot install what it registers. This module is the one place
 // allowed to know both layers, so the boot sequence chains them: register the
@@ -113,6 +113,45 @@ function matchRoute(routePath:string,path:string):{params:Record<string,string>}
 }
 
 /**
+ * Serve the admin SPA's shell with a server-injected base.
+ *
+ * The shell (`/admin/index.html`) is authored with `/admin/...` asset URLs and
+ * the SPA (`js/state.js`) builds API URLs from `/api/v1/`. Both are correct only
+ * while the prefix is exactly `/admin` — the moment an operator moves the admin
+ * (that is the whole point of `admin.path`), every one of those absolute URLs
+ * points at a prefix that no longer exists, and the SPA loads a blank page with
+ * 404s in the console.
+ *
+ * So the shell is not served as a static file: it is fetched, the three asset
+ * paths and a `<script>window.CFP_ADMIN_BASE="…"</script>` tag are substituted,
+ * and the result is returned. The SPA reads the global rather than hard-coding
+ * the prefix, which is the *only* place the prefix has to be known.
+ *
+ * The substitutions are anchored on the literal `/admin/` that appears in the
+ * shell — and `architecture.test.mjs` asserts the shell still contains those
+ * literals, so a shell edited to hard-code something else (or to use a bare
+ * relative path that this rewrite does not touch) fails loudly rather than
+ * shipping a broken admin.
+ */
+async function serveAdminIndex(env:Env,adminBase:string,u:URL){
+  const res=await env.ASSETS.fetch(new Request(new URL("/admin/index.html",u.origin),{headers:{Accept:"text/html"}}));
+  const html=await res.text();
+  // `CFP_ADMIN_BASE` is the admin prefix itself, never "", because the SPA
+  // builds both its asset and its API URLs from it (`{base}/api/v1/...`) and
+  // the admin API lives *under* the prefix. The shell's own `/admin/` asset
+  // URLs are rewritten to the prefix for the same reason.
+  const rewritten=html
+    .replaceAll('"/admin/',`"${adminBase}/`)
+    .replace("</head>",`<script>window.CFP_ADMIN_BASE=${JSON.stringify(adminBase)};</script>\n</head>`);
+  const h=new Headers(res.headers);
+  h.set("Content-Type","text/html;charset=UTF-8");
+  // The shell carries the prefix, so it must not be cached across a prefix
+  // change; the assets it points at stay cacheable on their own.
+  h.set("Cache-Control","no-cache");
+  return new Response(rewritten,{status:res.status,headers:h});
+}
+
+/**
  * Front-end router.
  *
  * URL shape (after site resolution, one or many sites per install):
@@ -132,7 +171,7 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
  // is keyed by `env`, which outlives a request, so it has to be dropped here —
  // otherwise a site created in the admin never resolves on the front end until
  // the isolate recycles (see `resetSiteListMemo`).
- resetSiteListMemo(env);
+ resetSiteListMemo(env);resetAdminPathMemo(env);
  if(!booted){booted=true;ctx.waitUntil((async()=>{
    try{
      // Register the bundled themes, *then* install their declarations. The
@@ -178,14 +217,41 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
    return total;
  });
  const u=new URL(request.url);
- if(u.pathname.startsWith("/api/"))return handleApi(env,request);
+ const adminBase=await adminPath(env);const p=u.pathname;
+ if(p===adminBase)return Response.redirect(new URL(adminBase+"/",u.origin).toString(),301);
+ // The directory itself: the assets binding serves `/admin/index.html` here.
+ // Requesting the index file explicitly would make the binding 307 back to
+ // this very path - a redirect loop (found the first time this ran elevated).
+ // The directory form is rewritten to the real asset directory (`/admin/`):
+ // with a custom prefix the request path (`/manage/`) has no assets behind it.
+ // Rewriting to `/admin/` (not `/admin/index.html`) is what avoided the loop.
+ if(p===adminBase+"/")return serveAdminIndex(env,adminBase,u);
+ // The admin API lives **under** the prefix: the whole API surface is hidden
+ // with the admin, not just the login door. The prefix is stripped and the
+ // request re-issued at the same path minus the prefix — which is the shape
+ // `handleApi` already speaks (`/api/v1/...`). One API implementation, reached
+ // by two prefixes; the reconstructed URL must therefore drop `adminBase`
+ // exactly, with nothing prepended (prepending `/api` here would double it).
+ if(p===adminBase+"/api/v1/auth/login"&&request.method==="POST")return loginRequest(env,request,adminBase);
+ if(p.startsWith(adminBase+"/api/"))return handleApi(env,new Request(new URL(p.slice(adminBase.length),u.origin),request));
+ if(p.startsWith(adminBase+"/"))return env.ASSETS.fetch(new Request(new URL("/admin"+p.slice(adminBase.length),u.origin),request));
+ // ⚠️ 旧入口与旧登录端点一律 404：重定向会把新路径交给扫描器。
+ // （admin.path 仍是 /admin 时二者就是本尊，此条不适用。）
+ if(adminBase!=="/admin"&&(p==="/admin"||p==="/admin/"))return new Response("Not Found",{status:404});
+ if(p==="/api/v1/auth/login")return new Response("Not Found",{status:404});
+ if(p.startsWith("/api/"))return handleApi(env,request);
  // Sandboxed theme Workers read data exclusively through this endpoint.
  if(u.pathname.startsWith("/__cfpress/theme-api/"))return handleThemeApi(env,request);
  // The admin SPA and any other static asset belong to the asset layer. This is
  // stated explicitly rather than left to the locale parser, which previously
  // doubled as the asset bail-out — so that removing the locale prefix from the
  // front-end router did not also take `/admin/` down with it.
- if(u.pathname==="/admin"||u.pathname.startsWith("/admin/"))return env.ASSETS.fetch(request);
+ //
+ // ⚠️ Gated on `adminBase === "/admin"`. With a custom prefix the `/admin/…`
+ // assets must **404** exactly like the old `/admin` route does: leaving them
+ // served is how the hidden admin stays discoverable — a scanner that finds
+ // `/admin/admin.js` has found the admin, prefix or no prefix.
+ if(adminBase==="/admin"&&(u.pathname==="/admin"||u.pathname.startsWith("/admin/")))return env.ASSETS.fetch(request);
  if(request.method!=="GET")return env.ASSETS.fetch(request);
 
  // Resolve which site this request belongs to (host or path prefix).

@@ -5,7 +5,7 @@
  * be a cycle: auth needs `render`, the shell needs the login screen). So the
  * login screen is *injected* into the shell here, once, at import time.
  */
-import { api, app, loadContext, state } from "./state.js";
+import { adminBase, api, app, loadContext, state } from "./state.js";
 import { applyHash, render, setLoginScreen } from "./shell.js";
 import { icon } from "../icons.js";
 import { alertDialog, esc, setTheme } from "../ui.js";
@@ -33,7 +33,15 @@ export async function doLogin() {
   const u = document.querySelector("#u").value;
   const p = document.querySelector("#p").value;
   try {
-    const d = await api("auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: u, password: p }) });
+    // ⚠️ Built from the injected base, not a literal. The login endpoint hangs
+    // under the admin prefix (`/{admin.path}/api/v1/auth/login`) — the same
+    // prefix `api()` uses — so a configurable prefix needs no special casing
+    // here. The absolute `/api/v1/auth/login` was retired with batch C (404).
+    const d = await fetch(`${adminBase}/api/v1/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: u, password: p }) }).then(async (r) => ({ status: r.status, ...(await r.json().catch(() => ({}))) }));
+    // A 429 is the brute-force throttle, not bad credentials — say so, so the
+    // operator waits instead of concluding their password is wrong.
+    if (d.status === 429) throw new Error(t("core.auth.throttled", "Too many attempts. Wait a few minutes and try again."));
+    if (!d.user) throw new Error(t("core.auth.invalid", "Invalid username or password."));
     state.user = d.user;
     // Menu labels are translated server-side and the shell strings client-side;
     // both must be loaded before the first post-login render.

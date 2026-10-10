@@ -167,7 +167,7 @@ async function main() {
   let editorCookie = "";
   let authorCookie = "";
   const login = async (username, password) => {
-    const r = await req("/api/v1/auth/login", {
+    const r = await req("/admin/api/v1/auth/login", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     });
@@ -198,7 +198,7 @@ async function main() {
   await section("0. setup: two sites, two non-admin users", async () => {
     await req("/api/v1/health");
     adminCookie = await login("admin", "change-me-now");
-    checkTruthy("admin signed in", adminCookie.startsWith("cfpress_session="));
+    checkTruthy("admin signed in", adminCookie.startsWith("cfpress_admin="));
 
     for (const [id, host, name] of [[SITE_A, HOST_A, "Media A"], [SITE_B, HOST_B, "Media B"]]) {
       const r = await req("/api/v1/sites", { method: "POST", headers: json(adminCookie), body: JSON.stringify({ id, name, host }) });
@@ -213,8 +213,8 @@ async function main() {
     }
     editorCookie = await login(EDITOR.username, EDITOR.password);
     authorCookie = await login(AUTHOR.username, AUTHOR.password);
-    checkTruthy("editor signed in", editorCookie.startsWith("cfpress_session="));
-    checkTruthy("author signed in", authorCookie.startsWith("cfpress_session="));
+    checkTruthy("editor signed in", editorCookie.startsWith("cfpress_admin="));
+    checkTruthy("author signed in", authorCookie.startsWith("cfpress_admin="));
   });
 
   // -------------------------------------------------------------------------

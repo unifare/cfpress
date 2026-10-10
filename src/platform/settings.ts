@@ -133,3 +133,23 @@ async function newId(): Promise<string> {
   for (const b of data) s += String.fromCharCode(b);
   return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
+
+/**
+ * The admin's own path prefix, read from the platform setting `admin.path`.
+ *
+ * Read **once per request**: `index.ts` drops this memo at the top of every
+ * fetch (the same pattern as `resetSiteListMemo`), so a change made in the
+ * admin is visible on the next request instead of after an isolate recycle,
+ * and a burst of requests still costs one query.
+ */
+const adminPathMemo = new WeakMap<Env, string>();
+export function resetAdminPathMemo(env: Env): void { adminPathMemo.delete(env); }
+export async function adminPath(env: Env): Promise<string> {
+  const hit = adminPathMemo.get(env);
+  if (hit != null) return hit;
+  // `admin.path` declares a default, so this always resolves to a string: the
+  // router cannot branch on `undefined`.
+  const value = (await platformSetting(env, "admin.path")) ?? "/admin";
+  adminPathMemo.set(env, value);
+  return value;
+}

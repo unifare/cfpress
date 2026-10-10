@@ -176,14 +176,109 @@ async function main() {
   console.log("0. auth");
   await req(worker, env, "/api/v1/health");
   await req(worker, env, "/api/v1/auth/me");
-  const lr = await req(worker, env, "/api/v1/auth/login", {
+  const lr = await req(worker, env, "/admin/api/v1/auth/login", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: "admin", password: "change-me-now" }),
   });
   const cookie = lr.headers.get("set-cookie")?.split(";")[0] ?? "";
-  checkTruthy("logged in", cookie.startsWith("cfpress_session="));
+  checkTruthy("logged in", cookie.startsWith("cfpress_admin="));
   const auth = { Cookie: cookie };
   const json = { ...auth, "Content-Type": "application/json" };
+
+  console.log("\n0b. The admin is hidden: prefix routing, cookie scope, throttling");
+  // Batch C: the admin lives under a configurable prefix (`admin.path`,
+  // default `/admin`). The prefix is not secret to the router but it is not
+  // advertised, and the *old* addresses must be genuinely gone rather than
+  // redirected — a 301 to the new prefix hands it to whatever is scanning.
+  {
+    const sp = await req(worker, env, "/admin/api/v1/platform-settings", { headers: auth });
+    check("platform settings are readable under the admin prefix", sp.status, 200);
+    const spJson = await sp.json();
+    check("admin.path is a declared platform key", spJson.items.some((x) => x.key === "admin.path"), true);
+
+    // The cookie is scoped to the admin prefix, not `/`. `Path=/` put the admin
+    // session on every front-end request — see `auth.ts`.
+    const sc = lr.headers.get("set-cookie") ?? "";
+    checkTruthy("the session cookie path is the admin prefix, not /", /;\s*Path=\/admin(?:\s*;|$)/.test(sc));
+
+    // The retired login endpoint answers 404. It used to be the *public* login
+    // path; leaving it served would keep the old door open after the move.
+    const oldLogin = await req(worker, env, "/api/v1/auth/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "admin", password: "change-me-now" }),
+    });
+    check("the retired /api/v1/auth/login answers 404", oldLogin.status, 404);
+
+    // A front-end page must not set the admin cookie. `/api/v1/health` is a
+    // public endpoint; whatever it answers, it must not hand out a session.
+    const front = await req(worker, env, "/api/v1/health");
+    check("a public endpoint does not set the admin cookie", front.headers.get("set-cookie"), null);
+
+    // The brute-force throttle. Five wrong passwords for one username+ip must
+    // turn the sixth request into a 429 rather than another 401. Each attempt
+    // uses a throwaway username so this cannot lock the real `admin` account
+    // (the throttle key is `ip|username`) and cannot perturb other sections.
+    const throttleUser = "nobody-throttle-probe";
+    let lastStatus = 0;
+    for (let i = 0; i < 6; i++) {
+      const r = await req(worker, env, "/admin/api/v1/auth/login", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: throttleUser, password: "wrong-" + i }),
+      });
+      lastStatus = r.status;
+    }
+    check("repeated bad logins are throttled (429)", lastStatus, 429);
+  }
+
+  console.log("\n0c. Moving the admin prefix");
+  // The point of `admin.path` is that the admin can be moved somewhere a
+  // scanner will not guess. Three things have to hold when it moves, and each
+  // was a real way to get it wrong:
+  //   1. the new prefix serves the shell and the API;
+  //   2. the shell is served with `CFP_ADMIN_BASE` = the new prefix (otherwise
+  //      the SPA calls back to `/admin/api/…`, which is now gone);
+  //   3. the old prefix answers 404 — *including its assets*, or `/admin/admin.js`
+  //      is a signpost back to the admin.
+  // The prefix is restored at the end of this block, in a `finally`, so a
+  // failure here cannot leave the operator's own install on `/manage`.
+  {
+    const setPath = async (value, prefix) => req(worker, env, `${prefix}/api/v1/platform-settings`, {
+      method: "POST", headers: json, body: JSON.stringify({ key: "admin.path", value }),
+    });
+    const moved = await setPath("/manage", "/admin");
+    check("admin.path can be moved", moved.status, 200);
+    try {
+      const shell = await req(worker, env, "/manage/");
+      check("the new prefix serves the shell", shell.status, 200);
+      const html = await shell.text();
+      checkTruthy("the shell is injected with the new base", /window\.CFP_ADMIN_BASE="\/manage"/.test(html));
+      checkTruthy("the shell's asset URLs point at the new prefix", /"\/manage\/admin\.(css|js)"/.test(html));
+      checkTruthy("the shell no longer points at /admin/", !/"\/admin\/admin/.test(html));
+
+      const api = await req(worker, env, "/manage/api/v1/health");
+      check("the API answers under the new prefix", api.status, 200);
+
+      // Old addresses are gone: the route, the assets and the old login door.
+      const oldShell = await req(worker, env, "/admin/");
+      check("the old prefix answers 404", oldShell.status, 404);
+      const oldAsset = await req(worker, env, "/admin/admin.js");
+      check("the old prefix's assets answer 404 too", oldAsset.status, 404);
+      const oldLogin2 = await req(worker, env, "/admin/api/v1/auth/login", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "admin", password: "change-me-now" }),
+      });
+      check("the old login door answers 404 after the move", oldLogin2.status, 404);
+    } finally {
+      // Restore *through the moved prefix*: `/admin` is 404 while it is moved,
+      // so a restore aimed there would silently fail and leave the install on
+      // `/manage` for every later section (and for the operator).
+      const restored = await setPath("/admin", "/manage");
+      check("admin.path is restored through the moved prefix", restored.status, 200);
+    }
+    // Restored: the default prefix works again.
+    const back = await req(worker, env, "/admin/api/v1/health");
+    check("the default prefix works again after restore", back.status, 200);
+  }
 
   console.log("\n1. Theme install + activate on a new site");
   await req(worker, env, "/api/v1/sites", { method: "POST", headers: json, body: JSON.stringify({ id: "adm", name: "Admin Test" }) });

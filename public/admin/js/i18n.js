@@ -23,6 +23,18 @@ let locale = null;
 const LS_KEY = "cfpress.admin.messages";
 
 /**
+ * The admin prefix, read straight off the injected global.
+ *
+ * ⚠️ Deliberately *not* imported from `state.js`: this module is a leaf (nothing
+ * may import it and it may import nothing, or `ui.js` — which sits below
+ * `state.js` — could not depend on it). Reading `window.CFP_ADMIN_BASE` inline
+ * keeps it a leaf while still not hard-coding the prefix. `state.js` derives the
+ * same value from the same global; there is one source, two readers.
+ */
+const ADMIN_BASE =
+  (typeof window !== "undefined" && window.CFP_ADMIN_BASE) || "/admin";
+
+/**
  * The interface languages the admin offers in its switcher. NOT a hardcoded
  * list: the server owns this fact (`CORE_PACKS` + `CORE_PACK_NAMES` in
  * core-pack.ts) and ships it on every `i18n/messages` response as
@@ -106,7 +118,7 @@ export function cachedMessages() {
  */
 export async function loadMessages() {
   try {
-    const d = await fetch("/api/v1/i18n/messages").then((r) => r.json());
+    const d = await fetch(ADMIN_BASE + "/api/v1/i18n/messages").then((r) => r.json());
     if (d && d.messages && typeof d.messages === "object") {
       setMessages(d.messages, d.locale);
       if (Array.isArray(d.ui_locales)) setUiLanguages(d.ui_locales);
@@ -140,7 +152,7 @@ export async function loadMessages() {
 export async function setUiLocale(loc) {
   let res;
   try {
-    res = await fetch("/api/v1/i18n/ui-locale", {
+    res = await fetch(ADMIN_BASE + "/api/v1/i18n/ui-locale", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ locale: loc }),

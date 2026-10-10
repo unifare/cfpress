@@ -203,7 +203,7 @@ async function main() {
   sqlite.exec(`DELETE FROM posts WHERE slug LIKE '${PREFIX}%' OR id IN (SELECT post_id FROM post_translations WHERE slug LIKE '${PREFIX}%')`);
 
   console.log("\n0. Bootstrap, auth, multilingual site, test theme");
-  const loginRes = await req(worker, env, "/api/v1/auth/login", {
+  const loginRes = await req(worker, env, "/admin/api/v1/auth/login", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: "admin", password: "change-me-now" }),
   });

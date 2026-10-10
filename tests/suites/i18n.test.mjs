@@ -291,7 +291,7 @@ async function main() {
   const caps = snapshotCapabilities(sqlite);
 
   console.log("\n0. Admin bootstrap & auth");
-  const loginRes = await req(worker, env, "/api/v1/auth/login", {
+  const loginRes = await req(worker, env, "/admin/api/v1/auth/login", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: "admin", password: "change-me-now" }),
   });

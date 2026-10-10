@@ -8,7 +8,7 @@ import { unzipSync } from "fflate";
 import { validateManifest } from "./extensions/contract/validation";
 import { CAPABILITIES } from "./extensions/contract/capabilities";
 import { PURGE_ON_SITE_DELETE } from "./extensions/contract/schema";
-import { SETTING_DEFS, getSetting, setSetting, platformSetting, setPlatformSetting, isDeclaredSetting, settingDef } from "./platform/settings";
+import { SETTING_DEFS, getSetting, setSetting, platformSetting, setPlatformSetting, isDeclaredSetting, settingDef, adminPath } from "./platform/settings";
 import { safeZipPath, sha256 } from "./extensions/security";
 import { createRevision, autosave } from "./platform/revisions";
 import { requirePermission, can } from "./platform/permissions";
@@ -1021,11 +1021,9 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   const method = request.method;
 
   if (path === "health" && method === "GET") return ok({ ok: true, version: "0.7.0" });
-  if (path === "auth/login" && method === "POST") {
-    const body = await jsonBody(request);
-    return login(env, String(body.username ?? ""), String(body.password ?? ""));
-  }
-  if (path === "auth/logout" && method === "POST") return logout(env, request);
+  // ⚠️ 登录端点已迁至 `/{admin.path}/api/login`（见 index.ts）——这里是后台唯一
+  // 未鉴权、可被爆破的端点，因此必须与后台前缀一起隐身。旧路径一律 404。
+  if (path === "auth/logout" && method === "POST") return logout(env, request, await adminPath(env));
   if (path === "auth/me" && method === "GET") {
     const user = await currentUser(env, request);
     return user ? ok({ user }) : ok({ user: null }, 401);

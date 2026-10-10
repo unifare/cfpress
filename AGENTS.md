@@ -779,6 +779,31 @@ sidebars）；行为断言在 `admin-contract.test.mjs` §14（scoped CRUD + 三
 禁用不出现 + 异语言不出现 + default 站点小工具不泄漏进本次渲染）；注入场景在
 `_skeleton-inject.mjs`（渲染查询丢 site_id + 模板作用域没有 widgets——两条都是历史形状）。
 
+## 后台前缀是注入的，cookie 被它限定（规则 75）
+
+批次 C 的后台隐身。后台前缀可配（平台级设置 `admin.path`，默认 `/admin`），
+目标是把**整个后台**（SPA + 资产 + API + 登录端点）挪到一个扫描器猜不到的位置。
+三件事各自都可能悄悄失效，因为页面照样渲染、网络面板里的 404 未必有人看：
+
+| 规则 | 说明 |
+|---|---|
+| 75a | **SPA 不得硬编码前缀。** 服务器在 `/admin/index.html` 里把三处 `"/admin/…"` 资产路径重写成当前前缀，并注入 `<script>window.CFP_ADMIN_BASE="…"</script>`；SPA 的 `state.js`、`i18n.js`（leaf，不能 import state.js，故各自读同一个全局）与登录 fetch 全部由它拼 URL。改前缀后 SPA 仍能用，是这个变量的唯一目的 |
+| 75b | **后台 API 整套挂在前缀之下**（`{前缀}/api/…`），不只是登录门。`index.ts` 剥掉前缀后交给 `handleApi`——一份实现、两个前缀（`/api/*` 旧路径仍在，批次 D 才动） |
+| 75c | **旧地址一律 404**，不重定向（重定向把新前缀交给扫描器）。旧 `/admin` 路由、旧 `/admin/*` **资产**、旧 `/api/v1/auth/login` 都要 404——只 404 页面而放行 `/admin/admin.js` 等于留了指路牌 |
+| 75d | **会话 cookie 叫 `cfpress_admin` 且 `Path=<前缀>`**。不用 `cfpress_session`（与批次 D 的 `cfpress_member` 区分）；`Path=/` 会把后台会话带上每个前台请求——验收检查的就是前台响应**不含** `Set-Cookie: cfpress_admin` |
+
+守卫在 `admin-spa.test.mjs`（规则 75 节，**5 条**：源码无裸绝对 URL / shell 仍有 ≥3 个
+`/admin/…` 锚点 / `state.js` 与 `i18n.js` 都读全局 / 运行时每个请求都带前缀）；
+行为断言在 `admin-contract.test.mjs` §0b/§0c（cookie Path 是前缀 / 旧登录 404 / 公开端点不
+Set-Cookie / 连错 6 次 429 / 把 `admin.path` 移到 `/manage` 后新前缀可用且旧前缀连资产全 404）；
+注入场景在 `_skeleton-inject.mjs`（`state.js` 硬编码 `/api/v1/` + cookie `Path=/` +
+cookie 名退回 `cfpress_session`——三条都是历史形状）。
+
+> ⚠️ **写守卫时别在 `//` 行注释里写 `/*`。** `architecture.test.mjs` 的 `blankComments()`
+> 用非贪婪 `/\/\*[\s\S]*?\*\//g` 抹注释，行注释里的一个 `/*` 会一路吞到后文某个 `*/`，
+> **把整段代码抹成空白**，守卫于是报「锚点不存在」——代码是对的，是注释里的字符弄瞎了它。
+> 自查：`(src.match(/\/\*/g)||[]).length === (src.match(/\*\//g)||[]).length`。
+
 ## 守卫失效记录（READ THIS）
 
 `tests/suites/architecture.test.mjs` 自己出过**三次假绿**，都是「检查存在但从不触发」。

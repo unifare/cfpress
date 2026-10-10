@@ -1,9 +1,14 @@
 # 多站点隔离 / 用户隔离 / 后台隐身 / 设置分两级 —— 实施方案（批次 A–F）
 
-> 状态：**批次 A（hosts/域名绑定）与 B（设置分两级）已完成**。
+> 状态：**批次 A（hosts/域名绑定）、B（设置分两级）与 C（后台隐身）已完成**。
 > A：三个域名经 dev server 各自命中 default / shop-demo / de-demo，hosts 改动在标记块内、已自动备份。
 > B：`platform_settings` + `SETTING_DEFS` + 唯一读取阶梯 + 设置屏两栏 + `platform.manage`。
-> 其余批次待做：C 后台隐身（消费 admin.path）→ D 前台会员 → E staff 按站点 → F 收尾。
+> C：`admin.path` 可配（平台级）；整个后台（SPA + 资产 + API + 登录端点）挂前缀之下、旧地址
+> 一律 404（含旧资产与旧登录门）；cookie 改名 `cfpress_admin` 且 `Path=<前缀>`；SPA 全面改读
+> 服务端注入的 `window.CFP_ADMIN_BASE`；登录 per-isolate 限流（5 次 / 60s → 429）。
+> **规则 75**，三处同步；`architecture` 154 / `admin-contract` 105 / `admin-spa` 79 全绿；
+> 真浏览器验收（默认前缀与移到 `/manage` 两种情形）各 5/5。
+> 其余批次待做：D 前台会员 → E staff 按站点 → F 收尾。
 > 原则沿用本仓库既有纪律：每批独立可交付、独立验证、**改完必须 commit**；
 > 新增守卫必须反向验证；规则三处同步；新表必须过 `contract/schema.ts` 两轴分类。
 

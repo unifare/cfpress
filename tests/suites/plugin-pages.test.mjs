@@ -255,7 +255,7 @@ function installPlugin(sqlite, manifest, enabled = 1) {
 
 async function login(worker, env) {
   await req(worker, env, "/api/v1/auth/me");
-  const res = await req(worker, env, "/api/v1/auth/login", {
+  const res = await req(worker, env, "/admin/api/v1/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: "admin", password: "change-me-now" }),

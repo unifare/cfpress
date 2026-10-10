@@ -183,7 +183,7 @@ async function main() {
   sweep();
 
   const login = async (username, password) => {
-    const r = await req(worker, env, "/api/v1/auth/login", {
+    const r = await req(worker, env, "/admin/api/v1/auth/login", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     });
@@ -194,7 +194,7 @@ async function main() {
 
   console.log("1. setup: admin creates the test user, a site and a labelled theme");
   const admin = await login("admin", "change-me-now");
-  checkTruthy("admin logged in", admin.cookie.startsWith("cfpress_session="));
+  checkTruthy("admin logged in", admin.cookie.startsWith("cfpress_admin="));
 
   const mk = await req(worker, env, "/api/v1/users", {
     method: "POST", headers: admin.json,
@@ -211,7 +211,7 @@ async function main() {
   check("theme activated", act.status, 200);
 
   const u = await login("acct-test-user", "acct-test-original-1");
-  checkTruthy("test user logged in", u.cookie.startsWith("cfpress_session="));
+  checkTruthy("test user logged in", u.cookie.startsWith("cfpress_admin="));
 
   console.log("\n2. change password — the current-password gate holds");
   let r = await req(worker, env, "/api/v1/auth/password", {

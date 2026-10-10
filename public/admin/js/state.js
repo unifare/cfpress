@@ -61,8 +61,23 @@ export const state = {
   openGroups: new Set(JSON.parse(localStorage.getItem("cfpress.admin.groups") || "[]")),
 };
 
+/**
+ * The admin prefix, as injected by the server into the shell
+ * (`<script>window.CFP_ADMIN_BASE="/admin"</script>`, see `serveAdminIndex`).
+ *
+ * The prefix is configurable (`admin.path`), so **nothing in the SPA may
+ * hard-code it** — a hard-coded `/admin` works until an operator moves the
+ * admin and then loads a blank page against a prefix that does not exist.
+ * `api()` and the shell's asset URLs are built from this one value.
+ *
+ * The fallback (`"/admin"`) only applies if the shell was somehow loaded
+ * without the injection; it matches the default prefix rather than guessing.
+ */
+export const adminBase =
+  (typeof window !== "undefined" && window.CFP_ADMIN_BASE) || "/admin";
+
 export async function api(path, opts = {}) {
-  const res = await fetch("/api/v1/" + path, opts);
+  const res = await fetch(adminBase + "/api/v1/" + path, opts);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Request failed");
   return data;

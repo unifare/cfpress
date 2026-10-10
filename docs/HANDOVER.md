@@ -275,9 +275,27 @@ x-default）；`/{locale}/feed.xml`；`lang_nav` 切换器进 scope。规则 56�
    也是它一直隐身的理由（**服务出来的语言列表两种情况下完全一样**）。断言因此读**表里的行**。
 5. **规则 76**（三处同步：AGENTS.md + ARCHITECTURE.md §10 + architecture.test.mjs，6 条结构守卫）。
 
-**验证**：`admin-contract` **128/0**（105→128，§16 二十三条）；`architecture` **160/0**
-（154→160，规则 76 节 6 条）；`_skeleton-inject` 新增 3 个历史形状场景（`COUNT` 丢
-`GROUP BY` / 主题改走 `activeTheme()` / 新建站点不播语言行）。
+**验证**：`admin-contract` **133/0**（105→133，§16 二十三条 + §15b 五条）；`architecture` **161/0**
+（154→161，规则 76 节 6 条 + 规则 75b 的 `u.search` 1 条）；`tsc --noEmit` src/ 0 错误；
+`_skeleton-inject` **84 场景 / 0 问题**（新增 4 个历史形状场景：`COUNT` 丢 `GROUP BY` /
+主题改走 `activeTheme()` / 新建站点不播语言行 / **前缀挂载丢 query**）；
+**真浏览器验收** 12/12（站点屏：计数一次请求 + 每行真三元组 + 预览链接按各自前缀/host +
+主题徽标 + 点击切站点上下文跳主题屏 + 无未捕获错误），批次 C 验收回归 5/5。
+
+> ⚠️ **本轮抓到的最有价值的一个缺陷**：`src/index.ts` 把后台 API 挂到前缀下时，重建 URL
+> **只用了 `u.origin`，把 `u.search` 丢了** —— 经前缀进来的请求**所有查询参数全丢**
+> （`?site=`/`?withCounts=1`/`?locale=`/分页），而 `/api/*` 那条因为拿的是原始 request
+> 照常工作。**没有一个请求会报错**：`?site=` 掉了就是「当前站点」= 默认值，于是租户选择器
+> 静默解析到错的站点。单测没抓到（它们自己在带前缀的路径上构造请求），是**真浏览器验收**
+> 里站点屏的计数列空着才暴露的。已修（`+u.search`）并补三层守卫。
+
+> ⚠️ 另一个反复出现的坑：**行注释里写 `/*`**（哪怕只是 `/api/*` 这种通配写法描述）会让
+> `architecture.test.mjs` 的 `blankComments()` 一路吞到后文某个 `*/`，**把整段代码抹成空白**
+> ——本轮在 `src/index.ts` 同一个位置**第二次**触发了它（6 条守卫在正确的代码上变红）。
+> 自查：`(src.match(/\/\*/g)||[]).length === (src.match(/\*\//g)||[]).length`。
+
+> ⚠️ 顺手确认：**不带 `GROUP BY site_id` 的 `COUNT`** 是最像对的错答案——它给出平台总数，
+> 每一行都是个像样的数字，**只有第二个站点存在时**才能看出它错。单站点安装里 100% 假绿。
 
 > ⚠️ 顺手确认：**不带 `GROUP BY site_id` 的 `COUNT`** 是最像对的错答案——它给出平台总数，
 > 每一行都是个像样的数字，**只有第二个站点存在时**才能看出它错。单站点安装里 100% 假绿。
@@ -1212,7 +1230,7 @@ theme-api 站点与主题头可伪造、`?? "default"` 地雷、四处 `|| "en"`
   以证明 `null` 是"没行"而不是"过滤被丢掉"）。
 
 
-## 6. 测试与验证（当前全绿：24 套件 / 1584 条 / 0 失败，另有 `_schema-scope` 26 条 —— 合计 25 项 / 1610 条）
+## 6. 测试与验证（当前全绿：24 套件 / 1590 条 / 0 失败，另有 `_schema-scope` 26 条 —— 合计 25 项 / 1616 条）
 
 ```bash
 npx tsc --noEmit                 # src/ 0 错误（node_modules 里的 lib 冲突是既有的，忽略）
@@ -1221,7 +1239,7 @@ node tests/<name>.test.mjs       # 逐个跑（判据是 0 failures，别把断�
 
 | 套件 | 数量 | 守什么 |
 |---|---|---|
-| architecture | 160 | 分层红线、默认值零容忍、清单声明与文件对齐、语言包 key 前缀、屏幕集合钉住、菜单引用的表存在、已退役表不再被引用、规则 41 分类表四道结构守卫、**规则 49/51 闭集合双表对比**、**规则 52–55 功能开关**、**规则 56–59 多语言与 URL**、**规则 60 媒体读取路径必须晚于站点解析（结构判据）**、**规则 61 块 attrs 契约：解析渲染器每个 case 的 `a.<key>` 读取集合与声明比对 + 控件覆盖每种类型 + `media-list` 必须声明 `itemKeys`**、**规则 62 媒体控件与 `/media/` URL 各只许一处构造**、**规则 63 词典：SPA 的每个 `t("…")` 键都在每个语言包里 + 两包键集相同 + `core.editor.*` 每个键都有调用点**、**规则 64 自动保存定时器只有一处清理路径 + 导航确实调用它**、**规则 65 主题表的 i18n 侧表（记录说什么就让它成真）**、**规则 66 捆绑主题经 assets 分发：`BUNDLED_THEMES` ↔ `content/themes` 对齐、`public/themes` 逐文件逐字节同步、每个消费点都有兜底、上传/卸载守卫**、**规则 69 注册行不等于安装：boot 链先注册后安装 + 判据数行而非戳记 + 判据镜像清理面**、**规则 70 post_meta 读阶梯只许一处定义 + 读者全走阶梯 + 扫描非空**、**规则 71 语言切换是取数不是改名：版本条必须带语言重新取数 + 禁改名形状 + 列表钉站点默认语言**、**规则 72 拒绝必须带出口：卸载拒绝以 force 为条件 + 强制路径先把占用站点改回捆绑默认主题**、**规则 73 菜单位置确定性：查找 ORDER BY + 渲染读 manifest 位置 + 内置主题声明 menuLocations + SPA 走 scoped**、**规则 74 小工具站点隔离：渲染查询带 site_id + buildScope 喂 widgets 进作用域 + 后台列表同样 scoped + 契约 tenant=site + 内置主题声明 sidebars**、**规则 75 后台前缀是注入的：serveAdminIndex 注入 base + API 整套挂前缀 + 旧地址 404 + cookie Path 是前缀**、**规则 76 站点计数按 site_id 分组 + 主题读站点自己的 theme.active + createSite 播语言行**、**编辑器块面板来自 `CORE_BLOCKS`（SPA 禁块名字面量）**、**Dashboard 统计卡来自 API（禁 stat 硬编码）**、**声明式设置表单 13 类型逐个有渲染分支**、**元守卫：`check()` 条件非布尔即抛错 + 禁"集合当条件" + 禁"字面量当条件"** |
+| architecture | 161 | 分层红线、默认值零容忍、清单声明与文件对齐、语言包 key 前缀、屏幕集合钉住、菜单引用的表存在、已退役表不再被引用、规则 41 分类表四道结构守卫、**规则 49/51 闭集合双表对比**、**规则 52–55 功能开关**、**规则 56–59 多语言与 URL**、**规则 60 媒体读取路径必须晚于站点解析（结构判据）**、**规则 61 块 attrs 契约：解析渲染器每个 case 的 `a.<key>` 读取集合与声明比对 + 控件覆盖每种类型 + `media-list` 必须声明 `itemKeys`**、**规则 62 媒体控件与 `/media/` URL 各只许一处构造**、**规则 63 词典：SPA 的每个 `t("…")` 键都在每个语言包里 + 两包键集相同 + `core.editor.*` 每个键都有调用点**、**规则 64 自动保存定时器只有一处清理路径 + 导航确实调用它**、**规则 65 主题表的 i18n 侧表（记录说什么就让它成真）**、**规则 66 捆绑主题经 assets 分发：`BUNDLED_THEMES` ↔ `content/themes` 对齐、`public/themes` 逐文件逐字节同步、每个消费点都有兜底、上传/卸载守卫**、**规则 69 注册行不等于安装：boot 链先注册后安装 + 判据数行而非戳记 + 判据镜像清理面**、**规则 70 post_meta 读阶梯只许一处定义 + 读者全走阶梯 + 扫描非空**、**规则 71 语言切换是取数不是改名：版本条必须带语言重新取数 + 禁改名形状 + 列表钉站点默认语言**、**规则 72 拒绝必须带出口：卸载拒绝以 force 为条件 + 强制路径先把占用站点改回捆绑默认主题**、**规则 73 菜单位置确定性：查找 ORDER BY + 渲染读 manifest 位置 + 内置主题声明 menuLocations + SPA 走 scoped**、**规则 74 小工具站点隔离：渲染查询带 site_id + buildScope 喂 widgets 进作用域 + 后台列表同样 scoped + 契约 tenant=site + 内置主题声明 sidebars**、**规则 75 后台前缀是注入的：serveAdminIndex 注入 base + API 整套挂前缀 + 旧地址 404 + cookie Path 是前缀**、**规则 76 站点计数按 site_id 分组 + 主题读站点自己的 theme.active + createSite 播语言行**、**编辑器块面板来自 `CORE_BLOCKS`（SPA 禁块名字面量）**、**Dashboard 统计卡来自 API（禁 stat 硬编码）**、**声明式设置表单 13 类型逐个有渲染分支**、**元守卫：`check()` 条件非布尔即抛错 + 禁"集合当条件" + 禁"字面量当条件"** |
 | _schema-scope | 26 | 迁移流应用到临时 SQLite，逐表检验「声明 vs 真实列」一致（租户 + 语言维度） |
 | manifest-validation | 104 | 安装边界：每个用例注入单个缺陷，断言必须抛错（含内联语言包、菜单 args、**规则 48–51**、规则 41 双向） |
 | admin-menus | 43 | 注册表 schema / `menuRowId` 防碰撞 / 归属隔离 / 排序 / 能力过滤 / 主题与插件注册 / 停用插件只删自己的菜单 / 新站点可见 / 切主题切回 |
@@ -1234,7 +1252,7 @@ node tests/<name>.test.mjs       # 逐个跑（判据是 0 failures，别把断�
 | theme-default | 53 | default 主题（墨白 MOBAI）：模板真渲染 + head 的 SEO 契约（canonical/og/hreflang/feed）+ 语言包键完整性 |
 | multisite | 100 | 多站点隔离（含 SEO 端点按站点、**§9 断言关掉 KV 镜像后确实没有 KV 写入**、**feed 按站点 + RSS 断言**） |
 | i18n | 75 | 多语言四层契约（§5.4① 八条）+ 翻译组 + 主题自有表 |
-| admin-contract | 128 | 后台 API 契约（含块面板形状/无漂移/en+zh 标签、**调色板下发的 attrs 契约（类型/必填/翻译标签/`itemKeys`/容器标记）**、dashboard cards 数组、设置 options 往返、**§12 列表按站点默认语言取代表行 + `locales` 集合 + `?locale=` 过滤 + 未翻译行不被吞**、**§13 菜单契约：CRUD + 批量重排先验归属 + 嵌套一层 + 删父升级子 + 跨站点 404**、**§14 小工具契约：scoped CRUD + config 校验 400 + 跨站 404**、**§16 站点计数契约：行级语言种子 + 每站计数含草稿 + 邻站计数是它自己的 + 空站报 0 + 主题读选择/未选报空 + 不带 withCounts 无新字段 + 非当前站点的默认语言可钉**） |
+| admin-contract | 133 | 后台 API 契约（含块面板形状/无漂移/en+zh 标签、**调色板下发的 attrs 契约（类型/必填/翻译标签/`itemKeys`/容器标记）**、dashboard cards 数组、设置 options 往返、**§12 列表按站点默认语言取代表行 + `locales` 集合 + `?locale=` 过滤 + 未翻译行不被吞**、**§13 菜单契约：CRUD + 批量重排先验归属 + 嵌套一层 + 删父升级子 + 跨站点 404**、**§14 小工具契约：scoped CRUD + config 校验 400 + 跨站 404**、**§15b 前缀挂载带全量请求：经前缀的 `?site=` 真的改变答案 + `?withCounts=1` 真的改变 payload 形状 + 分页参数到达**、**§16 站点计数契约：行级语言种子 + 每站计数含草稿 + 邻站计数是它自己的 + 空站报 0 + 主题读选择/未选报空 + 不带 withCounts 无新字段 + 非当前站点的默认语言可钉**） |
 | **media-picker** | **31** | **统一媒体控件（批次 16 Track A3 新增）**：`mediaUrl()` 的形状与**能被读取路径解回同一个 key** / `mediaItem()` 归一化（`media_files` 行与已存值两种输入、垃圾输入拒绝）/ 坏 payload 不炸对话框 / 控件的单值与多值两种形态 + 调用方寻址透传 + 转义 / **闭环：选择器给的 URL，真实渲染器画得出图片与画廊** / 三个消费点都走共享控件 |
 | **editor-blocks** | **40** | **块 attrs 契约的往返（批次 16 Track B1 新增）**：契约良构（类型闭集合/标签/`itemKeys`）+ **契约 → 控件 → 写入的属性键 → 真实渲染器 markup** 的往返 + `required` 的语义（无 url 的图片渲染空）+ 嵌套寻址（子块按路径写入、父块不被穿透）+ **§8 反向对照**（按旧编辑器形状构造的图片/画廊/HTML 块必须渲染为空） |
 | **media** | **69** | **媒体访问（批次 16 Track 0 新增）**：租户闸门（跨站 key → 404）/ 会话闸门 / **owner 硬隔离（含管理员）** / legacy `uploaded_by IS NULL` 的祖父条款 / 上传写归属 + 站点必须真实存在 / 列表按 owner 收窄 + `q`/`type`/分页/`total` / dashboard 媒体卡与列表 total 一致 / PATCH alt·title（非 owner 403、无 `media.write` 403、别站 id 404）/ **DELETE 先删 R2 对象再删行** / 脏策略行 fail-closed / **站点列表 memo 的 per-request 复位**（§1：先发前台请求 → 再建站点 → 再请求它） |
@@ -1311,8 +1329,14 @@ npx wrangler dev --port 47913 --ip 127.0.0.1     # 另开一个 shell
 node tests/tools/_i18n-browser.cjs                     # 多语言：39 条断言（含 §7 编辑器界面语言、§8 界面语言开关）
 node tests/tools/_admin-menus-browser.cjs              # 菜单与生成式屏幕：31 条断言
 node tests/tools/_media-picker-browser.cjs             # 媒体控件 + 媒体屏：34 条断言（批次 16 A3/A4）
+node tests/tools/_sites-screen-browser.cjs             # 站点屏：计一次请求 + 每行真三元组 + 预览链接按各自前缀 + 主题徽标跳转（批次 28）
 node .wrangler/eshop-verify.cjs                  # eshop 全链路 + 批次 5 新功能：47 条断言
 ```
+
+⚠️ 站点屏脚本还**故意用一个 404 换一个真相**：`page.on("request")` 收集 `/api/` 路径的
+查询串，因此「计数只发了一次请求」是**观察出来的**而不是数出来的（见下方坑位：这也是
+唯一能照出「前缀挂载丢 query」的地方）。查路径时用 `startsWith`，不要用 `===`——SPA
+还会请求 `/admin/api/v1/site/logo`，那是另一个 404 噪音源，会让「零未捕获错误」这条假红。
 
 ⚠️ **`_media-picker-browser.cjs` 的 API 调用必须走页面自己的 `fetch`**（见坑位 43）——
 用 `context.request` 会 401，因为会话 cookie 是 `Secure` 而 Playwright 的请求上下文
@@ -1787,6 +1811,7 @@ markup 用内联 `onclick="name(...)"`，浏览器解析在 `window` 上、不�
 | `public/admin/js/media-picker.js` | **媒体控件的唯一定义**（规则 62）：`mediaUrl()`（唯一构造 `/media/<key>`）/ `mediaItem()` 归一化 / `mediaFieldHtml()`（唯一控件标记）/ `openMediaPicker()`（搜索 + 网格 + 上传 + 单选多选）——块属性、自定义字段、扩展设置三处共用 |
 | `tests/suites/media-picker.test.mjs` | 上者的契约：URL 形状与读取路径一致 + 归一化 + 控件形态 + **"选择器给的 URL，真实渲染器画得出来"的闭环** + 三个消费点都走共享控件 |
 | `tests/tools/_media-picker-browser.cjs` | 上者的**真浏览器**验收（25 条，自清理可重复）：登录 → 加图片块 → 对话框内上传 → 选中 → 落值 → **保存后确认写在 `url` 而非 `text`** → 会话/匿名两种读取 → 取消路径 |
+| `tests/tools/_sites-screen-browser.cjs` | **站点屏的真浏览器**验收（批次 28，自清理可重复）：经 API 建一个带前缀的夹具站点（**故意走 API**，因为语言行种子正是本批次修的，手写行会把它藏起来）→ 断言计数**只发一次**请求、每行是真三元组、预览链接来自**该站点自己**的 prefix/host、主题徽标点进主题屏 → 删站点并确认已消失。**它是唯一照出「前缀挂载丢 query」的地方** |
 | `docs/design/MEDIA-EDITOR-PLAN.md` | 批次 16 的四轨道拆分（**Track 0 / B1 / A3 已实现，A4 / B3 / B4 / B5 未实现**）——含已拍板的媒体语义与编辑器缺陷清单 |
 | `tests/tools/_i18n-browser.cjs` | 多语言后台的真实浏览器验收（**29 条**，自清理，可重复跑）：语言开关 / 编辑器语言版本条 / **§7 编辑器界面语言**（切 zh-CN 断言中文标签、无英文残留、**option 值仍是标识符**） |
 | `tests/tools/_admin-menus-browser.cjs` | 菜单 + 生成式屏幕的真实浏览器验收（31 条，自清理，可重复跑） |

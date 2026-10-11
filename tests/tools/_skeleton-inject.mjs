@@ -1385,6 +1385,56 @@ const SCENARIOS = [
     // a miss.
     runs: [["tests/suites/theme-bundled.test.mjs", "prism: templates/parts/header.html names the signed-in reader"]],
   },
+  // --- my posts is the reader's and only the reader's (rule 82) -------------
+  {
+    // The site-blind spelling, and the one that looks *cleaner* than the fix:
+    // a member id is unique per site, so `WHERE author_member_id=?` reads as
+    // sufficient — "why also filter the site?" The answer is rule 6: the query
+    // is correct only by a coincidence of today's id space, and a future
+    // migration that globalises member ids turns it into cross-site leakage
+    // with nothing to notice. Rule 82a must go red on the pair losing its site.
+    label: "the member-posts query drops its site filter",
+    file: join(ROOT, "src/extensions/theme/runtime-declarative.ts"),
+    before: ["      WHERE p.site_id = ? AND p.author_member_id = ? AND t.locale = ?"],
+    after: ["      WHERE p.author_member_id = ? AND t.locale = ?"],
+    runs: [["tests/suites/architecture.test.mjs", "the member-posts query filters on the site AND the member (rule 82a)"]],
+  },
+  {
+    // "Consistency with the listing": the author's own page is made to filter
+    // to published, matching every public listing. The page still renders, the
+    // status badge still prints — it just prints `published` on every row, so
+    // the author can no longer see their own drafts. Rule 82b is the guard that
+    // notices the list stopped being *theirs* and became the public one.
+    label: "the member-posts query filters to published like the public listing",
+    file: join(ROOT, "src/extensions/theme/runtime-declarative.ts"),
+    before: ["      WHERE p.site_id = ? AND p.author_member_id = ? AND t.locale = ?"],
+    after: ["      WHERE p.site_id = ? AND p.author_member_id = ? AND t.locale = ? AND p.status = 'published'"],
+    runs: [["tests/suites/architecture.test.mjs", "the member-posts query does not filter to published (rule 82b)"]],
+  },
+  {
+    // Reusing the route's own base to build item URLs — the natural refactor
+    // once `memberPosts` is folded into the shared listing helper. The account
+    // page is served under `/account`, so every link becomes
+    // `/account/<slug>` and 404s on click. HTTP stays 200 on the *account*
+    // page, which is why only a guard on the constructed URL catches it.
+    label: "member-post links are built from the account route's base",
+    file: join(ROOT, "src/extensions/theme/runtime-declarative.ts"),
+    before: ["    it.url = `/${locale}/blog/${it.slug}`;"],
+    after: ["    it.url = `/${locale}/account/${it.slug}`;"],
+    runs: [["tests/suites/architecture.test.mjs", "member-post links use the built-in blog permalink (rule 82c)"]],
+  },
+  {
+    // The signed-out branch lost: `my_posts` is built unconditionally, so an
+    // anonymous visitor to `/account` gets an empty array instead of *nothing*.
+    // The template's `{{#if member}}` still holds the page together, but a
+    // template that guarded only on `{{#if my_posts}}` would now render a
+    // "0 articles" header over an empty list instead of the sign-in prompt.
+    label: "my_posts is built even without a member",
+    file: join(ROOT, "src/extensions/theme/runtime-declarative.ts"),
+    before: ["  const myPosts = memberRow ? await memberPosts(env, siteId, memberRow.id, o.locale) : null;"],
+    after: ["  const myPosts = await memberPosts(env, siteId, memberRow?.id ?? \"\", o.locale);"],
+    runs: [["tests/suites/architecture.test.mjs", "buildScope only builds my_posts for a signed-in member (rule 82d)"]],
+  },
 ];
 
 /** Every file any scenario may touch, hashed before and after. */

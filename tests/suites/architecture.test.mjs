@@ -2936,6 +2936,91 @@ section("Templates see a projection, not a row (rule 81)");
 }
 
 // ---------------------------------------------------------------------------
+section("My posts is the reader's, and only the reader's (rule 82)");
+// ---------------------------------------------------------------------------
+
+/**
+ * `{{#each my_posts as post}}` on the account page is the one listing that is
+ * built from an **identity** rather than from a route: the posts of the member
+ * who is signed in. Three ways it can quietly answer the wrong question, each
+ * of which renders a plausible page:
+ *
+ * 1. **Site-blind.** A member id is unique per site *today*, so
+ *    `WHERE author_member_id=?` happens to be unambiguous — and that is exactly
+ *    the coincidence §10 rule 6 forbids leaning on. Add one migration that
+ *    makes member ids global and the query starts returning another site's
+ *    posts, silently. The WHERE must carry **both** `site_id` and
+ *    `author_member_id`; migration 0024 documents the pair as the invariant.
+ *
+ * 2. **Published-only.** The account template prints `<span class="badge">`
+ *    with `{{post.status}}`. If the query filtered to `published`, that badge
+ *    would render the same word on every row — decoration, not information. An
+ *    author must see their drafts; the *public* listing is the one that hides
+ *    them.
+ *
+ * 3. **Linked through the current route.** The account page is served under
+ *    `/account`, so reusing the route base to build item URLs points every
+ *    post at `/account/<slug>` and 404s on click. The URL must be the built-in
+ *    permalink (`/{locale}/blog/{slug}`).
+ *
+ * These are lexical for the same reason rule 81 is: no suite here drives the
+ * real `buildScope`. Each is written against the **defect shape** — the point
+ * is to go red when the guarantee is dropped, not to confirm the current line
+ * exists.
+ */
+{
+  const rdSrc = blankComments(read(join(ROOT, "src", "extensions", "theme", "runtime-declarative.ts")));
+
+  // Slice the function body rather than scanning the file: `site_id = ?` and
+  // `author_member_id` both appear elsewhere (every listing filters the site),
+  // so a whole-file scan would agree with code that never carried the pair.
+  const fnStart = rdSrc.indexOf("async function memberPosts");
+  const fnEnd = rdSrc.indexOf("async function attachMeta", fnStart);
+  const fn = fnStart >= 0 ? rdSrc.slice(fnStart, fnEnd > 0 ? fnEnd : fnStart + 2000) : "";
+
+  check("the member-posts reader exists (rule 82, non-vacuity)", fn.length > 200);
+
+  // 1. Both columns in the WHERE, in the same statement. Reading the two
+  //    `bind`s is not enough — a bind can be passed out of order or the column
+  //    dropped — so anchor on the predicate text itself.
+  check(
+    "the member-posts query filters on the site AND the member (rule 82a)",
+    /p\.site_id\s*=\s*\?/.test(fn) && /p\.author_member_id\s*=\s*\?/.test(fn),
+    "both `p.site_id = ?` and `p.author_member_id = ?` must appear in the WHERE"
+  );
+
+  // 2. No status filter. The defect is a `status = 'published'` creeping in
+  //    "for consistency with the listing"; assert its absence in this reader.
+  check(
+    "the member-posts query does not filter to published (rule 82b)",
+    !/status\s*=\s*'published'/.test(fn) && !/status\s*=\s*\?/.test(fn),
+    "an author's own list must show drafts, not just live rows"
+  );
+
+  // 3. The link is the built-in permalink, not the current route's base. Anchor
+  //    on the constructed URL so a later refactor to `itemUrl(...)` (which
+  //    would pick up `/account`) goes red.
+  check(
+    "member-post links use the built-in blog permalink (rule 82c)",
+    /it\.url\s*=\s*`\/\$\{locale\}\/blog\/\$\{it\.slug\}`/.test(fn),
+    "a post link must be `/{locale}/blog/{slug}`, never built from the /account route"
+  );
+
+  // 4. Absent, not an empty array, with no member. `buildScope` must not
+  //    compute `my_posts` unless there is a member row — otherwise a signed-out
+  //    visitor renders a "0 articles" header over an empty list instead of the
+  //    signed-out branch.
+  check(
+    "buildScope only builds my_posts for a signed-in member (rule 82d)",
+    /const myPosts\s*=\s*memberRow\s*\?\s*await memberPosts\(/.test(rdSrc)
+  );
+  check(
+    "my_posts is spread in only when present (rule 82d)",
+    /\.\.\.\(myPosts\s*\?\s*\{\s*my_posts:\s*myPosts\s*\}\s*:\s*\{\}\)/.test(rdSrc)
+  );
+}
+
+// ---------------------------------------------------------------------------
 section("This suite's own assertions can actually fail (meta-guard)");
 // ---------------------------------------------------------------------------
 

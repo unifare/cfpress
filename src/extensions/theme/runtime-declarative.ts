@@ -306,15 +306,81 @@ export async function runThemeQuery(
   const rows = await env.DB.prepare(sql).bind(...binds).all();
   const items = (rows.results as any[]) ?? [];
   await attachMeta(env, items, locale, await defaultLocale(env, siteId));
-  // Listings carry a print-ready date, a cover and a reading time, like single
-  // objects do — a route-based archive should not be the one page where they
-  // are missing. All three derive from data already in the row: `attachMeta`
-  // has just rendered `html`, so the reading time is a string scan on that,
-  // not another render pass.
+  deriveListingFields(items, locale);
+  return items as QueryRow[];
+}
+
+/**
+ * The three fields every listing card shows, derived from the row it already
+ * has.
+ *
+ * One definition, two readers (`runThemeQuery` for anything a route lists,
+ * `memberPosts` for the account screen): a route-based archive should not be
+ * the one page where a cover is missing, and "my posts" should not be the one
+ * where the reading time is. `attachMeta` has just rendered `html`, so the
+ * reading time is a string scan on that, not a second render pass.
+ *
+ * Deliberately does **not** set `url`: that is the one field the two callers
+ * disagree about. A listing is linked through its route's base; a member's own
+ * posts are linked through the built-in permalink, because the account page is
+ * not where they live.
+ */
+function deriveListingFields(items: any[], locale: string): void {
   for (const it of items) {
     it.date_display = formatDate(it.created_at, locale);
     it.cover = coverFrom(it.content);
     it.reading_time = readingTime(String(it.html ?? ""), 220, locale);
+  }
+}
+
+/**
+ * A member's own posts, for the account screen.
+ *
+ * Three things make this *not* just `runThemeQuery` with an extra filter, and
+ * each is a way the naive version silently answers the wrong question:
+ *
+ * 1. **Every status, not just `published`.** A member opens their account to
+ *    see what they have written, and most of it is not live yet. The template
+ *    prints a status badge (`{{post.status}}`) — a query that filtered to
+ *    `published` would make that badge a constant, i.e. decoration. So this
+ *    reads drafts and pending rows too. (The *public* listing is the one that
+ *    filters to `published`; that is `runThemeQuery`.)
+ *
+ * 2. **`site_id` AND `author_member_id`, never the id alone.** A member id is
+ *    unique per site, so `author_member_id=?` *happens* to be unambiguous
+ *    today — which is exactly the coincidence rule 6 forbids relying on. If a
+ *    future migration ever makes member ids global, the site-blind query would
+ *    start returning another site's posts, and nothing would notice. Match on
+ *    both, the way migration 0024 documents.
+ *
+ * 3. **One row per post, in this language only.** The join is the translation
+ *    row for the locale being rendered, so a member who wrote a post in both
+ *    languages sees it once — in the language they are reading the account
+ *    page in — not twice.
+ *
+ * The `url` is built from the **built-in post permalink** (`/{locale}/blog/…`),
+ * deliberately *not* from the route this page is served under. The account page
+ * lives at `/account`, so reusing the route base would link every post to
+ * `/account/<slug>` and 404 on click — the caller passes the rule in rather
+ * than the callee reaching for `scope`.
+ */
+async function memberPosts(env: Env, siteId: string, memberId: string, locale: string): Promise<QueryRow[]> {
+  const rows = await env.DB.prepare(
+    `SELECT p.id, p.slug AS slug_default, COALESCE(t.slug, p.slug) AS slug, p.type, p.status,
+            p.created_at, p.updated_at, t.locale, t.title, t.excerpt, t.content
+       FROM posts p JOIN post_translations t ON t.post_id = p.id
+      WHERE p.site_id = ? AND p.author_member_id = ? AND t.locale = ?
+      ORDER BY p.created_at DESC`
+  )
+    .bind(siteId, memberId, locale)
+    .all();
+  const items = (rows.results as any[]) ?? [];
+  await attachMeta(env, items, locale, await defaultLocale(env, siteId));
+  deriveListingFields(items, locale);
+  for (const it of items) {
+    // The built-in permalink, not the current route's base. A member's post
+    // always lives at `/{locale}/blog/{slug}` regardless of which page lists it.
+    it.url = `/${locale}/blog/${it.slug}`;
   }
   return items as QueryRow[];
 }
@@ -522,6 +588,16 @@ export async function buildScope(
   // and printed a blank name, silently — see the comment on `memberScope`.
   const memberRow = o.request ? await currentMember(env, o.request, siteId) : null;
   const member = memberRow ? memberScope(memberRow) : null;
+  // The signed-in member's own posts, for `{{#each my_posts as post}}`.
+  //
+  // Only fetched when there *is* a member: the account template guards the
+  // whole block with `{{#if member}}`, and a signed-out visitor has no posts by
+  // definition. Skipping the query keeps an anonymous hit on `/account` as
+  // cheap as it was, and — more importantly — means `my_posts` is **absent**
+  // rather than an empty array, so a template that forgot the `{{#if member}}`
+  // guard falls through its `{{else}}` branch instead of rendering a "0
+  // articles" header over an empty list.
+  const myPosts = memberRow ? await memberPosts(env, siteId, memberRow.id, o.locale) : null;
   await hooks.boot(env);
   try {
     await hooks.doAction("beforeRender", { env, siteId }, { siteId, locale: o.locale, path: o.path, kind: o.kind, scope: extra });
@@ -565,6 +641,11 @@ export async function buildScope(
     // forge, and a theme reads `{{#if member}}` to decide between "sign in" and
     // the account menu.
     member,
+    // The same member's own posts, or **absent** when there is no member (see
+    // the note where it is computed). Not part of `extra` because it is derived
+    // from an identity the platform resolved, not from anything a caller may
+    // pass in — a plugin must not be able to point "my posts" at someone else.
+    ...(myPosts ? { my_posts: myPosts } : {}),
     lang_nav: langNavRows.length > 1 ? langNavRows : [],
     theme: { name: theme.name, version: theme.version, title: theme.manifest.title, strings },
     ...extra,

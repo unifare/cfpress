@@ -1,6 +1,17 @@
 # CFPress (CFCMS) 交接文档
 
-> 更新时间：2026-10-11 (GMT+8) ｜ 交接基线：**AUTH 批次 F —— 契约与守卫收尾（规则 80）+ `user-delete` 行为套件**
+> 更新时间：2026-10-11 (GMT+8) ｜ 交接基线：**阶段二 —— `my_posts` 接线（规则 82）+ prism 主题改名收尾**
+> **本轮新增**：`buildScope` 新增 `my_posts`（只在有 `member` 时建，**缺席而非空数组**）——按
+> `site_id` **AND** `author_member_id` 查（迁移 0024 的成对不变式），**不滤状态**（作者必须看见自己的
+> 草稿，否则模板上的 `{{post.status}}` 徽标是常量＝装饰），链接走**内置 permalink**
+> `/{locale}/blog/{slug}`（**不是** `/account` 路由 base，否则全 404）。顺带把列表派生三字段
+> （`date_display`/`cover`/`reading_time`）抽成 `deriveListingFields` **一处定义两处调用**——
+> 起因是 `_skeleton-inject` 报 `anchor appears 2x`，即重复正是守卫看得见的形状。
+> 新增**规则 82**（a 站点成对过滤 / b 不滤状态 / c 内置 permalink / d 无会员即缺席）+ 注入 4 场景，
+> **逐条确认 went red**；`_skeleton-inject` **106 场景 / 0 问题**；`architecture` **220/0**。
+> ⚠️ 实测提醒：`_skeleton-inject` 的 post-restore 会跑共享本地 D1 的套件，**会把 `theme.active`
+> 打回 `default`** —— 注入器跑完要重新激活主题再截图/验收，否则前台全是 default 主题（会误判成回归）。
+> 上一条交接基线：**AUTH 批次 F —— 契约与守卫收尾（规则 80）+ `user-delete` 行为套件**
 > （本仓库同时有两份活动计划：`docs/MENUS-WIDGETS-SITES-PLAN.md`（批次 26–28，**26/27/28 全部完成**）
 > 与 `docs/AUTH-ISOLATION-PLAN.md`（批次 A–F，**A/B/C/D/E/F 全部完成**）。两套编号**互相独立**，勿混。
 > 批次 F：`CHANGE-CONTRACT.md` 新增**三个维度**（18 前台/后台分离、19 后台前缀隐身、20 每站点角色）
@@ -394,6 +405,34 @@ editor 打 `GET users` → 403，即这条约束在 UI 侧也成立。
 （新语句已写）；`tsc --noEmit` src/ 0 错误。
 
 **基线**：**24 套件 / 1718 条 + `_schema-scope` 26 = 1744 条 / 0 失败**；`tsc` src/ 0 错误。
+
+**规则 82（我的文章是读者的，且只是读者的）—— ✅ 本轮完成（2026-10-11，阶段二）**
+
+`account.html` 上的 `{{#each my_posts as post}}` 是唯一一个由**身份**（而非路由）决定的列表。
+三种"悄悄答错"的写法都能渲染出看起来合理的页面：
+
+- **a 站点盲**：member id 今天按站点唯一，所以 `WHERE author_member_id=?` 读起来**够用**——
+  而这正是 §10 规则 6 不许依赖的巧合。将来任何一个让 member id 全局化的迁移，都会把这条查询
+  变成**跨站泄漏**，且无人察觉。WHERE 必须**同时**带 `site_id` 与 `author_member_id`
+  （迁移 0024 把这一对写成不变式）。
+- **b 只读已发布**：模板打印 `<span class="badge">{{post.status}}</span>`。查询若滤 `published`，
+  这个徽标每一行都是同一个词——**装饰，不是信息**。作者必须看见自己的草稿；藏起来的是*公开*列表。
+- **c 用当前路由拼接**：账户页挂在 `/account` 下，复用路由 base 会把每篇指向 `/account/<slug>`
+  并在点击时 404。链接必须是内置 permalink `/{locale}/blog/{slug}`。
+- **d 无会员也建**：`my_posts` 必须在没有 member 行时**缺席**（不是空数组）——否则只看
+  `{{#if my_posts}}` 的模板会在空列表上渲染出"0 篇"表头，而不是登录引导。
+
+**验证**：`architecture` **214→220/0**（规则 82 节 6 条：非空性 + a/b/c + d 两条）；
+`_skeleton-inject` **102→106 场景 / 0 问题**，4 个新场景**逐条确认 went red**（a 去掉 site 过滤 /
+b 加 published / c 换成 `/account` base / d 无会员也建）；`tsc --noEmit` src/ 0 错误；
+端到端实测（真 dev server + 真 D1）：草稿与已发布都显示、徽标有区分度、链接是内置 permalink、
+`/en/account` 用英文自己的 slug（规则 58）、另一会员**零泄漏**并显示空状态、未登录走 signed-out 分支。
+
+**顺带修（由守卫报出）**：`memberPosts` 第一版复制了列表的三行派生
+（`it.reading_time = readingTime(...)` 等），`_skeleton-inject` 立刻报
+`anchor appears 2x (need 1)`——**重复正是守卫看得见的形状**。把三字段抽成
+`deriveListingFields(items, locale)`，`runThemeQuery` 与 `memberPosts` **一处定义两处调用**
+（`url` 刻意不在其中：两个调用方对它意见不同，列表走路由 base、我的文章走内置 permalink）。
 
 **`user-delete` 套件（批次 F 的行为验证）—— ✅ 本轮完成（2026-10-11）**
 

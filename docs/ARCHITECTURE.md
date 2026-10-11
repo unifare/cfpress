@@ -2707,6 +2707,12 @@ bug 升一层。
 
 | 15 | **屏幕渲染守卫喂进去的数据** | `admin-spa.test.mjs`「每个注册页面都真渲染一遍」的桩 `fetch` 对所有列表统一回 `{items: []}` | 屏幕的**行渲染代码从不执行**，于是菜单屏少 import 的 `attr` 在 `.map((m) => attr(m.id))` 里永远走不到——浏览器一打开菜单页就 `attr is not defined`，而套件 63/0 全绿。**断言是对的、集合非空、控制流也走到了**：是喂进去的输入让屏幕退化成静态骨架，而骨架恰好不需要那些标识符 | 桩的默认 GET 改成**一行真实形状的记录**（`{...probeItem, items: [probeItem]}`，注意展开顺序——`probeItem` 自带空 `items`，放后面会把这一行又抹掉）；"渲染了错误面板"的失败信息**带上屏幕自己的报错文本**。反向验证：撤掉 `attr` 的 import，该条立刻红 |
 | 16 | **主题套件的 fixture 与扫描范围** | `theme-default.test.mjs` §8b 手写 `member` fixture 为 `display_name`；新套件第一版只扫 `templates/` | 运行时交给模板的是 `publicMember` 的 **camelCase `displayName`**，于是 `{{member.display_name}}` 在线上渲染成**空**（`default` 主题 `login.html`/`register.html`/`parts/header.html` 三处），而套件 66/0 全绿——**fixture 编造了运行时永不产出的形状**。范围那一半：出问题的行在 `parts/header.html`，把 camelCase 注进它，只扫 templates 的套件仍 **100/0** | ① 投影在产品代码里收成**一处**（`memberScope()`，规则 81）；② **fixture 由那个真函数生成**（import 边代替人的记忆）；③ 套件把 **parts 当一等渲染目标**，两种登录状态各渲染一遍 |
+| 17 | **注入场景的锚点被复制品弄得不唯一** | `_skeleton-inject` 的既有场景 `listings stop deriving a reading time` 用 `it.reading_time = readingTime(...)` 当锚点（`appears 1x` 是当时的事实） | 新增 `memberPosts`（规则 82）第一版**照抄**了列表的三行派生 → 同一行在文件里出现 2 次 → 注入器不再"注入一个缺陷"，它会同时改两处，且报 `anchor appears 2x (need 1)`。**这次红得对且被读成了工具问题**——但同一个形状在没有 `appears Nx` 检查的工具里就会静默地注入错地方 | ① 抽取 `deriveListingFields()`，**一处定义两处调用**（重复正是守卫看得见的形状，修掉重复比放宽锚点正确）；② 工具对多命中**直接判无效**而不是取第一个——`appears 2x` 这一条本身就是守卫，别把它当噪音 |
+
+**教训**：文本匹配容易被"同一意图的另一种写法"绕过（前两行），
+而**对空集合的检查等于没有检查**（第三行）。凡是要守卫结构，就解析结构
+（路径、AST、类型），别匹配字符串；凡是守卫集合，先确认集合非空。
+**每次新增守卫，都要注入一次违规确认它会红。**
 
 ### 十六种假绿的**共同盲区**（比十六条记录本身更重要）
 

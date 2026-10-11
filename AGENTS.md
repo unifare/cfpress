@@ -979,6 +979,30 @@ Set-Cookie / 连错 6 次 429 / 把 `admin.path` 移到 `/manage` 后新前缀�
 注入场景在 `_skeleton-inject.mjs`（`buildScope` 绕过投影 / `memberScope` 丢 `display_name` /
 part 里写成 camelCase——三条）。
 
+## 我的文章是读者的，且只是读者的（规则 82）
+
+`account.html` 上 `{{#each my_posts as post}}` 是全库唯一一个**由身份而非路由**决定的列表。
+`buildScope` 只在有 `member` 时建它（**缺席，不是空数组**——否则只看 `{{#if my_posts}}` 的模板
+会在空列表上渲染"0 篇"表头，而不是登录引导）。
+
+| 规则 | 说明 |
+|---|---|
+| 82a | **查询同时过滤 `site_id` 与 `author_member_id`。** member id 今天**按站点唯一**，所以 `WHERE author_member_id=?` 读起来"够用"——而这正是 §10 规则 6 不许依赖的**巧合**。任何让 member id 全局化的迁移都会把它变成**跨站泄漏**且无人察觉。迁移 0024 把这一对写成不变式 |
+| 82b | **不滤状态。** 模板打印 `<span class="badge">{{post.status}}</span>`；查询若滤 `published`，这个徽标每行都是同一个词——**装饰，不是信息**。作者必须看见自己的草稿；藏起来的是*公开*列表（那才是 `runThemeQuery`） |
+| 82c | **链接是内置 permalink `/{locale}/blog/{slug}`，不是当前路由 base。** 账户页挂在 `/account` 下，复用路由 base 会把每篇指向 `/account/<slug>`、点击即 404——而账户页本身 HTTP 200，所以只有"锚在构造出来的 URL 上"的守卫看得见 |
+| 82d | **无会员即缺席**（见上）。`my_posts` 由 `memberRow` 是否在场决定，不放进 `extra`——它是平台解析出的身份派生，插件不得借此把"我的文章"指向别人 |
+
+> ⚠️ **`url` 是唯一不共享的字段。** 列表经路由 base 链接，我的文章经内置 permalink 链接——
+> 所以派生的三字段（`date_display`/`cover`/`reading_time`）抽成 `deriveListingFields()` 一处定义
+> 两处调用，**`url` 刻意不在其中**。这个抽取不是洁癖：第一版复制了那三行，`_skeleton-inject`
+> 立刻报 `anchor appears 2x (need 1)`——**重复正是守卫看得见的形状**。
+
+守卫：`architecture.test.mjs` 规则 82 节（6 条：非空性 + a + b + c + d×2，全部**切函数体**再匹配，
+因为 `site_id = ?` 在文件里到处都是，全文扫描会同意一段从未带过这一对的代码）。
+注入场景 4 条（去 site 过滤 / 加 `published` / 换成 `/account` base / 无会员也建）。
+端到端验收：真 dev server + 真 D1，草稿与已发布都显示、徽标有区分度、链接是内置 permalink、
+`/en/account` 用英文自己的 slug（规则 58）、另一会员**零泄漏**并显示空状态、未登录走 signed-out 分支。
+
 ## 守卫失效记录（READ THIS）
 
 `tests/suites/architecture.test.mjs` 自己出过**三次假绿**，都是「检查存在但从不触发」。

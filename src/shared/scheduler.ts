@@ -8,8 +8,11 @@ import { bumpContentCache } from "./cache";
  * multi-site install does not invalidate unrelated sites every minute.
  */
 export async function processScheduled(env: Env) {
+  // Oldest first: without ORDER BY a busy queue starves the earliest posts
+  // behind a steady trickle of new ones (LIMIT 50 keeps picking whatever
+  // SQLite feels like).
   const due = await env.DB.prepare(
-    "SELECT post_id FROM scheduled_posts WHERE processed_at IS NULL AND publish_at<=? LIMIT 50"
+    "SELECT post_id FROM scheduled_posts WHERE processed_at IS NULL AND publish_at<=? ORDER BY publish_at LIMIT 50"
   )
     .bind(now())
     .all();
@@ -20,13 +23,26 @@ export async function processScheduled(env: Env) {
     const post = await env.DB.prepare("SELECT site_id FROM posts WHERE id=?")
       .bind(row.post_id)
       .first<any>();
-    await env.DB.prepare("UPDATE posts SET status='published',updated_at=? WHERE id=?")
-      .bind(now(), row.post_id)
-      .run();
+    if (post?.site_id) {
+      // Site-scoped publish: without `AND site_id=?` a post id that was
+      // re-created on another site (or a stale queue row pointing at a reused
+      // id) would flip the wrong tenant's row.
+      await env.DB.prepare("UPDATE posts SET status='published',updated_at=? WHERE id=? AND site_id=?")
+        .bind(now(), row.post_id, String(post.site_id))
+        .run();
+      touchedSites.add(String(post.site_id));
+    } else {
+      // Queue row for a post that no longer exists: mark it processed so the
+      // queue drains instead of retrying it every minute forever. (Previously
+      // the UPDATE ran unconditionally and the row was still marked done, so
+      // behaviour is unchanged — but now it says why.)
+      await env.DB.prepare("UPDATE posts SET status='published',updated_at=? WHERE id=?")
+        .bind(now(), row.post_id)
+        .run();
+    }
     await env.DB.prepare("UPDATE scheduled_posts SET processed_at=? WHERE post_id=?")
       .bind(now(), row.post_id)
       .run();
-    if (post?.site_id) touchedSites.add(String(post.site_id));
     count++;
   }
   for (const siteId of touchedSites) await bumpContentCache(env, siteId);

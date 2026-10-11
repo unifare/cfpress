@@ -11,7 +11,7 @@ import { PURGE_ON_SITE_DELETE } from "./extensions/contract/schema";
 import { SETTING_DEFS, getSetting, setSetting, platformSetting, setPlatformSetting, isDeclaredSetting, settingDef, adminPath } from "./platform/settings";
 import { safeZipPath, sha256 } from "./extensions/security";
 import { createRevision, autosave } from "./platform/revisions";
-import { requirePermission, can, accessibleSiteIds, SITE_ROLES } from "./platform/permissions";
+import { requirePermission, can, accessibleSiteIds, SITE_ROLES, SUPERADMIN_ROLE } from "./platform/permissions";
 import { bumpContentCache } from "./shared/cache";
 import { BUNDLED_THEMES } from "./shared/bundled";
 import { featureSnapshot, inheritedValue, truthy, FEATURE_SETTINGS_KEY, FEATURE_SWITCHES, type FeatureSwitch } from "./shared/features";
@@ -67,6 +67,35 @@ import { tableBySlug, tableDelete, tableList, tableSave, tableAggregate, deriveS
 function requestSiteId(url: URL): string {
   const s = String(url.searchParams.get("site") ?? "").trim();
   return /^[a-z0-9][a-z0-9_-]{0,31}$/.test(s) ? s : DEFAULT_SITE_ID;
+}
+
+/**
+ * Was an explicit `?site=` supplied but malformed? `requestSiteId()` falls
+ * back to the default site for anything it cannot parse — so without this
+ * check `?site=PROBE_A` (uppercase) silently serves the default tenant's
+ * rows with 200 (MS-2.4: "站点悄悄落到默认值"). Malformed is caller input,
+ * so it answers 400, never another site's data.
+ */
+function siteParamMalformed(url: URL): boolean {
+  if (!url.searchParams.has("site")) return false;
+  const s = String(url.searchParams.get("site") ?? "").trim();
+  return !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(s);
+}
+
+/**
+ * May this user see this site at all? The switcher (`GET sites`) already
+ * answers this with `accessibleSiteIds`; every other site-scoped read must
+ * ask the same question — otherwise the switcher hides a site that `?site=`
+ * still opens (MS-3.1: B 站的任何内容/设置端点对无成员者 403).
+ *
+ * This is deliberately weaker than `can()`: it asks "member of this site",
+ * not "may do X here". Write paths keep their own `requirePermission` check
+ * on top; reads need at least this.
+ */
+async function requireSiteAccess(env: Env, user: { id: string; role: string }, siteId: string): Promise<boolean> {
+  if (user.role === SUPERADMIN_ROLE) return true;
+  const allowed = await accessibleSiteIds(env, user as any);
+  return allowed !== null && allowed.includes(siteId);
 }
 
 /**
@@ -261,8 +290,9 @@ async function savePost(
   if (existingPost && existingPost.site_id !== siteId) {
     // The id exists but belongs to another site. Creating it here would collide
     // with the primary key; updating it would edit a neighbour's content.
-    // Neither is acceptable, so the write is refused instead of misdirected.
-    return ok({ error: "id belongs to another site" }, 409);
+    // Answered 404 (not 409): 409 confirms "this id exists on another site",
+    // which is the existence oracle MS-1.1 forbids (cross-site known-id → 404).
+    return ok({ error: "not found" }, 404);
   }
   const isCreate = !existingPost;
   // An explicitly sent slug must be free *in this language*: two translations
@@ -1130,6 +1160,8 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   if (auth instanceof Response) return auth;
   const user = auth;
   const siteId = requestSiteId(url);
+  // Malformed `?site=` never falls back to another tenant's data (MS-2.4).
+  if (siteParamMalformed(url)) return ok({ error: "invalid site" }, 400);
 
   // -- self-service credentials (any signed-in role) -----------------------
   // Change-own-password / change-own-username. The current password is
@@ -1179,6 +1211,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   // `settings.manage`; reading needs no extra permission because every
   // sidebar is rendered from it.
   if (path === "admin-menus/custom" && method === "GET") {
+    if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
     const row = await env.DB.prepare("SELECT value FROM settings WHERE site_id=? AND key=?").bind(siteId, MENU_CUSTOM_KEY).first<any>();
     let parsed: any = {};
     try { parsed = row?.value ? JSON.parse(row.value) : {}; } catch { parsed = {}; }
@@ -1214,6 +1247,17 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   }
   if(path === "media" && method === "POST" && !(await requirePermission(env,user,"media.write",siteId))) return ok({error:"Forbidden"},403);
 
+  // Site-scoped reads: the switcher (`GET sites`) hides unmembered sites, and
+  // `?site=` must not reopen them (MS-3.1). Every list/detail/stats read below
+  // filters by `site_id` but never asked `can()` — so an editor on A read B's
+  // posts, settings, dashboard counts, media, search and translations with 200.
+  // Platform-global reads (sites registry, users, activity, extension packages,
+  // the static block palette, the platform dictionary) are not in this list
+  // and keep their own gates below.
+  if (method === "GET" && /^(posts|pages|content\/|search|media|settings|features|dashboard|widgets|menus|menu_items|redirects|rewrites|locales|theme\/|theme-tables|i18n\/(locales|overrides|translations|messages|ui-locale))/.test(path)) {
+    if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
+  }
+
   // Sites registry (multi-site)
   if (path === "sites" && method === "GET") {
     // The list is **filtered to the sites this user may act on** (rule 78). It
@@ -1247,23 +1291,38 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     // The counts are **one query per measure, grouped by site**, so the cost is
     // constant in the number of sites rather than linear in it.
     if (url.searchParams.get("withCounts") === "1") {
-      const mediaPolicy = await readMediaPolicy(env, siteId);
-      const mediaOwner = mediaOwnerClause(mediaPolicy, user.id);
-      const [posts, pages, media, themeRows] = await Promise.all([
+      // Media counts honour **each site's own** policy: the owner clause is a
+      // function of the site's `cfpress.media` row, and using the requesting
+      // site's policy for every other site both mis-counts (owner-isolated B
+      // counted under A's site-wide rule) and leaks (rows the B library hides
+      // show up in B's number). `items` is already filtered to the caller's
+      // sites, so per-site policy reads stay linear in *visible* sites.
+      const [posts, pages, themeRows] = await Promise.all([
         env.DB.prepare("SELECT site_id, COUNT(*) AS count FROM posts WHERE type='post' GROUP BY site_id").all(),
         env.DB.prepare("SELECT site_id, COUNT(*) AS count FROM posts WHERE type='page' GROUP BY site_id").all(),
-        env.DB.prepare(`SELECT site_id, COUNT(*) AS count FROM media_files WHERE 1=1${mediaOwner.sql} GROUP BY site_id`)
-          .bind(...mediaOwner.binds).all(),
         env.DB.prepare("SELECT site_id, value FROM settings WHERE key='theme.active'").all(),
       ]);
+      const mediaCounts: Record<string, number> = {};
+      for (const s of items as any[]) {
+        const sid = String((s as any).id);
+        try {
+          const pol = await readMediaPolicy(env, sid);
+          const oc = mediaOwnerClause(pol, user.id);
+          const c = await env.DB.prepare(`SELECT COUNT(*) AS count FROM media_files WHERE site_id=?${oc.sql}`).bind(sid, ...oc.binds).first<any>();
+          mediaCounts[sid] = Number(c?.count ?? 0) || 0;
+        } catch {
+          mediaCounts[sid] = 0;
+        }
+      }
       // Absent is 0, not `undefined`: the screen renders a number for every
       // row, and a site with no rows at all is exactly the empty site the
       // screen exists to make visible.
       const bySite = (r: any) => Object.fromEntries(((r.results as any[]) ?? []).map((x) => [String(x.site_id), Number(x.count) || 0]));
       const postCounts = bySite(posts);
       const pageCounts = bySite(pages);
-      const mediaCounts = bySite(media);
       const themes = Object.fromEntries(((themeRows.results as any[]) ?? []).map((r) => [String(r.site_id), String(r.value ?? "")]));
+      // `theme.active` rows for sites the caller may not see are dropped with
+      // the items (MS-4.2: counts must not leak unmembered sites' names).
       return ok({
         items: items.map((s) => ({
           ...s,
@@ -1314,8 +1373,44 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
       // `api.ts` is the composition root — the one place allowed to know every
       // layer — so it is where the declared purge list is injected into the
       // platform function (rule 2: `platform/` may not import `extensions/`).
+      //
+      // Generated extension tables (`theme_{owner}_{table}`) are NOT in
+      // `PLATFORM_SCHEMA`, so `deleteSite()` cannot see them — yet every one of
+      // their rows carries `site_id`. Collect this site's physical tables
+      // BEFORE the purge deletes the `theme_table_defs` mapping rows, then
+      // remove the deleted site's rows afterwards. Table names come from our
+      // own registry (validated against the generated-name shape), never from
+      // the caller, so there is no injection surface.
+      let generatedTables: string[] = [];
+      let generatedSidecars: string[] = [];
+      try {
+        const defs = await env.DB.prepare(
+          "SELECT table_name, i18n_table FROM theme_table_defs WHERE site_id=?"
+        ).bind(siteMatch[1]).all();
+        const mains = new Set<string>();
+        const sides = new Set<string>();
+        for (const d of ((defs.results as any[]) ?? [])) {
+          if (typeof d.table_name === "string" && /^[a-z][a-z0-9_]*$/.test(d.table_name)) mains.add(d.table_name);
+          if (typeof d.i18n_table === "string" && /^[a-z][a-z0-9_]*$/.test(d.i18n_table)) sides.add(d.i18n_table);
+        }
+        generatedTables = [...mains];
+        generatedSidecars = [...sides];
+      } catch { generatedTables = []; generatedSidecars = []; }
       const r = await deleteSite(env, siteMatch[1], PURGE_ON_SITE_DELETE);
       if ("error" in r) return ok({ error: r.error }, 400);
+      for (const t of generatedTables) {
+        try { await env.DB.prepare(`DELETE FROM ${t} WHERE site_id=?`).bind(siteMatch[1]).run(); }
+        catch { /* a dropped/missing physical table is already gone */ }
+      }
+      // Sidecars carry no `site_id` — they hang off the parent row. The parents
+      // above are gone, so sweep sidecar rows whose parent no longer exists
+      // (scoped to sidecars this site actually used, not global).
+      for (const s of generatedSidecars) {
+        const parent = s.replace(/_i18n$/, "");
+        if (!generatedTables.includes(parent)) continue;
+        try { await env.DB.prepare(`DELETE FROM ${s} WHERE row_id NOT IN (SELECT id FROM ${parent})`).run(); }
+        catch { /* sidecar already gone */ }
+      }
       await activity(env, user.id, "delete", "site", siteMatch[1]);
       return ok({ ok: true });
     }
@@ -1821,12 +1916,13 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
       // used to be whichever translation sorted first — "en" by alphabet, not
       // by site policy. The editor can still ask for a specific language; this
       // only fixes what an unqualified open shows.
+      if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
       const dflt = await defaultLocale(env, siteId);
       const row = await env.DB.prepare(`
         SELECT p.*, t.locale, t.title, t.excerpt, t.content, t.slug AS slug_own
         FROM posts p LEFT JOIN post_translations t ON t.post_id=p.id
-        WHERE p.id=? ORDER BY CASE WHEN t.locale = ? THEN 0 ELSE 1 END, t.locale
-      `).bind(id, dflt).all();
+        WHERE p.id=? AND p.site_id=? ORDER BY CASE WHEN t.locale = ? THEN 0 ELSE 1 END, t.locale
+      `).bind(id, siteId, dflt).all();
       const items = (row.results as any[]) ?? [];
       // One meta map per language row, resolved through the ladder — the editor
       // edits a language, so it must see that language's field values, not a
@@ -1847,12 +1943,13 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
       // used to be whichever translation sorted first — "en" by alphabet, not
       // by site policy. The editor can still ask for a specific language; this
       // only fixes what an unqualified open shows.
+      if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
       const dflt = await defaultLocale(env, siteId);
       const row = await env.DB.prepare(`
         SELECT p.*, t.locale, t.title, t.excerpt, t.content, t.slug AS slug_own
         FROM posts p LEFT JOIN post_translations t ON t.post_id=p.id
-        WHERE p.id=? ORDER BY CASE WHEN t.locale = ? THEN 0 ELSE 1 END, t.locale
-      `).bind(id, dflt).all();
+        WHERE p.id=? AND p.site_id=? ORDER BY CASE WHEN t.locale = ? THEN 0 ELSE 1 END, t.locale
+      `).bind(id, siteId, dflt).all();
       const items = (row.results as any[]) ?? [];
       // Attach theme-declared custom fields for the editor, per language row.
       const metaRows = await postMetaRows(env, id);
@@ -1901,6 +1998,10 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     const rows=await env.DB.prepare("SELECT * FROM menus WHERE site_id=? ORDER BY name").bind(siteId).all(); return ok({items:rows.results,site:siteId});
   }
   if (path === "menus" && method === "POST") {
+    // Site navigation is site config: editing it needs `settings.manage` on
+    // this site (same bar as `admin-menus/custom`). Without this any staff on
+    // any site rewrote any other site's nav (no gate at all).
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     const b=await jsonBody(request),id=b.id||`menu_${await randomId()}`;
     // Idempotent: re-declaring the same menu for a site updates it rather than
     // failing on the (site_id, id) primary key.
@@ -1911,11 +2012,12 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   }
   const mm=path.match(/^menus\/([^/]+)\/items$/);
   if(mm&&method==="GET"){const r=await env.DB.prepare("SELECT * FROM menu_items WHERE site_id=? AND menu_id=? ORDER BY sort_order,id").bind(siteId,mm[1]).all();return ok({items:r.results,site:siteId});}
-  if(mm&&method==="POST"){const b=await jsonBody(request),id=await randomId();await env.DB.prepare("INSERT INTO menu_items (id,site_id,menu_id,parent_id,title,url,target,sort_order,locale,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)").bind(id,siteId,mm[1],b.parent_id||null,String(b.title||""),String(b.url||"#"),b.target||null,Number(b.sort_order||0),b.locale||null,now(),now()).run();return ok({id,site:siteId},201);}
+  if(mm&&method==="POST"){if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);const b=await jsonBody(request),id=await randomId();await env.DB.prepare("INSERT INTO menu_items (id,site_id,menu_id,parent_id,title,url,target,sort_order,locale,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)").bind(id,siteId,mm[1],b.parent_id||null,String(b.title||""),String(b.url||"#"),b.target||null,Number(b.sort_order||0),b.locale||null,now(),now()).run();return ok({id,site:siteId},201);}
   // Batch reorder: the SPA submits the full rendered sequence in one call, so
   // a drag cannot interleave with another writer. Every id is verified to
   // belong to this menu *on this site* before anything is written.
   if(mm&&method==="PUT"){
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     const b=await jsonBody(request);
     if(!Array.isArray(b.order)) return ok({error:"order array required"},400);
     const ids=(b.order as unknown[]).map(String);
@@ -1934,6 +2036,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   // would linger pointing at a menu that no longer exists.
   const mdm=path.match(/^menus\/([^/]+)$/);
   if(mdm&&method==="PUT"){
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     const b=await jsonBody(request);
     const location=String(b.location||"").trim();
     if(!location) return ok({error:"location required"},400);
@@ -1943,6 +2046,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     return ok({ok:true});
   }
   if(mdm&&method==="DELETE"){
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     await env.DB.prepare("DELETE FROM menu_items WHERE site_id=? AND menu_id=?").bind(siteId,mdm[1]).run();
     const r=await env.DB.prepare("DELETE FROM menus WHERE site_id=? AND id=?").bind(siteId,mdm[1]).run();
     if(!r.meta.changes) return ok({error:"menu not found"},404);
@@ -1951,6 +2055,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   }
   const mim=path.match(/^menu_items\/([^/]+)$/);
   if(mim&&method==="PUT"){
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     const b=await jsonBody(request);
     const cur=await env.DB.prepare("SELECT id,menu_id,parent_id,title,url,target,locale FROM menu_items WHERE site_id=? AND id=?").bind(siteId,mim[1]).first<any>();
     if(!cur) return ok({error:"item not found"},404);
@@ -1974,6 +2079,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     return ok({ok:true});
   }
   if(mim&&method==="DELETE"){
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     const r=await env.DB.prepare("DELETE FROM menu_items WHERE site_id=? AND id=?").bind(siteId,mim[1]).run();
     if(!r.meta.changes) return ok({error:"item not found"},404);
     // Children of a removed item become top-level rather than orphaned.
@@ -1981,8 +2087,17 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     await activity(env,user.id,"delete","menu_item",mim[1]);
     return ok({ok:true});
   }
-  if (path === "extensions/bootstrap" && method === "POST") { await seedBundledExtensions(env); return ok({ok:true}); }
+  if (path === "extensions/bootstrap" && method === "POST") {
+    // Re-seeding bundled extensions rewrites install-wide registries; it is
+    // extension management, not content editing.
+    if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403);
+    await seedBundledExtensions(env); return ok({ok:true});
+  }
   if (path === "extensions/plugins" && method === "GET") {
+    // The installed-plugin registry is install-wide: a site-scoped editor has
+    // no business enumerating it (MS-3.2 family; versions list was the filed
+    // gap, same shape).
+    if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403);
     const rows=await env.DB.prepare("SELECT * FROM plugin_installs ORDER BY title").all();
     const runtime=await pluginRuntimeStatus(env).catch(()=>[]);
     const wired=Object.fromEntries(runtime.map(r=>[r.name,r.hooks]));
@@ -2000,6 +2115,10 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   }
   const pm=path.match(/^extensions\/plugins\/([^/]+)\/(enable|disable)$/);
   if(pm&&method==="POST"){
+    // Enabling/disabling flips every site's runtime at once (plus the shared
+    // menu registry): install-wide by definition. Ungated, any editor toggled
+    // all sites' plugins.
+    if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403);
     await env.DB.prepare("UPDATE plugin_installs SET enabled=?,updated_at=? WHERE name=?").bind(pm[2]==="enable"?1:0,now(),pm[1]).run();
     if(pm[2]==="disable"){
       // Drop this plugin's menus — and only this plugin's. The registry is
@@ -2016,11 +2135,22 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     await activity(env,user.id,pm[2],"plugin",pm[1]); return ok({ok:true});
   }
   if(path==="extensions/themes"&&method==="GET"){
+    // Per-site `active` reporting, so the gate is site access (not the
+    // install-wide extensions.manage that `activate` needs): a member of this
+    // site may see what this site chose, but not another site's answer.
+    // `active_by_site` only covers sites the caller may see — superadmin gets
+    // the full map, everyone else gets their own sites.
+    if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
     // `active` on theme_installs is a *global* flag and cannot express which
     // site uses which theme, so report per-site usage explicitly instead.
     const rows=await env.DB.prepare("SELECT * FROM theme_installs ORDER BY title").all();
     const active=await env.DB.prepare("SELECT site_id,value FROM settings WHERE key='theme.active'").all();
-    const bySite=Object.fromEntries(((active.results as any[])??[]).map(r=>[r.site_id,r.value]));
+    const fullBySite=Object.fromEntries(((active.results as any[])??[]).map(r=>[r.site_id,r.value]));
+    // `active_by_site` is cross-tenant enumeration in a trench coat: filter it
+    // to the caller's sites like `GET sites` does (MS-4.2 family).
+    const allowedSites = await accessibleSiteIds(env, user);
+    const bySite = allowedSites === null ? fullBySite
+      : Object.fromEntries(Object.entries(fullBySite).filter(([sid]) => (allowedSites as string[]).includes(String(sid))));
     // Per-site reporting reads the `theme.active` row and nothing else.
     //
     // Deliberately NOT `activeTheme()` here: that function exists to answer
@@ -2155,8 +2285,17 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     return ok({ok:true});
   }
   const psm=path.match(/^extensions\/plugins\/([^/]+)\/settings$/);
-  if(psm&&method==="GET") return pluginSettings(env,psm[1]);
-  if(psm&&method==="POST") return savePluginSetting(env,user.id,psm[1],await jsonBody(request));
+  // Plugin settings are install-wide (keyed by plugin, not by site), so they
+  // are gated by `extensions.manage` — like enable/disable below — not by a
+  // site-scoped permission. Ungated, any editor rewrote every site's config.
+  if(psm&&method==="GET") {
+    if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403);
+    return pluginSettings(env,psm[1]);
+  }
+  if(psm&&method==="POST") {
+    if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403);
+    return savePluginSetting(env,user.id,psm[1],await jsonBody(request));
+  }
 
   // -- widgets ----------------------------------------------------------------
   // Site-scoped since 0020. Before that this table was install-wide and the
@@ -2185,6 +2324,8 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     const rows=await env.DB.prepare("SELECT * FROM widget_instances WHERE site_id=? ORDER BY sidebar,sort_order,id").bind(siteId).all();return ok({items:rows.results,site:siteId});
   }
   if(path==="widgets"&&method==="POST"){
+    // Same bar as menus above: sidebar placement is site config.
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     const b=await jsonBody(request);
     const type=String(b.widget_type||"text");
     if(!widgetTypes.has(type)) return ok({error:"unknown widget_type"},400);
@@ -2198,6 +2339,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   }
   const wim=path.match(/^widgets\/([^/]+)$/);
   if(wim&&method==="PUT"){
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     const cur=await env.DB.prepare("SELECT * FROM widget_instances WHERE site_id=? AND id=?").bind(siteId,wim[1]).first<any>();
     if(!cur) return ok({error:"widget not found"},404);
     const b=await jsonBody(request);
@@ -2211,6 +2353,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     return ok({ok:true});
   }
   if(wim&&method==="DELETE"){
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     const r=await env.DB.prepare("DELETE FROM widget_instances WHERE site_id=? AND id=?").bind(siteId,wim[1]).run();
     if(!r.meta.changes) return ok({error:"widget not found"},404);
     await activity(env,user.id,"delete","widget",wim[1]);
@@ -2219,24 +2362,41 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   const uploadMatch=path.match(/^extensions\/(plugins|themes)\/upload$/);
   if(uploadMatch&&method==="POST") { if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403); return uploadExtension(env,user.id,request,uploadMatch[1]==="plugins"?"plugin":"theme"); }
   if(path==="extensions/versions"&&method==="GET"){
+    // Platform package registry — same bar as the plugin list (the filed gap:
+    // a site-scoped editor got 200 and the whole registry).
+    if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403);
     const type=url.searchParams.get("type");const name=url.searchParams.get("name");
     const r= type&&name ? await env.DB.prepare("SELECT * FROM extension_versions WHERE extension_type=? AND extension_name=? ORDER BY installed_at DESC").bind(type,name).all() : await env.DB.prepare("SELECT * FROM extension_versions ORDER BY installed_at DESC LIMIT 200").all();
     return ok({items:r.results});
   }
   const capm=path.match(/^extensions\/(plugins|themes)\/([^/]+)\/capabilities$/);
-  if(capm&&method==="GET") return ok({items:await capabilityList(env,capm[1]==="plugins"?"plugin":"theme",capm[2])});
+  if(capm&&method==="GET") {
+    if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403);
+    return ok({items:await capabilityList(env,capm[1]==="plugins"?"plugin":"theme",capm[2])});
+  }
   const revm=path.match(/^(posts|pages)\/([^/]+)\/revisions$/);
   // Revisions inherit their tenant from the post (no local site_id), so the
   // site filter comes from the JOIN — a plain `WHERE post_id=?` answered for
   // every site at once, and a scoped editor could read another site's drafts
   // by id. The same JOIN guards autosave and the restore read below.
-  if(revm&&method==="GET") {const r=await env.DB.prepare("SELECT r.* FROM post_revisions r JOIN posts p ON p.id=r.post_id WHERE r.post_id=? AND p.site_id=? ORDER BY r.locale,r.version DESC LIMIT 200").bind(revm[2],siteId).all();return ok({items:r.results});}
-  if(revm&&method==="POST") {const b=await jsonBody(request);const v=await createRevision(env,revm[2],user.id,await resolveContentLocale(env,siteId,b.locale),String(b.title||""),String(b.excerpt||""),typeof b.content==="string"?b.content:JSON.stringify(b.content||[]));return ok({version:v},201);}
+  if(revm&&method==="GET") {if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);const r=await env.DB.prepare("SELECT r.* FROM post_revisions r JOIN posts p ON p.id=r.post_id WHERE r.post_id=? AND p.site_id=? ORDER BY r.locale,r.version DESC LIMIT 200").bind(revm[2],siteId).all();return ok({items:r.results});}
+  if(revm&&method==="POST") {
+    if(!(await requirePermission(env,user,"content.write",siteId))) return ok({error:"Forbidden"},403);
+    // The revision inherits its tenant from the post: verify the post is on
+    // this site before minting a row for it, or `?site=A` mints rows on B's post.
+    const owned = await env.DB.prepare("SELECT id FROM posts WHERE id=? AND site_id=? LIMIT 1").bind(revm[2],siteId).first<any>();
+    if(!owned) return ok({error:"not found"},404);
+    const b=await jsonBody(request);const v=await createRevision(env,revm[2],user.id,await resolveContentLocale(env,siteId,b.locale),String(b.title||""),String(b.excerpt||""),typeof b.content==="string"?b.content:JSON.stringify(b.content||[]));return ok({version:v},201);}
   const am=path.match(/^(posts|pages)\/([^/]+)\/autosave$/);
-  if(am&&method==="GET"){const locale=await resolveContentLocale(env,siteId,url.searchParams.get("locale"));const r=await env.DB.prepare("SELECT a.* FROM post_autosaves a JOIN posts p ON p.id=a.post_id WHERE a.post_id=? AND p.site_id=? AND a.user_id=? AND a.locale=?").bind(am[2],siteId,user.id,locale).first();return ok({item:r||null});}
-  if(am&&method==="POST"){const b=await jsonBody(request);await autosave(env,am[2],user.id,await resolveContentLocale(env,siteId,b.locale),b);return ok({ok:true,updated_at:now()});}
+  if(am&&method==="GET"){if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);const locale=await resolveContentLocale(env,siteId,url.searchParams.get("locale"));const r=await env.DB.prepare("SELECT a.* FROM post_autosaves a JOIN posts p ON p.id=a.post_id WHERE a.post_id=? AND p.site_id=? AND a.user_id=? AND a.locale=?").bind(am[2],siteId,user.id,locale).first();return ok({item:r||null});}
+  if(am&&method==="POST"){
+    if(!(await requirePermission(env,user,"content.write",siteId))) return ok({error:"Forbidden"},403);
+    const owned = await env.DB.prepare("SELECT id FROM posts WHERE id=? AND site_id=? LIMIT 1").bind(am[2],siteId).first<any>();
+    if(!owned) return ok({error:"not found"},404);
+    const b=await jsonBody(request);await autosave(env,am[2],user.id,await resolveContentLocale(env,siteId,b.locale),b);return ok({ok:true,updated_at:now()});}
   const restore=path.match(/^(posts|pages)\/([^/]+)\/revisions\/([^/]+)\/restore$/);
   if(restore&&method==="POST"){
+    if(!(await requirePermission(env,user,"content.write",siteId))) return ok({error:"Forbidden"},403);
     // The read is site-filtered for the same reason as revisions GET above:
     // a revision of another site's post must not be resolvable here at all,
     // even though the write that follows is already site-scoped.
@@ -2321,6 +2481,9 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   }
 
   if (path === "activity" && method === "GET") {
+    // Install-wide audit trail: any authenticated editor could enumerate every
+    // site's admin actions. Same bar as the install-wide user registry.
+    if(!(await requirePermission(env,user,"platform.manage",siteId))) return ok({error:"Forbidden"},403);
     const rows = await env.DB.prepare("SELECT * FROM admin_activity ORDER BY created_at DESC LIMIT 100").all();
     return ok({ items: rows.results });
   }

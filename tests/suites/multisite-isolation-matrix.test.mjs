@@ -27,6 +27,19 @@
  *     revisions/autosaves inherit their tenant from the post, so a scoped
  *     editor could read another site's drafts by id.
  *
+ * A second fix batch (§9) closed the same families one layer deeper:
+ *   - `GET /posts/:id` and `/content/:type/:id` had no `site_id` at all —
+ *     cross-site detail read with 200 + content + meta;
+ *   - `POST .../revisions|autosave|restore` had neither a permission gate nor
+ *     a site-ownership check — `?site=A` minted rows on B's post;
+ *   - every site-scoped *read* (lists, dashboard, settings, search, theme and
+ *     i18n reads) filtered by `?site=` but never asked `can()` — fixed with a
+ *     shared `requireSiteAccess` gate (member-of-site or superadmin);
+ *   - `POST/PUT/DELETE menus|menu_items|widgets`, plugin enable/disable +
+ *     bootstrap + plugin settings, `GET activity|extensions/*` had no gate —
+ *     now `settings.manage` / `extensions.manage` / `platform.manage`;
+ *   - malformed `?site=` silently served the default tenant — now 400.
+ *
  * Usage: node tests/suites/multisite-isolation-matrix.test.mjs
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
@@ -344,13 +357,11 @@ async function main() {
   await forbidden("listing users", `/api/v1/users?${siteParam}`, { method: "GET" });
   await forbidden("creating a user", `/api/v1/users?${siteParam}`, { method: "POST", body: JSON.stringify({ username: "iso_nope", password: "longenough1" }) });
   await forbidden("granting a site role", `/api/v1/users/user_iso_editor_a/sites/${B}`, { method: "PUT", body: JSON.stringify({ role: "editor" }) });
-  // KNOWN GAP (filed as an issue): GET extensions/versions carries no
-  // permission gate at all — today a site-scoped editor gets 200 and the
-  // whole platform registry. Accept either the gap (200) or the fix (403)
-  // so this assertion does not block the fix landing.
+  // `GET extensions/versions` used to carry no permission gate at all — a
+  // site-scoped editor got 200 and the whole platform registry (filed gap,
+  // fixed: `extensions.manage`, like the plugin list beside it).
   const extList = await req(worker, env, `/api/v1/extensions/versions?${siteParam}`, { method: "GET", headers: aCookie });
-  checkTruthy("MS-3.2: listing extensions is refused from a site role (403 = fixed; 200 = the filed gap)",
-    [200, 403].includes(extList.status));
+  check("MS-3.2: listing extensions is refused from a site role (403)", extList.status, 403);
 
   console.log("\n6. MS-3.4: front members are per site, both ways");
   const meA = await req(worker, env, "/api/v1/front/me", { headers: memberCookieA });
@@ -405,6 +416,54 @@ async function main() {
   const listA = await (await req(worker, env, `/api/v1/posts?site=${A}`, { headers: auth })).json();
   checkTruthy("MS-4.4: the content list on A contains A's post",
     (listA.items ?? listA.posts ?? []).some?.((p) => p.id === "iso_post_a") ?? true);
+
+  console.log("\n9. cross-site detail/write/read gates (isolation fix batch)");
+  // MS-1.1: the detail endpoints used to answer `WHERE p.id=?` with no tenant,
+  // so a known B id read through an A request with 200 + full content + meta.
+  const crossDetail = await (await req(worker, env, `/api/v1/posts/iso_post_b?site=${A}`, { headers: auth })).json();
+  check("MS-1.1: cross-site post detail returns no items", crossDetail.items ?? null, []);
+  const ownDetail = await (await req(worker, env, `/api/v1/posts/iso_post_a?site=${A}`, { headers: auth })).json();
+  checkTruthy("MS-1.1 (non-vacuity): own-site detail still returns its row",
+    (ownDetail.items ?? []).some((p) => p.id === "iso_post_a"));
+  // MS-1.2: revision/autosave POSTs used to carry neither a permission gate
+  // nor a site-ownership check — `?site=A` minted rows on B's post.
+  const revX = await req(worker, env, `/api/v1/posts/iso_post_b/revisions?site=${A}`, {
+    method: "POST", headers: json, body: JSON.stringify({ title: "xeno-rev", content: "x", locale: "en" }),
+  });
+  check("MS-1.2: revision POST on another site's post is a 404", revX.status, 404);
+  const autoX = await req(worker, env, `/api/v1/posts/iso_post_b/autosave?site=${A}`, {
+    method: "POST", headers: json, body: JSON.stringify({ title: "xeno-auto", content: "x", locale: "en" }),
+  });
+  check("MS-1.2: autosave POST on another site's post is a 404", autoX.status, 404);
+  check("MS-1.2: ...and no revision row was minted for it",
+    sqlite.prepare("SELECT COUNT(*) AS n FROM post_revisions WHERE post_id='iso_post_b' AND title='xeno-rev'").get().n, 0);
+  check("MS-1.2: ...and no autosave row was minted for it",
+    sqlite.prepare("SELECT COUNT(*) AS n FROM post_autosaves WHERE post_id='iso_post_b' AND title='xeno-auto'").get().n, 0);
+  // MS-3.1: reads filtered by site_id but never asked can() — the switcher hid
+  // B while `?site=B` still opened it for an editor with no B membership.
+  const eListB = await req(worker, env, `/api/v1/posts?site=${B}`, { headers: aCookie });
+  check("MS-3.1: editor@A listing site B posts is 403", eListB.status, 403);
+  const eDashB = await req(worker, env, `/api/v1/dashboard?site=${B}`, { headers: aCookie });
+  check("MS-3.1: editor@A dashboard for site B is 403", eDashB.status, 403);
+  const eDetailB = await req(worker, env, `/api/v1/posts/iso_post_b?site=${B}`, { headers: aCookie });
+  check("MS-3.1: editor@A detail on site B is refused (403, not rows)", eDetailB.status, 403);
+  // Menus/widgets writes had no gate at all: any staff rewrote any site's nav.
+  const eMenuB = await req(worker, env, `/api/v1/menus?site=${B}`, {
+    method: "POST", headers: aJson, body: JSON.stringify({ name: "EvilMenu" }),
+  });
+  check("MS-3.1: editor@A creating a menu on site B is 403", eMenuB.status, 403);
+  const eWidgetB = await req(worker, env, `/api/v1/widgets?site=${B}`, {
+    method: "POST", headers: aJson, body: JSON.stringify({ widget_type: "text", config: { body: "evil" } }),
+  });
+  check("MS-3.1: editor@A creating a widget on site B is 403", eWidgetB.status, 403);
+  // MS-3.2: enabling/disabling a plugin flips every site at once — install-wide.
+  const eToggle = await req(worker, env, "/api/v1/extensions/plugins/notify/disable", { method: "POST", headers: aCookie });
+  check("MS-3.2: editor toggling a plugin is 403", eToggle.status, 403);
+  const eActivity = await req(worker, env, "/api/v1/activity", { headers: aCookie });
+  check("MS-3.2: editor reading the install-wide audit log is 403", eActivity.status, 403);
+  // MS-2.4: malformed ?site= never falls back to another tenant's data.
+  const badSite = await req(worker, env, "/api/v1/posts?site=ISO_A", { headers: auth });
+  check("MS-2.4: malformed ?site= is a 400, not the default site's rows", badSite.status, 400);
 
   console.log("\ncleanup");
   sweep();

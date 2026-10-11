@@ -31,18 +31,40 @@ export async function bootstrapAdmin(env: Env) {
   const username = "admin";
   const password = "change-me-now";
   const now = Math.floor(Date.now() / 1000);
+  // The first-ever identity owns the install: without `superadmin` it can log
+  // in (requireAdmin allows `admin`) but `can()` answers false everywhere —
+  // no site membership exists yet, and platform permissions belong to
+  // superadmin alone. That was a fresh-install lockout: the owner could sign
+  // in and do nothing (no content.write anywhere, no platform.manage to create
+  // the next site, and no endpoint that grants superadmin). Upgrades never saw
+  // it because migration 0023 promotes the sole existing admin.
+  const userId = "user_" + await randomId();
   await env.DB.prepare(
     "INSERT INTO site_users (id, username, email, password_hash, role, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
   ).bind(
-    "user_" + await randomId(),
+    userId,
     username,
     null,
     await hashPassword(password),
-    "admin",
+    "superadmin",
     "active",
     now,
     now
   ).run();
+  // Memberships are how the UI shows "role here" (`role_here` reads
+  // `site_users_sites`, not the install-wide column). Grant the owner an admin
+  // membership on every site that already exists (today: the migrated
+  // `default`), so the first screen renders with a role, not a blank.
+  try {
+    const sites = await env.DB.prepare("SELECT id FROM sites WHERE status='active'").all();
+    for (const s of ((sites.results as any[]) ?? [])) {
+      await env.DB.prepare(
+        "INSERT OR IGNORE INTO site_users_sites(user_id, site_id, role, created_at) VALUES(?,?,?,?)"
+      ).bind(userId, String((s as any).id), "admin", now).run();
+    }
+  } catch {
+    /* sites table missing (pre-0008 database) — superadmin needs no membership */
+  }
 }
 
 export async function login(env: Env, username: string, password: string, cookiePath = "/admin"): Promise<Response> {

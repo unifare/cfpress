@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="{{locale}}" data-theme="{{#if site.theme_mode}}{{site.theme_mode}}{{/if}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{page.document_title}}</title>
+{{#if page.description}}<meta name="description" content="{{page.description}}">{{/if}}
+{{#if site.robots}}<meta name="robots" content="{{site.robots}}">{{/if}}
+<link rel="canonical" href="{{site.url}}{{page.path}}">
+{{! hreflang: prefer the post's own alternates (rule 58 — every language owns its
+    slug on an article page), fall back to this site's declared locales on a
+    listing page where one path serves them all. }}
+{{#if post.alternates}}
+  {{#each post.alternates as alt}}<link rel="alternate" hreflang="{{alt.locale}}" href="{{alt.url}}">
+  {{/each}}
+{{else}}
+  {{#each locales as l}}<link rel="alternate" hreflang="{{l.code}}" href="{{site.url}}/{{l.code}}">
+  {{/each}}
+{{/if}}
+<meta property="og:type" content="{{#if post}}article{{else}}website{{/if}}">
+<meta property="og:title" content="{{page.document_title}}">
+{{#if page.description}}<meta property="og:description" content="{{page.description}}">{{/if}}
+{{#if post.cover}}<meta property="og:image" content="{{post.cover}}">{{/if}}
+<meta name="twitter:card" content="{{#if post.cover}}summary_large_image{{else}}summary{{/if}}">
+<link rel="alternate" type="application/rss+xml" title="{{site.title}}" href="/{{locale}}/feed.xml">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🌸</text></svg>">
+{{! Paint the chosen palette before first paint so a dark-mode reader never sees
+    a white flash. Stored under this theme's own key so switching themes does not
+    inherit the other one's choice. }}
+<script>
+(function(){try{var t=localStorage.getItem("sakura-theme");if(t==="dark"||t==="light"){document.documentElement.setAttribute("data-theme",t);}}catch(e){}})();
+</script>
+{{@include "parts/styles"}}
+</head>
+<body>
+<a class="skip" href="#content">{{default(theme.strings.a11y.skip, "Skip to content")}}</a>
+<div class="aurora" aria-hidden="true"><span class="orb orb-1"></span><span class="orb orb-2"></span><span class="orb orb-3"></span></div>
+{{@include "parts/header"}}
+<main id="content">
+{{@section "content"}}
+</main>
+{{#if widgets.sidebar}}
+<aside class="side-widgets wrap" aria-label="{{default(theme.strings.side.aria, "Sidebar")}}">
+  {{{widgets.sidebar_html}}}
+</aside>
+{{/if}}
+{{@include "parts/footer"}}
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+(function(){
+  var btn=document.getElementById("themeToggle");
+  if(!btn)return;
+  var root=document.documentElement;
+  function sync(){var d=root.getAttribute("data-theme")==="dark";btn.setAttribute("aria-pressed",d?"true":"false");btn.textContent=d?"🌙":"☀️";}
+  btn.addEventListener("click",function(){
+    var next=root.getAttribute("data-theme")==="dark"?"light":"dark";
+    root.setAttribute("data-theme",next);
+    try{localStorage.setItem("sakura-theme",next);}catch(e){}
+    sync();
+  });
+  sync();
+})();
+window.sakuraToast=function(msg){
+  var el=document.getElementById("toast");if(!el)return;
+  el.textContent=msg;el.classList.add("show");
+  clearTimeout(el._t);el._t=setTimeout(function(){el.classList.remove("show");},2400);
+};
+window.defaultToast=window.sakuraToast;
+</script>
+</body>
+</html>

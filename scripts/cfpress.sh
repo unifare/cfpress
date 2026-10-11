@@ -240,6 +240,7 @@ theme-integration|tests/suites/theme-integration.test.mjs
 locale-url|tests/suites/locale-url.test.mjs
 theme-fixture|tests/suites/theme-fixture.test.mjs
 theme-default|tests/suites/theme-default.test.mjs
+theme-bundled|tests/suites/theme-bundled.test.mjs
 multisite|tests/suites/multisite.test.mjs
 i18n|tests/suites/i18n.test.mjs
 admin-contract|tests/suites/admin-contract.test.mjs
@@ -523,7 +524,7 @@ ${C_BOLD}CFPress launcher${C_RESET}  ${C_DIM}(repo root: $ROOT)${C_RESET}
 
   ${C_BOLD}SUITES${C_RESET}  ${C_DIM}(for \`test <name>\`)${C_RESET}
     architecture  _schema-scope  manifest-validation  admin-menus  admin-spa
-    template-engine  scaffold  theme-integration  theme-fixture  theme-default  multisite  i18n
+    template-engine  scaffold  theme-integration  theme-fixture  theme-default  theme-bundled  multisite  i18n
     admin-contract  account  menu-custom  plugin-hooks  plugin-channels  plugin-pages  theme-worker
 
   ${C_BOLD}ENV${C_RESET}

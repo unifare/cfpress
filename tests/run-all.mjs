@@ -73,6 +73,13 @@ const suites = [
   ["locale urls", "suites/locale-url.test.mjs"],
   ["fixture theme", "suites/theme-fixture.test.mjs"],
   ["default theme", "suites/theme-default.test.mjs"],
+  // Every bundled theme, walked from the real `BUNDLED_THEMES`. `theme-default`
+  // renders one theme and hard-codes its directory; this one renders *all* of
+  // them, so a second bundled theme is covered the moment it enters the
+  // distribution set. Its first draft was a dead guard (it scanned templates
+  // but not parts, and Parts are where the header's member chip lives) — the
+  // reverse-validation note in the suite records what the injection showed.
+  ["bundled themes", "suites/theme-bundled.test.mjs"],
   // The launcher parity check is pure text analysis over scripts/cfpress.sh and
   // scripts/cfpress.ps1 — no Worker, no database. It guards the promise those
   // two files make to each other ("one set of actions"), which decays silently

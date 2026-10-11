@@ -1,0 +1,94 @@
+{
+  "name": "sakura",
+  "title": "樱序 SAKURA",
+  "version": "1.0.0",
+  "author": "CFPress",
+  "description": "现代二次元风格主题：霓虹渐变、玻璃拟态卡片、圆角大留白。粉色主调搭配青与紫的辅助色，明暗两套配色。适合动漫资讯站、同人社团与个人作品集。全站无外链字体与第三方脚本，订阅走标准 RSS。",
+  "supports": [
+    "blocks",
+    "menus",
+    "widgets"
+  ],
+  "menuLocations": [
+    { "id": "header", "label": "Header" },
+    { "id": "footer", "label": "Footer" }
+  ],
+  "sidebars": [
+    { "id": "sidebar", "label": "Sidebar" },
+    { "id": "footer", "label": "Footer" }
+  ],
+  "templates": [
+    "index",
+    "home",
+    "single",
+    "page",
+    "archive",
+    "404",
+    "login",
+    "register",
+    "account"
+  ],
+  "parts": [
+    "layout",
+    "styles",
+    "header",
+    "footer"
+  ],
+  "locales": [
+    "zh-CN",
+    "en"
+  ],
+  "routes": [
+    {
+      "path": "/blog",
+      "template": "archive",
+      "title": "Blog",
+      "query": {
+        "type": "post",
+        "limit": 50,
+        "order": "created_at desc"
+      }
+    },
+    {
+      "path": "/login",
+      "template": "login",
+      "title": "Sign in"
+    },
+    {
+      "path": "/register",
+      "template": "register",
+      "title": "Create an account"
+    },
+    {
+      "path": "/account",
+      "template": "account",
+      "title": "Account"
+    }
+  ],
+  "fields": [
+    {
+      "key": "category",
+      "type": "text",
+      "label": "分区",
+      "postTypes": [
+        "post"
+      ]
+    },
+    {
+      "key": "tags",
+      "type": "text",
+      "label": "标签（逗号分隔）",
+      "postTypes": [
+        "post"
+      ]
+    },
+    {
+      "key": "accent",
+      "type": "text",
+      "label": "强调色（可选，如 #ff7ab8）",
+      "postTypes": [
+        "post"
+      ]
+    }
+  ]
+}

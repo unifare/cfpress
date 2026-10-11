@@ -2853,6 +2853,89 @@ section("A staff identity is deleted together with its memberships (rule 80)");
 }
 
 // ---------------------------------------------------------------------------
+section("Templates see a projection, not a row (rule 81)");
+// ---------------------------------------------------------------------------
+
+/**
+ * Theme batch. Every object in the template scope is a **projection of a
+ * database row**, and its fields are snake_case (`post.reading_time`,
+ * `page.document_title`, `site.title`) — because they come from rows.
+ * `publicMember` returns camelCase (`displayName`), which is right for the JSON
+ * API and wrong for a template: `{{member.display_name}}` resolves to
+ * `undefined` and renders **empty**, with HTTP 200 and no error anywhere.
+ *
+ * That is what shipped. Every theme's sign-in branch wrote
+ * `{{member.display_name}}` — following the column it comes from — and printed
+ * a blank name. `theme-default.test.mjs` §8b stayed green because its fixture
+ * hand-wrote `display_name`, a shape the real scope never produced: a fixture
+ * that invents a shape the runtime does not produce is a guard that cannot fail
+ * (§12 #5).
+ *
+ * This section is deliberately **lexical**, and the reason is worth stating: no
+ * suite in this repository drives the real `buildScope` — they all render
+ * templates against a hand-built scope object. So a behavioural guard here
+ * would have to stand up D1, R2, KV and a request just to read one field, while
+ * the property that actually matters ("the scope is built by calling the
+ * projection, not by passing the row through") is a property of one line. The
+ * behavioural half lives in `theme-default.test.mjs` §8b, which derives its
+ * fixture from `memberScope()` itself so the two cannot drift.
+ */
+{
+  const membersSrc = blankComments(read(join(ROOT, "src", "platform", "members.ts")));
+  const rdSrc = blankComments(read(join(ROOT, "src", "extensions", "theme", "runtime-declarative.ts")));
+
+  // The projection exists and carries the snake_case key the templates ask for.
+  check(
+    "the member projection is defined (rule 81a)",
+    /export function memberScope\s*\(\s*member\s*:\s*MemberUser\s*\)/.test(membersSrc)
+  );
+  check(
+    "the projection carries display_name, not displayName (rule 81a)",
+    /\bdisplay_name\s*:/.test(membersSrc) && !/\bdisplayName\s*:\s*display\b/.test(membersSrc)
+  );
+  // The projected object is what templates receive, so a password hash on it
+  // would be handed to user-authored markup with nothing to notice. Slice the
+  // *function body* — a whole-file scan matches the hashes in the login query
+  // and the `publicMember` comment, which are supposed to be there. The first
+  // draft of this assertion sliced from the function to end-of-file and went
+  // red on correct code: a guard that fails correct code gets weakened.
+  const scopeFnStart = membersSrc.indexOf("export function memberScope");
+  const scopeFnEnd = membersSrc.indexOf("function publicMember", scopeFnStart);
+  const scopeFn = scopeFnStart >= 0 ? membersSrc.slice(scopeFnStart, scopeFnEnd > 0 ? scopeFnEnd : scopeFnStart + 800) : "";
+  check(
+    "the projection may carry no password hash (rule 81b)",
+    scopeFn.length > 100 && !/password_hash|passwordHash/.test(scopeFn)
+  );
+
+  // The scope is built *through* the projection. This is the line the defect
+  // was: passing `memberRow` straight through hands templates a row-shaped
+  // object, and every `{{member.<field>}}` read misses silently.
+  check(
+    "buildScope projects the member row before handing it to templates (rule 81a)",
+    /const member\s*=\s*memberRow\s*\?\s*memberScope\s*\(\s*memberRow\s*\)\s*:/.test(rdSrc)
+  );
+  // The negative direction, written as a *positive* statement about the only
+  // shape allowed rather than a lookahead. The earlier attempt used
+  // `/const member\s*=\s*memberRow\s*(?!\?)/`, whose trailing `\s*` made the
+  // zero-width lookahead match by backtracking — it reported a violation on the
+  // correct line. The safe form is to assert that every `= memberRow` that is
+  // not followed by `? memberScope(` does not exist, by scanning the matches.
+  const rawHandoffs = [...rdSrc.matchAll(/const member\s*=\s*memberRow\s*(\?)?/g)]
+    .filter((m) => !m[1]);
+  check(
+    "buildScope does not hand the raw member row to templates (rule 81a)",
+    rawHandoffs.length === 0,
+    `${rawHandoffs.length} raw \`= memberRow\` handoff(s) without the projection`
+  );
+
+  // Non-vacuity: the sources were actually read, and the slice found its target.
+  check(
+    "the rule-81 sources were actually read (non-vacuity)",
+    membersSrc.length > 1000 && rdSrc.length > 5000 && scopeFn.length > 100
+  );
+}
+
+// ---------------------------------------------------------------------------
 section("This suite's own assertions can actually fail (meta-guard)");
 // ---------------------------------------------------------------------------
 

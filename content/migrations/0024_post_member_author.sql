@@ -1,0 +1,69 @@
+-- 0024: Front-end authorship — who wrote this, when the writer is a *member*.
+--
+-- ## Why a new column instead of reusing `author_id`
+--
+-- `posts.author_id` has held a **staff** identity since 0001 — a `site_users.id`,
+-- the install-wide staff account the admin editor logs in as. Front-end members
+-- are a different identity (`members`, migration 0022): per site, a separate
+-- table, a separate cookie, a separate endpoint family, and the separation is
+-- structural (rule 77). Writing a member id into `author_id` would put two
+-- different id spaces in one column, and every reader of `author_id` would then
+-- have to know which kind of id it was looking at — the classic "one column,
+-- two meanings" defect, where the wrong branch reads a real row and answers
+-- with the wrong author.
+--
+-- So the two are separate columns, and the invariant is simple: a post has
+--
+--   - `author_id`        — set for staff-written posts (the existing path)
+--   - `author_member_id` — set for member-submitted posts (NULL otherwise)
+--
+-- A member submission leaves `author_id` as the empty string (its NOT NULL
+-- default from 0001 is preserved; we never invent a fake staff user). Nothing
+-- reads `author_id` for a display name on a member post, and "my posts" filters
+-- on `author_member_id` alone.
+--
+-- ## The two axes, stated
+--
+-- *Tenant*: `author_member_id` is **not** a tenant column — it is a foreign
+-- reference whose target (`members`) is already site-scoped. `posts.site_id`
+-- remains the tenant, and the "my posts" query filters on **both** (`site_id`
+-- AND `author_member_id`): a member id is unique per site anyway, but the site
+-- filter is what keeps the query from being site-blind, and rule 6 does not
+-- allow relying on a coincidence of the id space.
+--
+-- *Language*: this column is language-**neutral** — it names a person, not a
+-- sentence. It must therefore NOT be marked translatable anywhere, exactly as
+-- `PROSE_FIELD_TYPES` requires (rule 41: prose is translatable, identifiers are
+-- not). Nothing here touches the content-language side of the model.
+--
+-- ## Deletion
+--
+-- When a site is deleted, `posts` is declared `onSiteDelete: "retain"`
+-- (contract/schema.ts) — content is an operator decision, not a cascade. This
+-- column adds no new deletion obligation: it holds an id, and the row it points
+-- at goes away with its site (`members` is `purge`). A retained post whose
+-- `author_member_id` no longer resolves is the *intended* outcome of that
+-- policy — the post survives, its author display falls back to anonymous — and
+-- it is the same shape as a retained post whose `author_id` no longer resolves
+-- after a staff account is removed.
+--
+-- ## Why NULL and not `''`
+--
+-- `post_meta.locale` used `''` for "written before the dimension existed", and
+-- that is right there because the value is a *language* and the empty string is
+-- itself a meaningful bucket in the read ladder (rule 70). Here there is no
+-- ladder: "no member author" is genuinely absent, and NULL is how SQLite spells
+-- absent. A partial index on the non-NULL rows keeps "my posts" cheap without
+-- indexing every staff post.
+--
+-- Existing rows are **deliberately not backfilled**: nothing in the database
+-- knows which staff-authored posts were "really" written by a person who later
+-- registered as a member, and guessing would attribute content to accounts that
+-- never wrote it. Every pre-0024 post simply has no member author, which is
+-- true.
+
+ALTER TABLE posts ADD COLUMN author_member_id TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_posts_member_author
+  ON posts (site_id, author_member_id)
+  WHERE author_member_id IS NOT NULL;

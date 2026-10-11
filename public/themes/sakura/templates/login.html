@@ -1,0 +1,40 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+<div class="auth">
+  <div class="auth-card">
+    {{#if member}}
+      <div class="kicker">{{default(theme.strings.auth.accountKicker, "Account")}}</div>
+      <h1>{{default(theme.strings.auth.welcome, "You are signed in")}}</h1>
+      <p class="lede">{{default(theme.strings.auth.signedInAs, "Signed in as")}} <b>{{member.display_name}}</b></p>
+      <a class="btn" href="/{{locale}}/account">{{default(theme.strings.auth.openAccount, "Open your account")}}</a>
+      <p class="auth-alt"><a href="/{{locale}}">{{default(theme.strings.footer.home, "Back to the front page")}}</a></p>
+    {{else}}
+      <div class="kicker">{{default(theme.strings.auth.loginKicker, "Welcome back")}}</div>
+      <h1>{{default(theme.strings.auth.loginTitle, "Sign in")}}</h1>
+      <p class="lede">{{default(theme.strings.auth.loginLede, "Your reader account on this site.")}}</p>
+
+      {{! No JavaScript: the form POSTs straight to the front-end API and the
+          server redirects back, so sign-in works with scripts disabled. }}
+      <form method="post" action="/api/v1/front/auth/login" class="auth-form">
+        <label class="field">
+          <span>{{default(theme.strings.auth.username, "Username")}}</span>
+          <input name="username" type="text" autocomplete="username" required>
+        </label>
+        <label class="field">
+          <span>{{default(theme.strings.auth.password, "Password")}}</span>
+          <input name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <input type="hidden" name="redirect" value="/{{locale}}/account">
+        <button class="btn" type="submit">{{default(theme.strings.auth.signIn, "Sign in")}}</button>
+      </form>
+
+      <p class="auth-alt">
+        {{default(theme.strings.auth.noAccount, "No account yet?")}}
+        <a href="/{{locale}}/register">{{default(theme.strings.auth.createOne, "Create one")}}</a>
+      </p>
+    {{/if}}
+  </div>
+</div>
+
+{{/section}}

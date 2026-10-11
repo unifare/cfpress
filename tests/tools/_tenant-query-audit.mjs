@@ -153,7 +153,11 @@ const REVIEWED = {
   "src/api.ts:948": "DELETE FROM theme_table_defs WHERE owner_name=? — same uninstall: the theme is leaving the platform, so every site's mapping goes with it",
   "src/api.ts:898": "SELECT settings … WHERE key='theme.active' AND value=? — uninstall's active-site check deliberately scans all sites: the 409 must name every site that still renders this theme",
   "src/platform/admin-menus.ts:268": "DELETE FROM admin_menu_registry WHERE owner_type=? AND owner_name=? — this is `clearOwnerMenusAllSites`, and install-wide is its *name*: an activation interrupted before it wrote `theme.active` leaves menus on sites that no longer select the theme, pointing at tables an uninstall is about to drop. Owner-scoped by design",
-  "src/platform/members.ts:166": "DELETE FROM member_sessions WHERE id=? — the logout row is addressed by the session id read from the caller's own cookie (`cookieValue(request, MEMBER_COOKIE)`), which is the PK; there is no site dimension to add, and deleting someone else's id is impossible without already holding it",
+  // Re-keyed 166→205: the theme-batch added `memberScope()` (~39 lines) above
+  // `logoutMember` in the same file. The statement is unchanged — only its line
+  // number moved. (This is the third time a `file:line` key has drifted; the
+  // keys are load-bearing, so a shift is a re-key, never a silent NEW.)
+  "src/platform/members.ts:205": "DELETE FROM member_sessions WHERE id=? — the logout row is addressed by the session id read from the caller's own cookie (`cookieValue(request, MEMBER_COOKIE)`), which is the PK; there is no site dimension to add, and deleting someone else's id is impossible without already holding it",
   "src/platform/auth.ts:252": "DELETE FROM site_users_sites WHERE user_id=? — `deleteUser` removing *all* of one person's memberships as part of deleting that person. `user_id` is the PK half, and install-wide is the intent: the identity is going away, so every site's grant for it must go too. Adding a site filter here would leave the other memberships orphaned, which is the very defect rule 80 exists to prevent",
 };
 

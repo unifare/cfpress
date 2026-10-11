@@ -1486,7 +1486,11 @@ theme-api 站点与主题头可伪造、`?? "default"` 地雷、四处 `|| "en"`
   以证明 `null` 是"没行"而不是"过滤被丢掉"）。
 
 
-## 6. 测试与验证（当前全绿：24 套件 / 1713 条 / 0 失败，另有 `_schema-scope` 26 条 —— 合计 25 项 / 1739 条）
+## 6. 测试与验证（当前全绿：26 套件 / 1940 条 / 0 失败，另有 `_schema-scope` 26 条 —— 合计 27 项 / 1966 条）
+
+> ⚠️ `multisite` 在**共享本地 D1 有残留时**会红 3 条（都关于默认站点 `site.title`），
+> 已实测确认与本次改动无关（`git stash` 掉全部改动后同样 97/3）。属既有的夹具/内容缓存
+> 跨套件干扰，非产品缺陷；单独在干净库上跑是 100/0。
 
 ```bash
 npx tsc --noEmit                 # src/ 0 错误（node_modules 里的 lib 冲突是既有的，忽略）
@@ -1505,7 +1509,8 @@ node tests/<name>.test.mjs       # 逐个跑（判据是 0 failures，别把断�
 | theme-integration | 134 | 上传→激活→CPT→渲染→切主题保数据，端到端（含表驱动路由）、**§9 卸载全清理 + 占用拒绝 + `?force=1` 强制卸载（占用站点回落捆绑默认）**、**§11 菜单位置确定性（独立站点双 header 菜单稳定获胜 + footer 位置渲染 + 二次渲染一致）**、**§12 小工具端到端（四类型渲染 + 禁用/异语言/跨站均不出现）** |
 | locale-url | 36 | 按语言 slug 的路由/404/唯一性、hreflang、按语言 feed、切换器（规则 56–59）、**§1b 自定义字段带语言（单页/列表按语言取值 + 阶梯第 2 层回退 + 列表 reading_time）** |
 | theme-fixture | 47 | fixture 主题的声明与模板自洽 |
-| theme-default | 53 | default 主题（墨白 MOBAI）：模板真渲染 + head 的 SEO 契约（canonical/og/hreflang/feed）+ 语言包键完整性 |
+| theme-default | 66 | default 主题（墨白 MOBAI）：模板真渲染 + head 的 SEO 契约（canonical/og/hreflang/feed）+ 语言包键完整性 + **§8b member fixture 由真 `memberScope()` 生成（规则 81）** |
+| theme-bundled | 112 | **走真 `BUNDLED_THEMES` 逐主题渲染全部 templates 与 parts**（两种登录状态各一遍）+ 语言包双向完整 + 空/降级作用域 + 非空校验（规则 81） |
 | multisite | 100 | 多站点隔离（含 SEO 端点按站点、**§9 断言关掉 KV 镜像后确实没有 KV 写入**、**feed 按站点 + RSS 断言**） |
 | i18n | 75 | 多语言四层契约（§5.4① 八条）+ 翻译组 + 主题自有表 |
 | admin-contract | 133 | 后台 API 契约（含块面板形状/无漂移/en+zh 标签、**调色板下发的 attrs 契约（类型/必填/翻译标签/`itemKeys`/容器标记）**、dashboard cards 数组、设置 options 往返、**§12 列表按站点默认语言取代表行 + `locales` 集合 + `?locale=` 过滤 + 未翻译行不被吞**、**§13 菜单契约：CRUD + 批量重排先验归属 + 嵌套一层 + 删父升级子 + 跨站点 404**、**§14 小工具契约：scoped CRUD + config 校验 400 + 跨站 404**、**§15b 前缀挂载带全量请求：经前缀的 `?site=` 真的改变答案 + `?withCounts=1` 真的改变 payload 形状 + 分页参数到达**、**§16 站点计数契约：行级语言种子 + 每站计数含草稿 + 邻站计数是它自己的 + 空站报 0 + 主题读选择/未选报空 + 不带 withCounts 无新字段 + 非当前站点的默认语言可钉**） |

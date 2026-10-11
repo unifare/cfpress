@@ -1,0 +1,38 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+{{#if post}}
+<article class="article">
+  <header class="article-head">
+    <div class="kicker">{{#if post.meta.category}}{{post.meta.category}}{{else}}{{default(theme.strings.article.kicker, "Post")}}{{/if}}</div>
+    <h1>{{post.title}}</h1>
+    {{#if post.excerpt}}<p class="lede">{{post.excerpt}}</p>{{/if}}
+    <div class="byline">
+      {{#if post.date_display}}<span>{{post.date_display}}</span>{{/if}}
+      {{#if post.reading_time}}<span>· {{post.reading_time}}</span>{{/if}}
+    </div>
+  </header>
+
+  {{#if post.cover}}
+  <div class="article-cover"><img src="{{post.cover}}" alt="{{post.title}}"></div>
+  {{/if}}
+
+  <div class="prose">
+    {{#if post.excerpt}}<p class="lede">{{post.excerpt}}</p>{{/if}}
+    {{#if post.html}}{{{post.html}}}{{else}}<p class="empty">{{default(theme.strings.article.noBody, "This post has no body content.")}}</p>{{/if}}
+    {{! `post.meta.tags` is a comma-separated string, not an array — iterating it
+        with `{{#each}}` would render nothing, silently. Print it whole instead;
+        the theme has no split helper by design (helpers are a closed set of 9). }}
+    {{#if post.meta.tags}}<div class="tagrow"><span>{{post.meta.tags}}</span></div>{{/if}}
+  </div>
+
+  <div class="article-foot">
+    <a class="btn btn-ghost" href="/{{locale}}/blog">← {{default(theme.strings.archive.title, "All posts")}}</a>
+    <a class="btn btn-ghost" href="/{{locale}}/feed.xml">{{default(theme.strings.footer.rss, "RSS feed")}}</a>
+  </div>
+</article>
+{{else}}
+<div class="wrap"><p class="empty">{{default(theme.strings.articles.empty, "Nothing published yet.")}}</p></div>
+{{/if}}
+
+{{/section}}

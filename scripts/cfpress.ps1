@@ -325,6 +325,7 @@ $Script:Suites = [ordered]@{
     'locale-url'        = 'tests/suites/locale-url.test.mjs'
     'theme-fixture'      = 'tests/suites/theme-fixture.test.mjs'
     'theme-default'        = 'tests/suites/theme-default.test.mjs'
+    'theme-bundled'      = 'tests/suites/theme-bundled.test.mjs'
     'multisite'          = 'tests/suites/multisite.test.mjs'
     'i18n'               = 'tests/suites/i18n.test.mjs'
     'admin-contract'     = 'tests/suites/admin-contract.test.mjs'

@@ -13,7 +13,7 @@ import { esc, setting, siteInfo, menusForLocation, widgetGroups, locales, render
 import { resolveMetaByPost } from "../../platform/post-meta";
 import { parsePack } from "../../platform/i18n/translate";
 import { resolveLocale } from "../../platform/i18n/resolve";
-import { currentMember } from "../../platform/members";
+import { currentMember, memberScope } from "../../platform/members";
 import { themePackKey } from "./packs";
 import { resolveTemplate, templateCandidates, type TemplateContext } from "../../rendering/template-resolver";
 import { resolveContentLocale } from "../../platform/i18n/locale-registry";
@@ -515,7 +515,13 @@ export async function buildScope(
   // even when an admin is logged in, and the reverse holds too (rule 77).
   // Absent when the caller had no request to read a cookie from, or nobody is
   // signed in; templates guard on it.
-  const member = o.request ? await currentMember(env, o.request, siteId) : null;
+  //
+  // The row is projected through `memberScope` so templates can address it in
+  // snake_case (`{{member.display_name}}`) like every other scope entry. Handing
+  // `publicMember`'s camelCase object straight through left that key undefined
+  // and printed a blank name, silently — see the comment on `memberScope`.
+  const memberRow = o.request ? await currentMember(env, o.request, siteId) : null;
+  const member = memberRow ? memberScope(memberRow) : null;
   await hooks.boot(env);
   try {
     await hooks.doAction("beforeRender", { env, siteId }, { siteId, locale: o.locale, path: o.path, kind: o.kind, scope: extra });

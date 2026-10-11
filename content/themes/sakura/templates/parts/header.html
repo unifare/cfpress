@@ -1,0 +1,47 @@
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="/{{locale}}">
+      <span class="brand-mark">樱</span>
+      <span>{{site.title}}</span>
+    </a>
+
+    <nav class="nav" aria-label="{{default(theme.strings.nav.aria, "Main navigation")}}">
+      {{#if menu.header}}
+        {{#each menu.header as item}}<a href="{{item.url}}">{{item.title}}</a>{{/each}}
+      {{else}}
+        <a href="/{{locale}}">{{default(theme.strings.nav.home, "Home")}}</a>
+        <a href="/{{locale}}/blog">{{default(theme.strings.nav.blog, "Posts")}}</a>
+      {{/if}}
+    </nav>
+
+    <div class="top-actions">
+      <form class="searchbox" method="get" action="/{{locale}}">
+        <input id="q" name="q" type="search" placeholder="{{default(theme.strings.nav.search, "Search…")}}" aria-label="{{default(theme.strings.nav.search, "Search")}}">
+        <button class="icon-btn" type="submit" aria-label="{{default(theme.strings.nav.search, "Search")}}">🔍</button>
+      </form>
+
+      {{! One entry per enabled site locale; the platform omits the whole key on a
+          monolingual site, so a one-entry switcher never renders. `current` marks
+          the entry the reader is already on. }}
+      {{#if lang_nav}}
+      <nav class="lang-nav" aria-label="{{default(theme.strings.nav.language, "Language")}}">
+        {{#each lang_nav as l}}<a href="{{l.url}}"{{#if l.current}} class="active" aria-current="true"{{/if}} hreflang="{{l.code}}">{{l.code}}</a>{{/each}}
+      </nav>
+      {{/if}}
+
+      <button class="icon-btn" id="themeToggle" type="button" aria-pressed="false" aria-label="{{default(theme.strings.a11y.theme, "Toggle colour scheme")}}">☀️</button>
+
+      {{! The signed-in member, or a sign-in link. `member` is filled by the
+          platform from the **member** session — never the admin's (rule 77) — so
+          an admin browsing the front end sees the signed-out state, which is
+          correct: the two identities are structurally separate. }}
+      {{#if member}}
+        <a class="member-chip" href="/{{locale}}/account" title="{{default(theme.strings.auth.accountKicker, "Account")}}">
+          <span class="dot"></span>{{member.display_name}}
+        </a>
+      {{else}}
+        <a class="btn btn-ghost" href="/{{locale}}/login">{{default(theme.strings.auth.signIn, "Sign in")}}</a>
+      {{/if}}
+    </div>
+  </div>
+</header>

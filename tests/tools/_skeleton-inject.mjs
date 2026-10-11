@@ -102,6 +102,12 @@ const THEME_MANIFEST = join(ROOT, "content/themes/default/theme.json");
 // installed.
 const INDEX = join(ROOT, "src/index.ts");
 const CAPABILITIES = join(ROOT, "src/extensions/theme/capabilities.ts");
+// The member scope's single projection point, and the generic bundled-theme
+// suite that must watch it. Both are injected below: the scope can regress at
+// the call site (raw object passed through) or at the projection (the field
+// renamed), and the header read it protects lives in a *part*, not a template.
+// (`MEMBERS` is declared below with the rest of the member batch-D anchors.)
+const THEME_FILE = (name, rel) => join(ROOT, "content/themes", name, rel);
 // Batch C: the admin prefix. Two independent invariants, each with a historical
 // shape worth injecting:
 //   - the SPA must build every URL from the injected base, never hard-code
@@ -1321,6 +1327,64 @@ const SCENARIOS = [
     after: ['    env.DB.prepare("SELECT 1").bind(userId),'],
     runs: [["tests/suites/architecture.test.mjs", "it removes the memberships as well as the identity (rule 80)"]],
   },
+  // --- the member scope is projected, not passed through (theme batch) ------
+  {
+    // The call-site half: `buildScope` hands templates the raw camelCase object
+    // `publicMember` returns. Every theme's sign-in branch writes
+    // `{{member.display_name}}` — following the column it comes from — so the
+    // field resolves to `undefined` and renders **empty**. HTTP stays 200, and
+    // this is the shape that shipped.
+    //
+    // The pinned assertion is the *structural* one in `architecture.test.mjs`,
+    // not a theme render. No suite here drives the real `buildScope` (they all
+    // render against a hand-built scope), so a theme suite cannot see this
+    // injection at all — verified: `theme-bundled` stayed at 112/0 with the raw
+    // handoff in place, and aborted outright once esbuild saw the projection
+    // import go unused. A scenario must pin an assertion that can actually
+    // reach the injected line.
+    label: "the member scope is the raw camelCase projection again",
+    file: join(ROOT, "src/extensions/theme/runtime-declarative.ts"),
+    before: ["const member = memberRow ? memberScope(memberRow) : null;"],
+    after: ["const member = memberRow ? (memberRow) : null;"],
+    runs: [["tests/suites/architecture.test.mjs", "buildScope projects the member row before handing it to templates (rule 81a)"]],
+  },
+  {
+    // The projection half: renaming the snake_case key back to the camelCase
+    // spelling it came from. The theme keeps asking for `display_name`, the
+    // scope stops carrying it. This lands in the *source of truth*, so a guard
+    // that only rendered markup with a hand-written fixture would not notice —
+    // which is exactly what `theme-default` §8b used to do before the fixture
+    // was derived from this function.
+    label: "memberScope drops display_name for the camelCase spelling",
+    file: MEMBERS,
+    before: ["    display_name: display,\n    name: display,"],
+    after: ["    name: display,"],
+    runs: [["tests/suites/theme-default.test.mjs", "the member scope carries display_name"]],
+  },
+  {
+    // The header is a **part**, and the first draft of the generic suite only
+    // scanned `templates/`. The defect the parts scan exists for is a
+    // `member.<field>` read *inside a part* — the header's member chip. Injecting
+    // that read into the header is the real shape; the suite must catch it.
+    //
+    // (Note what is deliberately NOT injected here: merely dropping the
+    // `templates/parts` entry from the scan is *survivable* — `login.html` and
+    // `account.html` are templates and still read `member`, so the suite stays
+    // green. That was tested and rejected: a mutation the suite cannot see is
+    // not a scenario, it is a note. The parts scan is defence in depth; the
+    // assertion it feeds is what must be load-bearing.)
+    label: "a part reads a camelCase member field",
+    file: THEME_FILE("sakura", "templates/parts/header.html"),
+    before: ["{{member.display_name}}"],
+    after: ["{{member.displayName}}"],
+    // The assertion name carries the theme prefix (`sakura: templates/parts/…`),
+    // and the injector matches the *whole* `FAIL <name>` line, so the prefix is
+    // part of the expected string. Omitting it made this scenario report "did
+    // NOT go red" while the suite was in fact red on exactly this line — a
+    // matcher that is stricter than the thing it checks reads a correct red as
+    // a miss.
+    runs: [["tests/suites/theme-bundled.test.mjs", "sakura: templates/parts/header.html names the signed-in reader"]],
+  },
 ];
 
 /** Every file any scenario may touch, hashed before and after. */
@@ -1348,7 +1412,19 @@ const WATCHED = [...new Set([SCHEMA, EVENTS, ARCH, SCOPE, MANIFEST, VALIDATION,
   ADMIN_I18N, LANGUAGES_SCREEN, THEMES_SCREEN,
   ADMIN_STATE, AUTH, SITES, SITES_SCREEN,
   BLOCKS, FRONTEND, BLOCK_FIELDS, MEDIA_PICKER, MEDIA_SCREEN, CORE_PACK, API, WRANGLER,
-  PERMISSIONS, MIGRATION_0023, USERS_SCREEN, ADMIN_NAV])];
+  PERMISSIONS, MIGRATION_0023, USERS_SCREEN, ADMIN_NAV,
+  // The theme batch. `MEMBERS` is the member-scope projection — a scenario
+  // injects into it, so it must be watched or a failed injection leaves the
+  // source of truth silently modified. The two theme files are watched for the
+  // same reason: a scenario edits a template (a part and a page), and an
+  // unwatched template would corrupt the theme's rendering with nothing to
+  // notice. Note that injecting into a *bundled* theme also means the tree is
+  // dirty against `public/themes/` until `sync-bundled-themes` re-runs — the
+  // scenarios below inject into `content/`, which the injector restores.
+  MEMBERS,
+  THEME_FILE("sakura", "templates/parts/header.html"),
+  join(ROOT, "tests/suites/theme-bundled.test.mjs"),
+  join(ROOT, "tests/suites/theme-default.test.mjs")])];
 
 function hashAll() {
   const out = {};

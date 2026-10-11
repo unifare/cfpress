@@ -92,6 +92,9 @@ const lookup = (obj, path) => path.split(".").reduce((o, k) => (o == null ? unde
 async function main() {
   const { validateManifest } = await bundle("src/extensions/contract/validation.ts", "default-validation.mjs");
   const { renderTemplateSource } = await bundle("src/rendering/template-engine.ts", "default-engine.mjs");
+  // The *real* member projection, so the signed-in fixture cannot drift from
+  // what the runtime hands a template. See section 8b.
+  const { memberScope } = await bundle("src/platform/members.ts", "default-members.mjs");
 
   // The theme's own dictionaries, nested exactly as `buildScope` nests them.
   const zhPack = nest(JSON.parse(read("langs/zh-CN.json")), THEME);
@@ -264,9 +267,24 @@ async function main() {
   // branches must render cleanly: an unauthenticated visitor sees the form, a
   // signed-in reader sees the account state. A template that only ever got
   // tested signed-out would ship an `{{#if member}}` branch nobody ever saw.
+  //
+  // ⚠️ The fixture is built by calling the **real** `memberScope()` rather than
+  // hand-writing the object. The hand-written version is what hid the defect
+  // this section is named after: it spelled the field `display_name`, the real
+  // scope handed templates a camelCase `displayName`, so `{{member.display_name}}`
+  // rendered empty on the live site while this suite stayed green. A fixture
+  // that invents a shape the runtime never produces cannot fail — it is a guard
+  // made of the very assumption it was meant to test (§12 #5). Deriving it from
+  // the projection means the fixture drifts *with* the runtime, and the day the
+  // projection is renamed this section goes red instead of quietly passing.
   section("8b. The member pages render in both states");
+  const signedInMember = memberScope({ id: "mem_1", siteId: "site_1", username: "bob", email: null, displayName: "Bob", role: "member", status: "active" });
+  // Sanity: the projection must carry the snake_case key the templates ask for.
+  // Without this the whole section would still pass on an empty object.
+  check("the member scope carries display_name", signedInMember.display_name, "Bob");
+  check("the member scope is snake_case, not camelCase", "displayName" in signedInMember, false);
   const loginOut = await render("login.html", base({ member: null, page: { title: "Sign in", kind: "page", document_title: "Sign in · 墨白", path: "/zh-CN/login" } }));
-  const loginIn = await render("login.html", base({ member: { id: "mem_1", username: "bob", display_name: "Bob", role: "member" }, page: { title: "Sign in", kind: "page", document_title: "Sign in · 墨白", path: "/zh-CN/login" } }));
+  const loginIn = await render("login.html", base({ member: signedInMember, page: { title: "Sign in", kind: "page", document_title: "Sign in · 墨白", path: "/zh-CN/login" } }));
   const regOut = await render("register.html", base({ member: null, page: { title: "Create an account", kind: "page", document_title: "Create an account · 墨白", path: "/zh-CN/register" } }));
   for (const [name, html] of [["login (signed out)", loginOut], ["login (signed in)", loginIn], ["register (signed out)", regOut]]) {
     const problems = [];

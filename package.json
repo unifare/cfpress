@@ -24,6 +24,7 @@
     "test:sandbox": "node tests/suites/theme-worker.test.mjs",
     "test:fixture": "node tests/suites/theme-fixture.test.mjs",
     "test:default": "node tests/suites/theme-default.test.mjs",
+    "test:bundled": "node tests/suites/theme-bundled.test.mjs",
     "test:manifest": "node tests/suites/manifest-validation.test.mjs",
     "test:admin-spa": "node tests/suites/admin-spa.test.mjs",
     "test:admin-menus": "node tests/suites/admin-menus.test.mjs",
@@ -40,7 +41,7 @@
     "test:multisite-matrix": "node tests/suites/multisite-isolation-matrix.test.mjs",
     "test:schema": "node tests/tools/_schema-scope.mjs",
     "test:launcher": "node tests/suites/launcher-parity.test.mjs",
-    "test": "node tests/suites/architecture.test.mjs && node tests/tools/_schema-scope.mjs && node tests/suites/manifest-validation.test.mjs && node tests/suites/admin-menus.test.mjs && node tests/suites/admin-spa.test.mjs && node tests/suites/template-engine.test.mjs && node tests/suites/scaffold.test.mjs && node tests/suites/theme-integration.test.mjs && node tests/suites/locale-url.test.mjs && node tests/suites/theme-fixture.test.mjs && node tests/suites/theme-default.test.mjs && node tests/suites/multisite.test.mjs && node tests/suites/i18n.test.mjs && node tests/suites/admin-contract.test.mjs && node tests/suites/media.test.mjs && node tests/suites/media-picker.test.mjs && node tests/suites/editor-blocks.test.mjs && node tests/suites/account.test.mjs && node tests/suites/menu-custom.test.mjs && node tests/suites/user-delete.test.mjs && node tests/suites/multisite-isolation-matrix.test.mjs && node tests/suites/plugin-hooks.test.mjs && node tests/suites/plugin-pages.test.mjs && node tests/suites/plugin-channels.test.mjs && node tests/suites/theme-worker.test.mjs && node tests/suites/features.test.mjs && node tests/suites/launcher-parity.test.mjs"
+    "test": "node tests/suites/architecture.test.mjs && node tests/tools/_schema-scope.mjs && node tests/suites/manifest-validation.test.mjs && node tests/suites/admin-menus.test.mjs && node tests/suites/admin-spa.test.mjs && node tests/suites/template-engine.test.mjs && node tests/suites/scaffold.test.mjs && node tests/suites/theme-integration.test.mjs && node tests/suites/locale-url.test.mjs && node tests/suites/theme-fixture.test.mjs && node tests/suites/theme-default.test.mjs && node tests/suites/theme-bundled.test.mjs && node tests/suites/multisite.test.mjs && node tests/suites/i18n.test.mjs && node tests/suites/admin-contract.test.mjs && node tests/suites/media.test.mjs && node tests/suites/media-picker.test.mjs && node tests/suites/editor-blocks.test.mjs && node tests/suites/account.test.mjs && node tests/suites/menu-custom.test.mjs && node tests/suites/user-delete.test.mjs && node tests/suites/multisite-isolation-matrix.test.mjs && node tests/suites/plugin-hooks.test.mjs && node tests/suites/plugin-pages.test.mjs && node tests/suites/plugin-channels.test.mjs && node tests/suites/theme-worker.test.mjs && node tests/suites/features.test.mjs && node tests/suites/launcher-parity.test.mjs"
   },
   "devDependencies": {
     "typescript": "^5.7.3",

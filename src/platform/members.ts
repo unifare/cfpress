@@ -58,6 +58,45 @@ export interface MemberUser {
   status: string;
 }
 
+/**
+ * The member as a **theme** sees them.
+ *
+ * Templates address everything in snake_case — `post.reading_time`,
+ * `page.document_title`, `site.title` — because the scope is built from
+ * database rows. `publicMember` returns camelCase, which is the right shape for
+ * the JSON API (it is what the SPA consumes) but the wrong one for a template:
+ * `{{member.display_name}}` against a camelCase object resolves to `undefined`
+ * and renders **empty**, with no error anywhere.
+ *
+ * That is not hypothetical: every theme's sign-in branch wrote
+ * `{{member.display_name}}` — following the row it came from — and printed a
+ * blank name, while `theme-default.test.mjs` stayed green because its fixture
+ * fell back to the snake_case spelling the real scope never had. A fixture that
+ * invents a shape the runtime does not produce is a guard that cannot fail
+ * (the same failure mode as `docs/ARCHITECTURE.md` §12 #5).
+ *
+ * So the conversion lives here, once, next to the row it comes from, rather
+ * than in each theme's markup. `name` is a convenience alias so a template that
+ * only wants "something to display" does not have to spell out the fallback.
+ *
+ * ⚠️ Nothing here may ever carry `password_hash`: this object is handed to
+ * user-authored templates, and a leak would be silent (a template that prints
+ * it prints it; no test would notice). `publicMember` already keeps it out, and
+ * this function only renames fields of its result.
+ */
+export function memberScope(member: MemberUser): Record<string, unknown> {
+  const display = member.displayName ?? member.username;
+  return {
+    id: member.id,
+    username: member.username,
+    email: member.email,
+    display_name: display,
+    name: display,
+    role: member.role,
+    status: member.status,
+  };
+}
+
 /** Public shape — never includes `password_hash`. */
 function publicMember(row: any): MemberUser {
   return {

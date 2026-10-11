@@ -32,7 +32,7 @@
  */
 import { Env } from "./types";
 
-export const BUNDLED_THEMES: readonly string[] = ["default"];
+export const BUNDLED_THEMES: readonly string[] = ["default", "sakura"];
 
 /**
  * Read one file of a bundled theme from the worker assets.

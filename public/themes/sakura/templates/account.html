@@ -1,0 +1,67 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+{{#if member}}
+<div class="wrap account">
+
+  <section class="panel">
+    <div class="avatar-lg">{{truncate(member.display_name, 1)}}</div>
+    <div class="kicker">{{default(theme.strings.account.kicker, "Account")}}</div>
+    <h1>{{member.display_name}}</h1>
+    <p class="lede">{{default(theme.strings.account.lede, "Your reader account on this site.")}}</p>
+
+    <dl class="kv">
+      <div><dt>{{default(theme.strings.account.username, "Username")}}</dt><dd>{{member.username}}</dd></div>
+      <div><dt>{{default(theme.strings.account.email, "Email")}}</dt><dd>{{#if member.email}}{{member.email}}{{else}}{{default(theme.strings.account.noEmail, "Not set")}}{{/if}}</dd></div>
+      <div><dt>{{default(theme.strings.account.role, "Role")}}</dt><dd>{{member.role}}</dd></div>
+    </dl>
+
+    {{! No JavaScript needed: the form POSTs to the front-end logout endpoint
+        and the server clears the member cookie and redirects back. }}
+    <form method="post" action="/api/v1/front/auth/logout">
+      <input type="hidden" name="redirect" value="/{{locale}}">
+      <button class="btn btn-ghost" type="submit">{{default(theme.strings.auth.signOut, "Sign out")}}</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <div class="sec-head tight">
+      <h2>{{default(theme.strings.account.myPosts, "My posts")}}</h2>
+      <div class="line"></div>
+      {{#if my_posts}}<span class="more">{{len(my_posts)}} {{default(theme.strings.articles.unit, "articles")}}</span>{{/if}}
+    </div>
+
+    {{#if my_posts}}
+      <div class="myposts">
+        {{#each my_posts as post}}
+          <a class="mypost" href="{{post.url}}">
+            <div>
+              <h4>{{post.title}}</h4>
+              <div class="sub">
+                {{#if post.date_display}}{{post.date_display}}{{/if}}
+                {{#if post.reading_time}} · {{post.reading_time}}{{/if}}
+              </div>
+            </div>
+            {{#if post.status}}<span class="badge">{{post.status}}</span>{{/if}}
+          </a>
+        {{/each}}
+      </div>
+    {{else}}
+      <p class="empty">{{default(theme.strings.account.noPosts, "You have not published anything yet.")}}</p>
+    {{/if}}
+  </section>
+
+</div>
+{{else}}
+<div class="auth">
+  <div class="auth-card">
+    <div class="kicker">{{default(theme.strings.account.kicker, "Account")}}</div>
+    <h1>{{default(theme.strings.account.signedOutTitle, "You are not signed in")}}</h1>
+    <p class="lede">{{default(theme.strings.account.signedOutLede, "Sign in to see your account and your posts.")}}</p>
+    <a class="btn" href="/{{locale}}/login">{{default(theme.strings.auth.signIn, "Sign in")}}</a>
+    <p class="auth-alt">{{default(theme.strings.auth.noAccount, "No account yet?")}} <a href="/{{locale}}/register">{{default(theme.strings.auth.createOne, "Create one")}}</a></p>
+  </div>
+</div>
+{{/if}}
+
+{{/section}}

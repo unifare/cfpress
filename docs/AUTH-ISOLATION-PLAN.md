@@ -1,6 +1,6 @@
 # 多站点隔离 / 用户隔离 / 后台隐身 / 设置分两级 —— 实施方案（批次 A–F）
 
-> 状态：**批次 A（hosts/域名绑定）、B（设置分两级）、C（后台隐身）与 D（前台会员）已完成**；E（staff 按站点）、F（契约收尾）待做。
+> 状态：**批次 A（hosts/域名绑定）、B（设置分两级）、C（后台隐身）、D（前台会员）与 E1（staff 按站点：权限接线）已完成**；E2（站点-角色 UI）、F（契约收尾）待做。
 > A：三个域名经 dev server 各自命中 default / shop-demo / de-demo，hosts 改动在标记块内、已自动备份。
 > B：`platform_settings` + `SETTING_DEFS` + 唯一读取阶梯 + 设置屏两栏 + `platform.manage`。
 > C：`admin.path` 可配（平台级）；整个后台（SPA + 资产 + API + 登录端点）挂前缀之下、旧地址
@@ -181,6 +181,14 @@
 - **E2（UI）**：站点切换器按角色过滤；`users` 屏的站点-角色编辑；中英词典。
 - **验收**：A 站 editor 打 B 站 `content.write` → 403；`superadmin` 全站；`site_users.role` 平移后旧行为不回归；跨站点列表互不可见。
 - **改动面**：迁移、`contract/schema.ts`、`src/platform/permissions.ts`、`src/api.ts`（所有调用点）、`admin-spa`、`admin-contract`、注入器。
+
+**E1 已完成（2026-10-11）**，落地与计划的三处偏差记录如下：
+
+1. **`siteId` 是「必填参数」，不是「可选带默认」**。计划只写"站点感知"；实现时把它做成签名里的必填第四参。理由：可选参数会让某个调用点**悄悄**重问"站点盲"的问题——而那个问题**仍然有答案**（它读到某人的一行），这正是缺陷能通过评审的方式。必填则编译器点名每一处必须表态"哪个站点"。守卫（规则 78a）直接读签名，拒绝 `siteId?: string` 与 `siteId = "…"` 两种可选拼法。
+2. **两类权限，一张显式清单**。`PLATFORM_PERMISSIONS = {platform.manage, users.manage, extensions.manage}`（install 级，只有 `superadmin` 有）；其余按站点。**`POST/PUT/DELETE sites` 从 `content.write` 改判为 `platform.manage`**：建/改/删站点是"管理租户注册表本身"，站点还不存在时没有成员行可满足，按站点判是个无解的题。`GET sites` 按 `accessibleSiteIds` 过滤（`superadmin` 得 `null`＝全部）。
+3. **`requireAdmin` 的硬编码角色列表是升级陷阱（真实缺陷，先于测试发现）**。迁移 0023 把唯一管理员提升为 `superadmin` 之后，`admin-contract` 的 §0b 立刻红：`requireAdmin` 写死 `["admin","editor","author"]`，**不含 `superadmin`** → owner 被锁在每一个后台端点之外。修复：`ADMIN_ROLES` 从 `SITE_ROLES` + `SUPERADMIN_ROLE` **派生**（规则 78a 钉住"必须是派生的"）。
+
+**新增守卫**：`architecture` 规则 78（a `can`/`requirePermission` 的 `siteId` 必填 + 后台角色集派生 / b 全部 31 个调用点带 `siteId` + 平台权限集非空 / c `can()` 只读成员表且带站点过滤 + 无行即拒 + `superadmin` 先短路 / d 契约声明为站点表 + `superadmin` 不可按站点授予 + 迁移带 `site_id` 且平移）；`admin-contract` §18（31 条：A 站 editor 打 B 站 403、superadmin 对照、站点列表按成员过滤、平台权限 install 级、授/撤站点角色、`role_here`/`sites` 契约）；注入器 6 个场景（回退全局 role、丢站点过滤、`siteId` 变可选、迁移丢平移、`superadmin` 进可授集、后台角色集写死）。
 
 ### 批次 F —— 契约与守卫收尾
 - `CHANGE-CONTRACT.md` 新增三个维度（**前台/后台分离**、**后台前缀隐身**、**每站点角色**）+ 交织矩阵补行；`AGENTS.md` DoD 同步；`_schema-scope` 新表两轴；注入器场景；`_residue-guard` 跑一遍确认无残留。

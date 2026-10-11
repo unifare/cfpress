@@ -1,14 +1,17 @@
 # CFPress (CFCMS) 交接文档
 
-> 更新时间：2026-10-11 (GMT+8) ｜ 交接基线：**AUTH 批次 D —— 前台会员（规则 77）**
+> 更新时间：2026-10-11 (GMT+8) ｜ 交接基线：**AUTH 批次 E1 —— staff 按站点（权限接线，规则 78）**
 > （本仓库同时有两份活动计划：`docs/MENUS-WIDGETS-SITES-PLAN.md`（批次 26–28，**26/27/28 全部完成**）
-> 与 `docs/AUTH-ISOLATION-PLAN.md`（批次 A–F，**A/B/C/D 已完成**，E/F 待做）。两套编号**互相独立**，勿混。
-> 上一条交接基线：批次 28 —— 站点屏管理深度：`sites?withCounts=1` 每站一行计数 + 主题徽标 +
-> 前台预览链接 + 新建站点引导默认语言（规则 76）；顺带修掉 `createSite` **从未调用** `seedSiteLocales`。
-> 批次 D 前台会员：`members`（**按站点**）+ `member_sessions` 两张新表 + `/api/v1/front/{auth/*,me}` +
-> `src/platform/members.ts`；主题 `login`/`register` 模板 + `member` 作用域 + 中英词典；
-> **两套身份的隔离是结构性的**（不同表/不同 cookie 名/不同端点族），规则 77 钉住。
-> 顺带修掉带前缀站点**走不通前台 API** 的真实缺陷（站点解析早于 API 层 + 非 GET 兜底吞掉 POST）。
+> 与 `docs/AUTH-ISOLATION-PLAN.md`（批次 A–F，**A/B/C/D/E1 已完成**，E2/F 待做）。两套编号**互相独立**，勿混。
+> 批次 E1 staff 按站点：新增 `site_users_sites(user_id, site_id, role)`（迁移 0023，**带平移**）+
+> `can(env,user,perm,siteId)` 站点感知（**`siteId` 必填**，无回退到全局 role）+ 全部 **31 个**
+> `requirePermission` 调用点补 `siteId` + 站点列表按成员过滤 + `users` 端点读写 `site_users_sites` +
+> 新增 `PUT users/:id/sites/:siteId` 授/撤站点角色；规则 78 钉住。
+> 顺带修掉 `requireAdmin` 硬编码角色列表漏掉 `superadmin` 的真实缺陷（升级即锁死 owner）。
+> 上一条交接基线：批次 D —— 前台会员：`members`（**按站点**）+ `member_sessions` 两张新表 +
+> `/api/v1/front/{auth/*,me}` + `src/platform/members.ts`；主题 `login`/`register` 模板 +
+> `member` 作用域 + 中英词典；**两套身份的隔离是结构性的**（不同表/不同 cookie 名/不同端点族），
+> 规则 77 钉住；顺带修掉带前缀站点**走不通前台 API** 的真实缺陷（站点解析早于 API 层 + 非 GET 兜底吞掉 POST）。
 > （批次 C —— 后台隐身：前缀可配 + cookie 收紧 + SPA base 注入（规则 75）。
 > 批次 26 菜单管理落地 + 菜单位置确定性（规则 73）；批次 25 拒绝必须带出口：主题强制卸载（规则 72）；
 > 批次 24 后台多语言：列表按默认语言取代表行 + 语言过滤/版本徽标 + 编辑器语言切换重新取数（规则 71）；
@@ -253,7 +256,62 @@ x-default）；`/{locale}/feed.xml`；`lang_nav` 切换器进 scope。规则 56�
 > 一路吞到后文 `catch{/* ignore */}` 的 `*/`，**把整段路由抹成空白**——media 守卫的两个锚点
 > 都变 `-1`，报「非空性」失败。代码是对的，是**注释里的字符**弄瞎了守卫。已记进 AGENTS.md。
 
-**批次 D（前台会员：两套身份结构性分离）—— ✅ 本轮完成**
+**批次 E1（staff 按站点：权限接线）—— ✅ 本轮完成**
+
+计划 `docs/AUTH-ISOLATION-PLAN.md` 批次 E 的一半（E1）。批次 D 分开了**身份**，这一批分开**权限**：
+旧的 `can(env, user, permission)` 读一列 `site_users.role`，于是店铺站的 `editor` 到处都是 `editor`，
+"此人能否**在此**发布"从来没被问过。地基换成 `site_users_sites(user_id, site_id, role)`——**一行一个
+(人, 站)，行的缺席就是拒绝**。
+
+**三条硬决定**（写进 `src/platform/permissions.ts` 头注 + `docs/ARCHITECTURE.md` 规则 78）：
+
+1. **`siteId` 是必填参数**，不是「可选带默认」。可选会让某个调用点**悄悄**重问站点盲问题——而那个
+   问题**仍然有答案**（它读到某人的一行），缺陷因此能通过评审。必填则编译器点名每一处必须表态"哪个
+   站点"。守卫读签名，**同时拒绝** `siteId?: string` 与 `siteId: string = "…"`（后者 `=` 在类型之后，
+   只匹配 `siteId\s*=` 会漏）。
+2. **两类权限**：`PLATFORM_PERMISSIONS = {platform.manage, users.manage, extensions.manage}`
+   （install 级，只有 `superadmin` 有）；其余按站点。**建/改/删站点改判 `platform.manage`**——站点还
+   不存在时没有成员行可满足，按站点判是个无解的题。
+3. **绝不回退到 `site_users.role`**。回退正是「从站点移除」变成「仍然有访问」的方式：成员行没了、
+   回退照答、移除看起来生效而什么都没变。`superadmin` 是唯一有意的例外，且**首先**短路（它是"尚不
+   存在的站点"的答案）。查成员表也必须**带站点过滤**：只留表、丢掉站点的查询形态合法、返回一行、
+   **只是错的那行**。
+
+**改动面**：迁移 `0023_site_user_roles.sql`（建表 + **平移** + 唯一 admin 提升 `superadmin`）；
+`contract/schema.ts`（`site_users_sites` 声明为站点表）；`permissions.ts` 重写
+（`can`/`requirePermission`/`accessibleSiteIds`/`siteRolesFor`/`SITE_ROLES`/`SUPERADMIN_ROLE`）；
+`auth.ts`（见下）；`api.ts`（全部 **31 个** `requirePermission` 调用点补 `siteId`；`GET sites` 按成员
+过滤；`users` GET 返 `sites` 映射 + `role_here`；`users` POST 同时写 `site_users` 与
+`site_users_sites`；新增 `PUT users/:id/sites/:siteId` 授/撤站点角色）。
+
+**基线级真实缺陷**（规则 78a 主角）：**`requireAdmin` 的硬编码角色列表漏掉 `superadmin`**。迁移
+把唯一管理员提升为 `superadmin` 后，`admin-contract` §0b 立刻红——owner 被锁在**每一个**后台端点
+之外。修复：`ADMIN_ROLES` 从 `SITE_ROLES` + `SUPERADMIN_ROLE` **派生**。规律：任何"允许哪些角色"
+的集合都要**派生**自角色清单，写死的集合会在加新角色时静默过期。
+
+**验收（`admin-contract.test.mjs` §18，31 条）**：A 站 editor 打 B 站 `content.write` → **403**；
+同一请求在 superadmin 手上 → **200**（对照，证明 403 是权限而不是"路由坏了"或"缺 post type"）；
+`GET sites` 只列成员站点（superadmin 列全部）；`platform.manage`/`users.manage` 对 scoped 用户即使
+在自己站点也 **403**；`PUT users/:id/sites/:siteId` 授权后立即可写、撤权后立即 403（**无回退**）；
+`users` 列表带 `role_here` + `sites` 契约；`superadmin` 不能从站点屏授予（400）。
+
+> ⚠️ **每站点权限一落地，漏 `?site=` 的测试夹具立刻红**（本轮踩到）：`media.test.mjs` 在 `mta`/`mtb`
+> 操作，却用 `POST /api/v1/users`（不带 `site=`）建 editor → 成员行落在 default → 在该站 403。
+> 修：建在 `mta` 再 `PUT users/:id/sites/mtb` 授权（正是真实操作的两步）。**规律：`can` 一旦
+> 站点感知，任何"建个用户然后去别的站点用它"的夹具都必须显式授权。**
+>
+> ⚠️ **`site_users_sites` 无级联 → 直接 `DELETE FROM site_users` 的测试留孤儿成员行**：四个套件的
+> 清理已补 `DELETE FROM site_users_sites WHERE user_id IN (…)`。产品侧**没有**删用户端点，所以孤儿
+> 只在测试里出现；**用户删除时的成员行清理是批次 F 的待办**（届时要么走契约化的 purge，要么加
+> `ON DELETE CASCADE`）。
+
+**验证**：`architecture` **195/0**（180→195，规则 78 节 15 条）；`admin-contract` **192/0**
+（161→192，§18 三十一条）；`media` **71/0**（69→71，两站点成员授权）；`_schema-scope` **26/0**；
+`tsc --noEmit` src/ 0 错误；`_skeleton-inject` **94 场景 / 0 问题**（新增 6 个历史形状场景）。
+
+**新基线**：**24 套件 / 1696 条 + `_schema-scope` 26 = 1722 条 / 0 失败**；`tsc` src/ 0 错误。
+
+**批次 D（前台会员：两套身份结构性分离）—— ✅ 上轮完成**
 
 计划 `docs/AUTH-ISOLATION-PLAN.md` 批次 D。前台要有自己的身份（读者能注册、登录、留言），
 而它与后台身份的隔离**必须由构造保证**，不是由某个"记得写"的检查把门——否则「member cookie
@@ -318,9 +376,10 @@ admin cookie 打 `/front/me` → **401**；A 站 member 在 B 站登录失败（
 `_schema-scope` **26/0**（新表两轴分类与真库一致）；`_tenant-query-audit` 全部命中已裁决；
 `tsc --noEmit` src/ 0 错误；`_skeleton-inject` 重跑（新增 4 个历史形状场景）。
 
-**新基线**：**24 套件 / 1648 条 + `_schema-scope` 26 = 1674 条 / 0 失败**；`tsc` src/ 0 错误。
+**当时基线**：**24 套件 / 1648 条 + `_schema-scope` 26 = 1674 条 / 0 失败**；`tsc` src/ 0 错误。
+（批次 E1 后已升至 **1696 + 26 = 1722**。）
 
-**批次 28（站点屏管理深度 + 还债）—— ✅ 本轮完成**
+**批次 28（站点屏管理深度 + 还债）—— ✅ 已完成**
 
 体检结论是「站点可用但浅」：CRUD 全通，但一行站点信息里**看不到它的前台在哪、有多少内容、
 用什么主题**，新建的站点还是个没有任何语言选择的空壳。§3.2 的还债（`deleteSite` 清
@@ -1301,7 +1360,7 @@ theme-api 站点与主题头可伪造、`?? "default"` 地雷、四处 `|| "en"`
   以证明 `null` 是"没行"而不是"过滤被丢掉"）。
 
 
-## 6. 测试与验证（当前全绿：24 套件 / 1590 条 / 0 失败，另有 `_schema-scope` 26 条 —— 合计 25 项 / 1616 条）
+## 6. 测试与验证（当前全绿：24 套件 / 1696 条 / 0 失败，另有 `_schema-scope` 26 条 —— 合计 25 项 / 1722 条）
 
 ```bash
 npx tsc --noEmit                 # src/ 0 错误（node_modules 里的 lib 冲突是既有的，忽略）

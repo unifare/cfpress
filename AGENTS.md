@@ -851,6 +851,31 @@ Set-Cookie / 连错 6 次 429 / 把 `admin.path` 移到 `/manage` 后新前缀�
 注入场景在 `_skeleton-inject.mjs`（`currentMember` 反读 `admin_sessions` + cookie 同名 +
 `member_sessions` 丢 `site_id` + 契约降级为平台表——四条都是真实缺陷形状）。
 
+## 权限答案里必须带着「关于哪个站点」（规则 78）
+
+批次 E 的 staff 按站点隔离。批次 D 分开了**身份**，这一条分开**权限**。旧的
+`can(env, user, permission)` 读一列 `site_users.role`——店铺站的 `editor` 到处都是 `editor`，
+"此人能否**在此**发布"从来没被问过。地基换成 `site_users_sites(user_id, site_id, role)`：
+一行一个 (人, 站)，**行的缺席就是拒绝**。
+
+| 规则 | 说明 |
+|---|---|
+| 78a | **`siteId` 是必填参数**，不是「可选带默认」。可选会让某个调用点**悄悄**重问站点盲问题——而那个问题**仍然有答案**（它读到某人的一行），缺陷因此能通过评审；必填则编译器点名每一处必须表态"哪个站点"。守卫读签名，**同时拒绝** `siteId?: string` 与 `siteId: string = "…"` 两种可选拼法（后者 `=` 在类型之后，只匹配 `siteId\s*=` 会漏）。后台门 `requireAdmin` 的角色集必须**派生**自 `SITE_ROLES` + `SUPERADMIN_ROLE`，写死会漏掉新角色 |
+| 78b | **每一个 `requirePermission` 调用点都传 `siteId`**（当前 **31 处**）。漏一处 = 一处静默答错租户，只有一次看全部才看得见。**两类权限**：`PLATFORM_PERMISSIONS = {platform.manage, users.manage, extensions.manage}`（install 级，只有 superadmin 有）；其余按站点。**建/改/删站点改判为 `platform.manage`**——站点还不存在时没有成员行可满足，按站点判是无解的题 |
+| 78c | **绝不回退到 `site_users.role`**。回退正是「从站点移除」变成「仍然有访问」的方式：成员行没了、回退照答、移除看起来生效而什么都没变。查成员表也必须**带站点过滤**（`WHERE user_id = ? AND site_id = ?`）——只留表、丢掉站点的查询形态合法、返回一行、**只是错的那行**。`superadmin` 是唯一有意的例外，且**首先**短路（它是"尚不存在的站点"的答案） |
+| 78d | **契约声明为站点表**；`superadmin` 在 `SITE_ROLES` 之外（站点屏不能授予 install 级角色）；迁移带 `site_id` **且必须平移**（每个既有 user × 每个既有 site 补一行，当前角色）——否则升级后第一个请求就对所有人（含 owner）答"无成员"，把自己锁在门外 |
+
+> ⚠️ **`requireAdmin` 的硬编码角色列表是升级陷阱（本批真实踩过）。** 迁移 0023 把唯一管理员
+> 提升为 `superadmin` 后，`admin-contract` §0b 立刻红：`requireAdmin` 写死
+> `["admin","editor","author"]`，**不含 `superadmin`** → owner 被锁在每一个后台端点之外。
+> 规律：任何"允许哪些角色"的集合都要**派生**自角色清单，写死的集合会在加新角色时静默过期。
+
+守卫在 `architecture.test.mjs`（规则 78 节，**15 条**）；行为断言在 `admin-contract.test.mjs`
+§18（**31 条**：A 站 editor 打 B 站 `content.write` → 403 + superadmin 全站对照 + `GET sites`
+按成员过滤 + `platform.manage`/`users.manage` install 级 + 授/撤站点角色 + `role_here`/`sites` 契约）；
+注入场景在 `_skeleton-inject.mjs`（回退全局 role + 丢站点过滤 + `siteId` 变可选 + 迁移丢平移 +
+`superadmin` 入可授集 + 后台角色集写死——六条都是真实缺陷形状）。
+
 ## 守卫失效记录（READ THIS）
 
 `tests/suites/architecture.test.mjs` 自己出过**三次假绿**，都是「检查存在但从不触发」。

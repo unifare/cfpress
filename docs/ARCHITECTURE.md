@@ -2384,6 +2384,30 @@ SPA 的 `if (d.error)` 分支因此不可达，错误对话框要 `explain(err.m
    守卫：`architecture.test.mjs`（规则 77 节，17 条）；行为 `admin-contract.test.mjs` §17（35 条，
    含两条红线）+ `theme-default.test.mjs` §8b；注入 `_skeleton-inject.mjs`（反读 admin_sessions +
    cookie 同名 + 丢 site_id + 契约降级，历史形状）
+
+【权限答案里必须带着「关于哪个站点」】（AGENTS.md 规则 78，批次 E）
+78. 批次 D 分开了**身份**，这一条分开**权限**。旧签名 `can(env,user,permission)` 读一列
+    `site_users.role`——店铺站的 `editor` 到处都是 `editor`，"此人能否**在此**发布"没有被问过。
+    地基换成 `site_users_sites(user_id, site_id, role)`：一行一个 (人, 站)，**行的缺席就是拒绝**。
+   a) **`siteId` 是必填参数，不是「可选带默认」**。可选会让某个调用点**悄悄**重问站点盲问题——
+      而那个问题仍有答案（它读到某人的一行），缺陷因此能通过评审。必填则编译器点名每处必须表态。
+      守卫读签名，同时拒绝 `siteId?: string` 与 `siteId: string = "…"` 两种可选拼法
+   b) **每一个 `requirePermission` 调用点都传 `siteId`**（当前 31 处）。漏一处就是一处静默答错租户，
+      只有一次看全部才看得见。**两类权限**：`PLATFORM_PERMISSIONS =
+      {platform.manage, users.manage, extensions.manage}`（install 级，只有 superadmin 有）；
+      其余按站点。**建/改/删站点是 `platform.manage`**——站点还不存在时没有成员行可满足
+   c) **绝不回退到 `site_users.role`**。回退正是「从站点移除」变成「仍然有访问」的方式：成员行
+      没了、回退照答、移除看起来生效而什么都没变。查成员表也必须**带站点过滤**（`WHERE user_id = ?
+      AND site_id = ?`）——只留表、丢掉站点的查询形态合法、返回一行、只是错的那行。
+      `superadmin` 是唯一有意的例外，且**首先**短路（它是「尚不存在的站点」的答案）
+   d) **契约声明为站点表**；`superadmin` 在 `SITE_ROLES` 之外（站点屏不能授予 install 级角色）；
+      迁移带 `site_id` **且必须平移**（每个既有 user × 每个既有 site 补一行）——否则升级后第一个
+      请求就对所有人（含 owner）答"无成员"，把自己锁在门外。后台门 `requireAdmin` 的角色集必须
+      **派生**自 `SITE_ROLES` + `SUPERADMIN_ROLE`，写死会漏掉新角色（本批真实踩过）
+   守卫：`architecture.test.mjs`（规则 78 节，15 条）；行为 `admin-contract.test.mjs` §18（31 条：
+   A 站 editor 打 B 站 403 + superadmin 对照 + 列表按成员过滤 + 授/撤站点角色）；注入
+   `_skeleton-inject.mjs`（回退全局 role + 丢站点过滤 + `siteId` 变可选 + 迁移丢平移 +
+   `superadmin` 入可授集 + 后台角色集写死，历史形状）
 ```
 
 ---

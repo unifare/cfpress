@@ -117,8 +117,9 @@ const REVIEWED = {
   // than left as NEW, so the next reader sees only genuinely new statements.
   // Batch D added the front-end API router in `api.ts` (~+58 lines) and moved
   // them once more: 907→912 (drifting to 910 by the time of this edit), 913→918,
-  // 1958→2055, 1665→898. Re-keyed again; the statements are unchanged.
-  "src/api.ts:2055": "UPDATE theme_installs … WHERE name IN (SELECT value FROM settings WHERE key='theme.active') — theme_installs is PLATFORM-GLOBAL; `active` means 'some site uses it', so the cross-site subquery is the intent",
+  // 1958→2055, 1665→898. Batch E added the users/roles endpoints and moved
+  // 2055→2075. Re-keyed again; the statements are unchanged.
+  "src/api.ts:2075": "UPDATE theme_installs … WHERE name IN (SELECT value FROM settings WHERE key='theme.active') — theme_installs is PLATFORM-GLOBAL; `active` means 'some site uses it', so the cross-site subquery is the intent",
   "src/extensions/plugin/notify.ts:108": "UPDATE notification_log … WHERE id=? — the row is this send's own claim, addressed by the PK minted a few lines above for this siteId; ok/error are not identity",
   "src/extensions/theme/runtime-worker.ts:411": "menu_items … WHERE menu_id=? AND site_id=? — ⚠️ rewritten in batch 16: `menu_id` is only unique per site (menus is UNIQUE(site_id,id)), so the earlier `WHERE menu_id=?` leaked another tenant's items onto this site's nav; `site_id` is required, not optional",
   "src/extensions/theme/tables.ts:383": "UPDATE theme_table_defs WHERE id=? — registry row addressed by its own PK",

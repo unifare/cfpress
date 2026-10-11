@@ -1,5 +1,6 @@
 import { Env, SessionUser } from "../shared/types";
 import { cookieValue, hashPassword, randomId, verifyPassword } from "../shared/crypto";
+import { SITE_ROLES, SUPERADMIN_ROLE } from "./permissions";
 
 /**
  * The admin session cookie.
@@ -196,10 +197,26 @@ export async function setMenuPrefs(env: Env, userId: string, hidden: string[]): 
     .run();
 }
 
+/**
+ * Roles that may hold an admin session at all.
+ *
+ * Derived from the two sources that define roles — the per-site memberships
+ * and the install-wide superadmin — rather than retyped. A hand-written list
+ * here is how `superadmin` would be locked out of the very endpoints it exists
+ * to reach (rule 78).
+ */
+const ADMIN_ROLES: ReadonlySet<string> = new Set<string>([...SITE_ROLES, SUPERADMIN_ROLE]);
+
 export async function requireAdmin(env: Env, request: Request): Promise<SessionUser | Response> {
   const user = await currentUser(env, request);
   if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
-  if (!["admin", "editor", "author"].includes(user.role)) return Response.json({ error: "Forbidden" }, { status: 403 });
+  // ⚠️ `superadmin` must be in this list. It is a role added by batch E and it
+  // outranks every per-site role, so a gate that recognises only the three
+  // older values locks the install's owner out of every admin endpoint — the
+  // exact failure the migration's backfill exists to prevent, reintroduced one
+  // layer up. The list is now derived from `SITE_ROLES` plus the install-wide
+  // role rather than retyped, so the next role cannot be forgotten here.
+  if (!ADMIN_ROLES.has(user.role)) return Response.json({ error: "Forbidden" }, { status: 403 });
   return user;
 }
 

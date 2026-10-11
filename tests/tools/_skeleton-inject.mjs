@@ -120,9 +120,15 @@ const MEMBERS = join(ROOT, "src/platform/members.ts");
 // own `site_id` is load-bearing: `deleteSite`'s purge loop is
 // `WHERE site_id=?`, so a session table without the column is unreachable.
 const MIGRATION_0022 = join(ROOT, "content/migrations/0022_front_members.sql");
-// The Sites screen. Its per-row preview URL is built from the site's own prefix
-// or host — and from the site's own, not the current one, because a browser
-// cannot count rows and the screen has no other source for the numbers.
+// The site-aware permission module (batch E). `can(env,user,perm,siteId)` reads
+// the membership table; a fallback to `site_users.role` is the site-blind
+// answer coming back, and `siteId` becoming optional is how a call site asks it
+// again without the compiler noticing.
+const PERMISSIONS = join(ROOT, "src/platform/permissions.ts");
+// The migration that adds per-site memberships. The backfill is load-bearing:
+// without it the first request after upgrade answers "no membership" for
+// everyone, including the owner, and locks the install.
+const MIGRATION_0023 = join(ROOT, "content/migrations/0023_site_user_roles.sql");
 const SITES_SCREEN = join(ROOT, "public/admin/js/screens/sites.js");
 
 /**
@@ -400,7 +406,7 @@ const SCENARIOS = [
     // non-admin user; that assertion is what this scenario pins.
     label: "the features write route drops its settings.manage check",
     file: join(ROOT, "src/api.ts"),
-    before: ['if (path === "features" && method === "POST") {\n    if (!(await requirePermission(env, user, "settings.manage"))) return ok({ error: "Forbidden" }, 403);'],
+    before: ['if (path === "features" && method === "POST") {\n    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);'],
     after: ['if (path === "features" && method === "POST") {\n    if (false) return ok({ error: "Forbidden" }, 403);'],
     runs: [["tests/suites/features.test.mjs", "a signed-in user without settings.manage cannot write"]],
   },
@@ -1185,6 +1191,71 @@ const SCENARIOS = [
     after: ['  { table: "members", tenant: "platform"'],
     runs: [["tests/suites/architecture.test.mjs", "the contract declares members a site table (rule 77d)"]],
   },
+  // --- a permission answer must name the site (batch E, rule 78) ------------
+  {
+    // The site-blind answer coming back, in its most ordinary spelling: read
+    // the one install-wide role column instead of the per-site membership row.
+    // This is exactly the pre-batch-E code, so it is the shape a partial
+    // revert produces — and rule 78c is what must notice.
+    label: "can() reads the install-wide role column instead of the membership row",
+    file: PERMISSIONS,
+    before: ['    "SELECT role FROM site_users_sites WHERE user_id = ? AND site_id = ? LIMIT 1"'],
+    after: ['    "SELECT role FROM site_users WHERE id = ? LIMIT 1"'],
+    runs: [["tests/suites/architecture.test.mjs", "can() reads the membership table, never site_users.role (rule 78c)"]],
+  },
+  {
+    // The quieter version of the same defect: keep reading the membership table
+    // but stop filtering by site. The query is well-formed and returns a row —
+    // it is just the wrong row — so only a guard that insists on the *shape*
+    // (the site in the WHERE clause) goes red.
+    label: "the membership lookup drops its site filter",
+    file: PERMISSIONS,
+    before: ['    "SELECT role FROM site_users_sites WHERE user_id = ? AND site_id = ? LIMIT 1"'],
+    after: ['    "SELECT role FROM site_users_sites WHERE user_id = ? LIMIT 1"'],
+    runs: [["tests/suites/architecture.test.mjs", "the membership lookup filters on the site, not just the user (rule 78c)"]],
+  },
+  {
+    // Making `siteId` optional is how a call site asks the site-blind question
+    // again *without the compiler objecting* — and the site-blind question still
+    // has an answer, so the defect survives review. Rule 78a reads the
+    // signature and refuses the optional form.
+    label: "siteId becomes an optional parameter",
+    file: PERMISSIONS,
+    before: ["  permission: string,\n  siteId: string\n): Promise<boolean> {\n  // Install-wide first:"],
+    after: ["  permission: string,\n  siteId: string = \"default\"\n): Promise<boolean> {\n  // Install-wide first:"],
+    runs: [["tests/suites/architecture.test.mjs", "can() takes a required siteId (rule 78a)"]],
+  },
+  {
+    // The migration without its backfill: the membership table exists and is
+    // empty, so every existing user — including the sole admin — has no row for
+    // any site and `can()` denies everything. Rule 78d pins the INSERT.
+    label: "the per-site membership migration loses its backfill",
+    file: MIGRATION_0023,
+    before: ["INSERT OR IGNORE INTO site_users_sites(user_id, site_id, role, created_at)"],
+    after: ["-- backfill removed"],
+    runs: [["tests/suites/architecture.test.mjs", "the migration carries site_id and backfills before it is read (rule 78d)"]],
+  },
+  {
+    // `superadmin` leaked into the set a site screen may assign: a scoped
+    // administrator could then escalate themselves to install-wide. Rule 78d
+    // asserts the assignable set is closed and does not contain it.
+    label: "superadmin becomes an assignable per-site role",
+    file: PERMISSIONS,
+    before: ['export const SITE_ROLES = ["admin", "editor", "author"] as const;'],
+    after: ['export const SITE_ROLES = ["admin", "editor", "author", "superadmin"] as const;'],
+    runs: [["tests/suites/architecture.test.mjs", "superadmin is not an assignable per-site role (rule 78d)"]],
+  },
+  {
+    // The admin gate reverting to a hardcoded role list that omits `superadmin`
+    // — the exact defect migration 0023 exposed when it promoted the sole admin.
+    // Every admin endpoint 403s, and only a rule that insists the set is
+    // *derived* notices.
+    label: "the admin gate hardcodes a role list without superadmin",
+    file: AUTH,
+    before: ["const ADMIN_ROLES: ReadonlySet<string> = new Set<string>([...SITE_ROLES, SUPERADMIN_ROLE]);"],
+    after: ['const ADMIN_ROLES: ReadonlySet<string> = new Set<string>(["admin", "editor", "author"]);'],
+    runs: [["tests/suites/architecture.test.mjs", "the admin gate derives its roles, not a hardcoded list (rule 78a)"]],
+  },
 ];
 
 /** Every file any scenario may touch, hashed before and after. */
@@ -1211,7 +1282,8 @@ const WATCHED = [...new Set([SCHEMA, EVENTS, ARCH, SCOPE, MANIFEST, VALIDATION,
   join(ROOT, "public/admin/js/screens/theme-menu.js"),
   ADMIN_I18N, LANGUAGES_SCREEN, THEMES_SCREEN,
   ADMIN_STATE, AUTH, SITES, SITES_SCREEN,
-  BLOCKS, FRONTEND, BLOCK_FIELDS, MEDIA_PICKER, MEDIA_SCREEN, CORE_PACK, API, WRANGLER])];
+  BLOCKS, FRONTEND, BLOCK_FIELDS, MEDIA_PICKER, MEDIA_SCREEN, CORE_PACK, API, WRANGLER,
+  PERMISSIONS, MIGRATION_0023])];
 
 function hashAll() {
   const out = {};

@@ -175,6 +175,7 @@ async function main() {
   // rewrites it. Restore it at the end (see below).
   const prevFeatureRows = sqlite.prepare("SELECT * FROM settings WHERE site_id='default' AND key LIKE 'cfpress.features%'").all();
   clearRow();
+  sqlite.exec("DELETE FROM site_users_sites WHERE user_id IN (SELECT id FROM site_users WHERE username='features-probe')");
   sqlite.exec("DELETE FROM site_users WHERE username='features-probe'");
 
   const worker = (await compileWorker()).default;
@@ -291,7 +292,8 @@ async function main() {
     check("reading the switch list needs only a session", readAllowed.status, 200);
 
     // The table is `site_users` (users are site-scoped), not `users`.
-    sqlite.exec("DELETE FROM site_users WHERE username='features-probe'");
+    sqlite.exec("DELETE FROM site_users_sites WHERE user_id IN (SELECT id FROM site_users WHERE username='features-probe')");
+  sqlite.exec("DELETE FROM site_users WHERE username='features-probe'");
   });
 
   // -----------------------------------------------------------------------

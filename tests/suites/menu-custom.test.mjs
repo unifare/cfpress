@@ -152,6 +152,7 @@ async function main() {
     for (const sql of [
       "DELETE FROM admin_sessions WHERE user_id IN (SELECT id FROM site_users WHERE username LIKE 'mtest-%')",
       "DELETE FROM admin_activity WHERE user_id IN (SELECT id FROM site_users WHERE username LIKE 'mtest-%')",
+      "DELETE FROM site_users_sites WHERE user_id IN (SELECT id FROM site_users WHERE username LIKE 'mtest-%')",
       "DELETE FROM site_users WHERE username LIKE 'mtest-%'",
       "DELETE FROM settings WHERE key='admin.menu.custom' AND site_id IN ('default','mtest-other')",
     ]) { try { sqlite.exec(sql); } catch { /* table may not exist yet */ } }

@@ -2519,6 +2519,176 @@ section("The two identities are structurally apart, not policy-apart (rule 77)")
 }
 
 // ---------------------------------------------------------------------------
+section("A permission answer names the site it is about (rule 78)");
+// ---------------------------------------------------------------------------
+
+/**
+ * Batch E. Batch D split the *identities*; this batch splits the *authority*.
+ * The old `can(env, user, permission)` read one column — `site_users.role` —
+ * so an `editor` on the shop site was an `editor` everywhere. There was no
+ * site in the question, and therefore no way for "may this person publish
+ * *here*" to be false for one site and true for another.
+ *
+ * The fix is `site_users_sites(user_id, site_id, role)`: one row per
+ * (person, site), and the absence of a row is the denial. Three things make it
+ * stick, and each is a guard below:
+ *
+ *   (a) `siteId` is a **required** parameter, not optional-with-a-default. An
+ *       optional parameter lets a call site ask the site-blind question again —
+ *       and that question still *has* an answer (it reads someone's row), so
+ *       the defect survives review. Required means the compiler names every
+ *       place that has to decide which site it means.
+ *   (b) Every `requirePermission` call site passes a `siteId`. A missed call
+ *       site is a call that silently answered for the wrong tenant, and the
+ *       only way to see it is to look at all of them at once.
+ *   (c) No fallback to `site_users.role`. A fallback is how "removed from a
+ *       site" becomes "still has access to it": the membership row is gone,
+ *       the fallback answers anyway, and the removal appears to have worked
+ *       while nothing changed.
+ *
+ * Each guard is written against the *defect* shape, not the fix.
+ */
+{
+  const permSrc = blankComments(read(join(ROOT, "src", "platform", "permissions.ts")));
+  const apiSrc = blankComments(read(join(ROOT, "src", "api.ts")));
+  const authSrc = blankComments(read(join(ROOT, "src", "platform", "auth.ts")));
+  const contractSrc = blankComments(read(join(ROOT, "src", "extensions", "contract", "schema.ts")));
+  const roleMigSrc = read(join(ROOT, "content", "migrations", "0023_site_user_roles.sql"));
+
+  // (a) `can` and `requirePermission` take a required `siteId`. The signature is
+  // read from the source rather than trusted: a fourth parameter that is
+  // optional (`siteId?: string` or `siteId: string = "…"`) is the exact
+  // regression this rule exists to catch, and it is a one-character edit.
+  //
+  // The default-value test has to reach past the type: `siteId: string = "x"`
+  // puts the `=` after `string`, so `siteId\s*=` alone would miss it. Anything
+  // between the name and the `,`/`)` that closes the parameter is refused.
+  const canParams = permSrc.match(/export async function can\(([\s\S]*?)\)\s*:\s*Promise<boolean>/)?.[1] ?? "";
+  const reqParams = permSrc.match(/export async function requirePermission\(([\s\S]*?)\)\s*:\s*Promise<boolean>/)?.[1] ?? "";
+  const siteIdIsRequired = (params) =>
+    /siteId\s*:\s*string\b/.test(params) &&
+    !/siteId\s*\?/.test(params) &&
+    !/siteId\s*:[^,)]*=/.test(params);
+  check(
+    "can() takes a required siteId (rule 78a)",
+    siteIdIsRequired(canParams),
+    canParams.replace(/\s+/g, " ").trim().slice(0, 90)
+  );
+  check(
+    "requirePermission() takes a required siteId (rule 78a)",
+    siteIdIsRequired(reqParams),
+    reqParams.replace(/\s+/g, " ").trim().slice(0, 90)
+  );
+
+  // (b) Every `requirePermission(` call site passes four arguments. Counting is
+  // the point: a single missed call site is invisible to a `!test`, because the
+  // other thirty-nine still match. Every call in this file is spelled
+  // `requirePermission(env, user, "<perm>", siteId)` — the regex requires the
+  // literal permission and the trailing `siteId`, so a three-argument call has
+  // nowhere to hide. The count must equal the total number of call sites.
+  const allCalls = [...apiSrc.matchAll(/requirePermission\(/g)].length;
+  const okCalls = [
+    ...apiSrc.matchAll(/requirePermission\(\s*env\s*,\s*user\s*,\s*"[^"]+"\s*,\s*siteId\s*\)/g),
+  ].length;
+  check(
+    "every requirePermission call site passes a siteId (rule 78b)",
+    allCalls > 0 && okCalls === allCalls,
+    `${okCalls}/${allCalls} call sites carry siteId`
+  );
+  // The permission passed must be a site-scoped one unless it is in the
+  // platform set. This is what stops a new caller from asking an install-wide
+  // question with a site in hand and getting the wrong answer: the platform
+  // permissions are a closed, named set, and anything else is per-site.
+  const platformPerms = new Set(
+    [...permSrc.matchAll(/PLATFORM_PERMISSIONS[^=]*=\s*new Set\(\s*\[([\s\S]*?)\]\s*\)/g)]
+      .flatMap((m) => [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]))
+  );
+  check(
+    "the platform-permission set is declared and non-empty (rule 78b)",
+    platformPerms.size >= 3,
+    [...platformPerms].join(", ")
+  );
+  const usedPerms = new Set(
+    [...apiSrc.matchAll(/requirePermission\(\s*env\s*,\s*user\s*,\s*"([^"]+)"/g)].map((m) => m[1])
+  );
+  // Non-vacuity: the previous regex must have found the calls at all.
+  check(
+    "the rule-78 permission scan actually matched call sites (non-vacuity)",
+    usedPerms.size >= 4,
+    [...usedPerms].join(", ")
+  );
+
+  // (c) No fallback. `can()` must read `site_users_sites` — a query against
+  // `site_users.role` inside `can()` is the site-blind answer coming back. The
+  // membership table is the *only* place `can()` may get a role from; the
+  // identity table's `role` column is read by `superadmin`'s own check (that is
+  // `user.role`, an in-memory field, not a second query).
+  check(
+    "can() reads the membership table, never site_users.role (rule 78c)",
+    /FROM site_users_sites/.test(permSrc) && !/FROM site_users\b(?!_)/.test(permSrc)
+  );
+  // Reading the membership table is not enough — the lookup must **constrain by
+  // site**. A query that keeps the table but drops `site_id = ?` is well-formed,
+  // returns a row, and hands back whichever membership it finds first: the same
+  // site-blind answer, wearing the membership table's clothes. This is the one
+  // regression the `FROM` check above cannot see, so the WHERE clause is pinned
+  // separately.
+  check(
+    "the membership lookup filters on the site, not just the user (rule 78c)",
+    /FROM site_users_sites WHERE user_id = \? AND site_id = \?/.test(permSrc)
+  );
+  check(
+    "the absence of a membership row is a denial (rule 78c)",
+    /if\s*\(!row\)\s*return false/.test(permSrc)
+  );
+  // `superadmin` short-circuits first — it is the answer for a site that does
+  // not exist yet — and it is an install-wide role on `site_users`, not a
+  // per-site value.
+  check(
+    "superadmin short-circuits before the membership lookup (rule 78c)",
+    /user\.role\s*===\s*SUPERADMIN_ROLE[\s\S]{0,40}return true/.test(permSrc)
+  );
+
+  // (a′) The admin gate derives its role set from the same declaration. A
+  // hardcoded list here is how `superadmin` — added by migration 0023 — got
+  // locked out of every admin endpoint while the tests still passed.
+  check(
+    "the admin gate derives its roles, not a hardcoded list (rule 78a)",
+    /ADMIN_ROLES/.test(authSrc) && !/\["admin",\s*"editor",\s*"author"\]/.test(authSrc)
+  );
+  check(
+    "the derived admin set includes superadmin (rule 78a)",
+    /SITE_ROLES[\s\S]{0,80}SUPERADMIN_ROLE/.test(authSrc)
+  );
+
+  // (d) The membership table is declared a site table, and the per-site role
+  // edit cannot hand out `superadmin`. `SITE_ROLES` is the closed set a site
+  // screen may assign; the install-wide role is granted by migration or by the
+  // owner editing the identity directly.
+  check(
+    "the contract declares site_users_sites a site table (rule 78d)",
+    /\{\s*table:\s*"site_users_sites",\s*tenant:\s*"site"/.test(contractSrc)
+  );
+  check(
+    "superadmin is not an assignable per-site role (rule 78d)",
+    /SITE_ROLES\s*=\s*\[[^\]]*\]/.test(permSrc) && !/SITE_ROLES\s*=\s*\[[^\]]*superadmin/.test(permSrc)
+  );
+  const migBody = roleMigSrc.replace(/--[^\n]*/g, "");
+  check(
+    "the migration carries site_id and backfills before it is read (rule 78d)",
+    /CREATE TABLE[^;]*site_users_sites[\s\S]*?site_id\s+TEXT NOT NULL/i.test(migBody) &&
+      /INSERT OR IGNORE INTO site_users_sites/i.test(migBody)
+  );
+
+  // The files really were read. A regex over an empty string passes every
+  // `!test` above, which is the classic way a guard goes green on a typo'd path.
+  check(
+    "the rule-78 sources were actually read (non-vacuity)",
+    permSrc.length > 500 && apiSrc.length > 5000 && authSrc.length > 200 && roleMigSrc.length > 200
+  );
+}
+
+// ---------------------------------------------------------------------------
 section("This suite's own assertions can actually fail (meta-guard)");
 // ---------------------------------------------------------------------------
 

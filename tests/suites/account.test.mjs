@@ -160,6 +160,7 @@ async function main() {
     for (const sql of [
       "DELETE FROM admin_sessions WHERE user_id IN (SELECT id FROM site_users WHERE username LIKE 'acct-test%')",
       "DELETE FROM admin_activity WHERE user_id IN (SELECT id FROM site_users WHERE username LIKE 'acct-test%')",
+      "DELETE FROM site_users_sites WHERE user_id IN (SELECT id FROM site_users WHERE username LIKE 'acct-test%')",
       "DELETE FROM site_users WHERE username LIKE 'acct-test%'",
       "DELETE FROM admin_menu_registry WHERE owner_type='theme' AND owner_name='accttheme'",
       "DELETE FROM post_types WHERE declared_by_theme='accttheme'",

@@ -152,6 +152,7 @@ async function main() {
       `DELETE FROM settings WHERE key LIKE '${POLICY_KEY}%' AND site_id='default'`,
       `DELETE FROM menus WHERE site_id IN ('${SITE_A}','${SITE_B}')`,
       `DELETE FROM sites WHERE id IN ('${SITE_A}','${SITE_B}')`,
+      `DELETE FROM site_users_sites WHERE user_id IN (SELECT id FROM site_users WHERE username IN ('${EDITOR.username}','${AUTHOR.username}'))`,
       `DELETE FROM site_users WHERE username IN ('${EDITOR.username}','${AUTHOR.username}')`,
     ]) { try { sqlite.exec(sql); } catch { /* table may not exist on a fresh db */ } }
   };
@@ -207,9 +208,21 @@ async function main() {
     // `editor` is the only non-admin role that holds `media.write` (0007), so it
     // is the role that can prove the *owner* gate rather than the permission
     // gate. `author` holds no media permission at all and proves that gate.
+    //
+    // Membership is per site (batch E, rule 78), so a user created on `mta` can
+    // only act on `mta` until they are granted `mtb` as well. This suite uses
+    // both sites with the *same* two users, so each is created on `mta` and then
+    // granted `mtb` through the per-site role endpoint — the same two steps a
+    // real operator takes in the Users screen.
+    const userIds = {};
     for (const [u, role] of [[EDITOR, "editor"], [AUTHOR, "author"]]) {
-      const r = await req("/api/v1/users", { method: "POST", headers: json(adminCookie), body: JSON.stringify({ ...u, role }) });
+      const r = await req(`/api/v1/users?site=${SITE_A}`, { method: "POST", headers: json(adminCookie), body: JSON.stringify({ ...u, role }) });
       checkTruthy(`${role} user created`, r.status < 300);
+      userIds[u.username] = (await r.json()).id;
+      const g = await req(`/api/v1/users/${userIds[u.username]}/sites/${SITE_B}?site=${SITE_A}`, {
+        method: "PUT", headers: json(adminCookie), body: JSON.stringify({ role }),
+      });
+      checkTruthy(`${role} granted on the second site`, g.status < 300);
     }
     editorCookie = await login(EDITOR.username, EDITOR.password);
     authorCookie = await login(AUTHOR.username, AUTHOR.password);

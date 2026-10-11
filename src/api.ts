@@ -11,7 +11,7 @@ import { PURGE_ON_SITE_DELETE } from "./extensions/contract/schema";
 import { SETTING_DEFS, getSetting, setSetting, platformSetting, setPlatformSetting, isDeclaredSetting, settingDef, adminPath } from "./platform/settings";
 import { safeZipPath, sha256 } from "./extensions/security";
 import { createRevision, autosave } from "./platform/revisions";
-import { requirePermission, can } from "./platform/permissions";
+import { requirePermission, can, accessibleSiteIds, SITE_ROLES } from "./platform/permissions";
 import { bumpContentCache } from "./shared/cache";
 import { BUNDLED_THEMES } from "./shared/bundled";
 import { featureSnapshot, inheritedValue, truthy, FEATURE_SETTINGS_KEY, FEATURE_SWITCHES, type FeatureSwitch } from "./shared/features";
@@ -1185,11 +1185,11 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     return ok({
       items: parsed.items && typeof parsed.items === "object" && !Array.isArray(parsed.items) ? parsed.items : {},
       groups: parsed.groups && typeof parsed.groups === "object" && !Array.isArray(parsed.groups) ? parsed.groups : {},
-      can_manage: await requirePermission(env, user, "settings.manage"),
+      can_manage: await requirePermission(env, user, "settings.manage", siteId),
     });
   }
   if (path === "admin-menus/custom" && method === "PUT") {
-    if (!(await requirePermission(env, user, "settings.manage"))) return ok({ error: "Forbidden" }, 403);
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     const b = await jsonBody(request);
     let blob: { items: Record<string, unknown>; groups: Record<string, unknown> };
     try {
@@ -1203,20 +1203,30 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     return ok({ ok: true, ...blob });
   }
   if (path === "admin-menus/custom" && method === "DELETE") {
-    if (!(await requirePermission(env, user, "settings.manage"))) return ok({ error: "Forbidden" }, 403);
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     await env.DB.prepare("DELETE FROM settings WHERE site_id=? AND key=?").bind(siteId, MENU_CUSTOM_KEY).run();
     await activity(env, user.id, "delete", "menu_custom", siteId, {});
     return ok({ ok: true, items: {}, groups: {} });
   }
 
   if((path === "posts" || path === "pages" || /^posts\//.test(path) || /^pages\//.test(path)) && method !== "GET") {
-    if(!(await requirePermission(env,user,"content.write"))) return ok({error:"Forbidden"},403);
+    if(!(await requirePermission(env,user,"content.write",siteId))) return ok({error:"Forbidden"},403);
   }
-  if(path === "media" && method === "POST" && !(await requirePermission(env,user,"media.write"))) return ok({error:"Forbidden"},403);
+  if(path === "media" && method === "POST" && !(await requirePermission(env,user,"media.write",siteId))) return ok({error:"Forbidden"},403);
 
   // Sites registry (multi-site)
   if (path === "sites" && method === "GET") {
-    const items = await listSites(env);
+    // The list is **filtered to the sites this user may act on** (rule 78). It
+    // used to be unfiltered — every logged-in user could enumerate every
+    // tenant, which is a leak the moment a second person exists. A superadmin
+    // sees all (`accessibleSiteIds` returns null); everyone else sees exactly
+    // the sites they hold a membership row for, which is the same set the
+    // switcher offers and the same set `can()` will answer `true` for. Anything
+    // else makes the screen offer a site that 403s on first click.
+    const allowed = await accessibleSiteIds(env, user);
+    const items = (await listSites(env)).filter(
+      (s: any) => allowed === null || allowed.includes(String(s.id))
+    );
     // `?withCounts=1` adds, for **every** site, its content volumes and the
     // theme it has chosen. The Sites screen needs per-row figures, and the only
     // alternatives are an N+1 (one request per site, per row) or a client that
@@ -1272,7 +1282,11 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     return ok({ items });
   }
   if (path === "sites" && method === "POST") {
-    if(!(await requirePermission(env,user,"settings.manage"))) return ok({error:"Forbidden"},403);
+    // Creating a site is an **install-wide** operation: the site does not exist
+    // yet, so there is no membership row to satisfy and no `siteId` to check
+    // against. `platform.manage` is the permission for managing the tenant
+    // registry itself, and it belongs to `superadmin` alone (rule 78).
+    if(!(await requirePermission(env,user,"platform.manage",siteId))) return ok({error:"Forbidden"},403);
     const b = await jsonBody(request);
     const r = await createSite(env, { id: b.id, name: String(b.name ?? ""), host: b.host ?? null, pathPrefix: b.path_prefix ?? b.pathPrefix ?? null });
     if ("error" in r) return ok({ error: r.error }, 400);
@@ -1282,7 +1296,10 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   const siteMatch = path.match(/^sites\/([^/]+)$/);
   if (siteMatch) {
     if (method === "PUT" || method === "PATCH") {
-      if(!(await requirePermission(env,user,"settings.manage"))) return ok({error:"Forbidden"},403);
+      // Retyping or re-hosting a site edits the tenant registry — install-wide,
+      // like creating one. Managing *your own* site's settings is
+      // `settings.manage` on that site; this is not that.
+      if(!(await requirePermission(env,user,"platform.manage",siteId))) return ok({error:"Forbidden"},403);
       const b = await jsonBody(request);
       const r = await updateSite(env, siteMatch[1], { name: b.name, host: b.host, pathPrefix: b.path_prefix ?? b.pathPrefix, status: b.status });
       if ("error" in r) return ok({ error: r.error }, 404);
@@ -1290,7 +1307,10 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
       return ok({ ok: true });
     }
     if (method === "DELETE") {
-      if(!(await requirePermission(env,user,"settings.manage"))) return ok({error:"Forbidden"},403);
+      // Deleting a site purges every tenant-scoped table for it (see
+      // `PURGE_ON_SITE_DELETE`). That is the most destructive operation in the
+      // product and it is install-wide by definition.
+      if(!(await requirePermission(env,user,"platform.manage",siteId))) return ok({error:"Forbidden"},403);
       // `api.ts` is the composition root — the one place allowed to know every
       // layer — so it is where the declared purge list is injected into the
       // platform function (rule 2: `platform/` may not import `extensions/`).
@@ -1335,7 +1355,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     });
   }
   if (path === "i18n/locales" && method === "POST") {
-    if (!(await requirePermission(env, user, "settings.manage"))) return ok({ error: "Forbidden" }, 403);
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     const b = await jsonBody(request);
     const code = String(b.code ?? "").trim();
     if (!isLocaleCode(code)) return ok({ error: `invalid locale code: ${code}` }, 400);
@@ -1359,7 +1379,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   }
   const localeMatch = path.match(/^i18n\/locales\/([A-Za-z0-9-]{2,10})$/);
   if (localeMatch) {
-    if (!(await requirePermission(env, user, "settings.manage"))) return ok({ error: "Forbidden" }, 403);
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     const code = localeMatch[1];
     if (method === "PATCH" || method === "PUT") {
       const b = await jsonBody(request);
@@ -1392,7 +1412,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     return ok({ items: await platformLocales(env), core: corePackLocales() });
   }
   if (path === "i18n/dictionary" && method === "POST") {
-    if (!(await requirePermission(env, user, "settings.manage"))) return ok({ error: "Forbidden" }, 403);
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     const b = await jsonBody(request);
     const code = String(b.code ?? "").trim();
     if (!isLocaleCode(code)) return ok({ error: `invalid locale code: ${code}` }, 400);
@@ -1465,7 +1485,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
       }
     }
     if (method === "POST") {
-      if (!(await requirePermission(env, user, "settings.manage"))) return ok({ error: "Forbidden" }, 403);
+      if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
       const b = await jsonBody(request);
       const locale = String(b.locale ?? "").trim();
       const key = String(b.key ?? "").trim();
@@ -1497,7 +1517,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     return ok({ ...group, site: siteId });
   }
   if (path === "i18n/translations" && method === "POST") {
-    if (!(await requirePermission(env, user, "content.write"))) return ok({ error: "Forbidden" }, 403);
+    if (!(await requirePermission(env, user, "content.write", siteId))) return ok({ error: "Forbidden" }, 403);
     const b = await jsonBody(request);
     const id = String(b.id ?? "").trim();
     const locale = String(b.locale ?? "").trim();
@@ -1621,7 +1641,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
       return ok({ def, locale, items });
     }
     if (method === "POST" || method === "PUT") {
-      if (!(await requirePermission(env, user, "content.write"))) return ok({ error: "Forbidden" }, 403);
+      if (!(await requirePermission(env, user, "content.write", siteId))) return ok({ error: "Forbidden" }, 403);
       const body = await jsonBody(request);
       try {
         // A plugin page's `form` block offers only the fields its manifest
@@ -1647,7 +1667,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
       return row ? ok({ def, locale, row }) : ok({ error: "not found" }, 404);
     }
     if (method === "DELETE") {
-      if (!(await requirePermission(env, user, "content.write"))) return ok({ error: "Forbidden" }, 403);
+      if (!(await requirePermission(env, user, "content.write", siteId))) return ok({ error: "Forbidden" }, 403);
       const row = await tableBySlug(env, def, slug, locale);
       if (!row) return ok({ error: "not found" }, 404);
       await tableDelete(env, def, String(row.id));
@@ -1776,7 +1796,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     return listPosts(env, url, type, siteId);
   }
   if (contentMatch && method === "POST") {
-    if(!(await requirePermission(env,user,"content.write"))) return ok({error:"Forbidden"},403);
+    if(!(await requirePermission(env,user,"content.write",siteId))) return ok({error:"Forbidden"},403);
     const type = contentMatch[1];
     const pt = await findActivePostType(env, type, siteId);
     if (!pt) return ok({ error: "unknown post type" }, 404);
@@ -1789,11 +1809,11 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     const pt = await findActivePostType(env, type, siteId);
     if (!pt) return ok({ error: "unknown post type" }, 404);
     if (method === "DELETE") {
-      if(!(await requirePermission(env,user,"content.write"))) return ok({error:"Forbidden"},403);
+      if(!(await requirePermission(env,user,"content.write",siteId))) return ok({error:"Forbidden"},403);
       return deletePost(env, user.id, id, siteId);
     }
     if (method === "PUT") {
-      if(!(await requirePermission(env,user,"content.write"))) return ok({error:"Forbidden"},403);
+      if(!(await requirePermission(env,user,"content.write",siteId))) return ok({error:"Forbidden"},403);
       return savePost(env, user.id, id, await jsonBody(request), type, siteId);
     }
     if (method === "GET") {
@@ -1848,20 +1868,20 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   }
 
   if (path === "media" && method === "GET") return mediaList(env, url, siteId, user.id);
-  if (path === "media" && method === "POST") { if(!(await requirePermission(env,user,"media.write"))) return ok({error:"Forbidden"},403); return mediaUpload(env, user.id, request, siteId); }
+  if (path === "media" && method === "POST") { if(!(await requirePermission(env,user,"media.write",siteId))) return ok({error:"Forbidden"},403); return mediaUpload(env, user.id, request, siteId); }
   // One row addressed by id. Mutations need `media.write`; reads of a single
   // row go through the list, so there is nothing to add here.
   const mediaItem = path.match(/^media\/([^/]+)$/);
-  if (mediaItem && method === "PATCH") { if(!(await requirePermission(env,user,"media.write"))) return ok({error:"Forbidden"},403); return mediaUpdate(env, user.id, decodeURIComponent(mediaItem[1]), await jsonBody(request), siteId); }
-  if (mediaItem && method === "DELETE") { if(!(await requirePermission(env,user,"media.write"))) return ok({error:"Forbidden"},403); return mediaDelete(env, user.id, decodeURIComponent(mediaItem[1]), siteId); }
+  if (mediaItem && method === "PATCH") { if(!(await requirePermission(env,user,"media.write",siteId))) return ok({error:"Forbidden"},403); return mediaUpdate(env, user.id, decodeURIComponent(mediaItem[1]), await jsonBody(request), siteId); }
+  if (mediaItem && method === "DELETE") { if(!(await requirePermission(env,user,"media.write",siteId))) return ok({error:"Forbidden"},403); return mediaDelete(env, user.id, decodeURIComponent(mediaItem[1]), siteId); }
   if (path === "settings" && method === "GET") return settings(env, siteId);
-  if (path === "settings" && method === "POST") { if(!(await requirePermission(env,user,"settings.manage"))) return ok({error:"Forbidden"},403); return saveSetting(env, user.id, await jsonBody(request), siteId); }
+  if (path === "settings" && method === "POST") { if(!(await requirePermission(env,user,"settings.manage",siteId))) return ok({error:"Forbidden"},403); return saveSetting(env, user.id, await jsonBody(request), siteId); }
   if (path === "platform-settings" && method === "GET") {
-    if(!(await requirePermission(env,user,"platform.manage"))) return ok({error:"Forbidden"},403);
+    if(!(await requirePermission(env,user,"platform.manage",siteId))) return ok({error:"Forbidden"},403);
     return platformSettingsList(env);
   }
   if (path === "platform-settings" && method === "POST") {
-    if(!(await requirePermission(env,user,"platform.manage"))) return ok({error:"Forbidden"},403);
+    if(!(await requirePermission(env,user,"platform.manage",siteId))) return ok({error:"Forbidden"},403);
     return savePlatformSetting(env, user.id, await jsonBody(request));
   }
 
@@ -1870,7 +1890,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   // because the write is stored as a normal setting row with a fixed key.
   if (path === "features" && method === "GET") return features(env, siteId);
   if (path === "features" && method === "POST") {
-    if (!(await requirePermission(env, user, "settings.manage"))) return ok({ error: "Forbidden" }, 403);
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     return saveFeature(env, user.id, await jsonBody(request), siteId);
   }
 
@@ -2028,7 +2048,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   }
   const tm=path.match(/^extensions\/themes\/([^/]+)\/activate$/);
   if(tm&&method==="POST"){
-    if(!(await requirePermission(env,user,"extensions.manage"))) return ok({error:"Forbidden"},403);
+    if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403);
     const target=tm[1];    const row=await env.DB.prepare("SELECT name,version,manifest FROM theme_installs WHERE name=? LIMIT 1").bind(target).first<any>();
     if(!row)return ok({error:"theme not found"},404);
     let manifest:any;try{manifest=JSON.parse(String(row.manifest||"{}"))}catch{manifest={name:target,version:row.version}}
@@ -2062,7 +2082,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
 
   const td=path.match(/^extensions\/themes\/([^/]+)$/);
   if(td&&method==="DELETE"){
-    if(!(await requirePermission(env,user,"extensions.manage"))) return ok({error:"Forbidden"},403);
+    if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403);
     return uninstallTheme(env,user.id,decodeURIComponent(td[1]),url.searchParams.get("force")==="1");
   }
   // Theme business-capability introspection
@@ -2093,7 +2113,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     const memo=new Map<string,boolean>();
     const canView=async(capability:string)=>{
       if(memo.has(capability)) return memo.get(capability)!;
-      const allowed=await can(env,user,capability).catch(()=>false);
+      const allowed=await can(env,user,capability,siteId).catch(()=>false);
       memo.set(capability,allowed);
       return allowed;
     };
@@ -2125,7 +2145,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   const tsm=path.match(/^theme\/([^/]+)\/settings$/);
   if(tsm&&method==="GET") return ok({items:await themeSettings(env,tsm[1])});
   if(tsm&&method==="POST"){
-    if(!(await requirePermission(env,user,"settings.manage"))) return ok({error:"Forbidden"},403);
+    if(!(await requirePermission(env,user,"settings.manage",siteId))) return ok({error:"Forbidden"},403);
     const b=await jsonBody(request);
     const def=await env.DB.prepare("SELECT key FROM theme_setting_defs WHERE theme_name=? AND key=?").bind(tsm[1],String(b.key||"")).first<any>();
     if(!def)return ok({error:"setting not declared"},400);
@@ -2197,7 +2217,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     return ok({ok:true});
   }
   const uploadMatch=path.match(/^extensions\/(plugins|themes)\/upload$/);
-  if(uploadMatch&&method==="POST") { if(!(await requirePermission(env,user,"extensions.manage"))) return ok({error:"Forbidden"},403); return uploadExtension(env,user.id,request,uploadMatch[1]==="plugins"?"plugin":"theme"); }
+  if(uploadMatch&&method==="POST") { if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403); return uploadExtension(env,user.id,request,uploadMatch[1]==="plugins"?"plugin":"theme"); }
   if(path==="extensions/versions"&&method==="GET"){
     const type=url.searchParams.get("type");const name=url.searchParams.get("name");
     const r= type&&name ? await env.DB.prepare("SELECT * FROM extension_versions WHERE extension_type=? AND extension_name=? ORDER BY installed_at DESC").bind(type,name).all() : await env.DB.prepare("SELECT * FROM extension_versions ORDER BY installed_at DESC LIMIT 200").all();
@@ -2219,18 +2239,78 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   }
 
   if (path === "users" && method === "GET") {
-    if(!(await requirePermission(env,user,"users.manage"))) return ok({error:"Forbidden"},403);
-    const r=await env.DB.prepare("SELECT id,username,email,role,status,created_at,updated_at FROM site_users ORDER BY username").all(); return ok({items:r.results});
+    if(!(await requirePermission(env,user,"users.manage",siteId))) return ok({error:"Forbidden"},403);
+    const r=await env.DB.prepare("SELECT id,username,email,role,status,created_at,updated_at FROM site_users ORDER BY username").all();
+    // Each row carries the user's role **on the site being viewed** plus every
+    // (site, role) membership they hold. The screen needs both: the flat list
+    // answers "who is on this site", and the map answers "what else can they
+    // reach" — which is the question that catches an accidental cross-site
+    // grant. `role` (the install-wide column) is still returned so the UI can
+    // mark a `superadmin`.
+    const rows = ((r.results as any[]) ?? []);
+    const memberships = await env.DB.prepare(
+      "SELECT user_id, site_id, role FROM site_users_sites"
+    ).all<any>();
+    const byUser: Record<string, Record<string, string>> = {};
+    for (const m of (memberships.results as any[]) ?? []) {
+      (byUser[String(m.user_id)] ??= {})[String(m.site_id)] = String(m.role);
+    }
+    return ok({
+      items: rows.map((u) => ({
+        ...u,
+        sites: byUser[String(u.id)] ?? {},
+        role_here: byUser[String(u.id)]?.[siteId] ?? null,
+      })),
+      site: siteId,
+    });
   }
   if (path === "users" && method === "POST") {
-    if(!(await requirePermission(env,user,"users.manage"))) return ok({error:"Forbidden"},403);
+    if(!(await requirePermission(env,user,"users.manage",siteId))) return ok({error:"Forbidden"},403);
     const b=await jsonBody(request); const role=String(b.role||"author");
-    if(!["admin","editor","author"].includes(role)) return ok({error:"invalid role"},400);
+    // `superadmin` is deliberately not an assignable role here: it is
+    // install-wide and one per install, and letting a site screen hand it out
+    // is how a scoped administrator escalates. It is granted by migration or
+    // by the owner editing the identity directly (rule 78).
+    if(!SITE_ROLES.includes(role as any)) return ok({error:"invalid role"},400);
     const username=String(b.username||"").trim(); const password=String(b.password||"");
     if(!username||password.length<8)return ok({error:"username and password(min 8) required"},400);
     const {hashPassword}=await import("./shared/crypto"); const id="user_"+await randomId();
-    await env.DB.prepare("INSERT INTO site_users(id,username,email,password_hash,role,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)").bind(id,username,b.email||null,await hashPassword(password),role,"active",now(),now()).run();
-    await activity(env,user.id,"create","user",id,{username,role}); return ok({id},201);
+    // The identity is install-wide, the membership is per site. Creating a user
+    // from a site screen creates them **on that site** — which is the only
+    // membership the request is entitled to grant. Additional sites are added
+    // by the per-site role endpoint below, one deliberate grant at a time.
+    const stmts = [
+      env.DB.prepare("INSERT INTO site_users(id,username,email,password_hash,role,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)")
+        .bind(id,username,b.email||null,await hashPassword(password),role,"active",now(),now()),
+      env.DB.prepare("INSERT INTO site_users_sites(user_id,site_id,role,created_at) VALUES(?,?,?,?)")
+        .bind(id,siteId,role,now()),
+    ];
+    await env.DB.batch(stmts);
+    await activity(env,user.id,"create","user",id,{username,role,site:siteId}); return ok({id},201);
+  }
+  // Per-site role edit. `null` role removes the membership — the denial is the
+  // absence of the row, so "take this person off that site" is a DELETE, not a
+  // role with a value meaning "none".
+  const userSite = path.match(/^users\/([^/]+)\/sites\/([^/]+)$/);
+  if (userSite && (method === "PUT" || method === "PATCH")) {
+    if(!(await requirePermission(env,user,"users.manage",siteId))) return ok({error:"Forbidden"},403);
+    const targetUser = userSite[1];
+    const targetSite = decodeURIComponent(userSite[2]);
+    const b = await jsonBody(request);
+    const role = b.role === null || b.role === "" ? null : String(b.role);
+    if (role !== null && !SITE_ROLES.includes(role as any)) return ok({error:"invalid role"},400);
+    const exists = await env.DB.prepare("SELECT id FROM site_users WHERE id=?").bind(targetUser).first<any>();
+    if (!exists) return ok({error:"user not found"},404);
+    if (role === null) {
+      await env.DB.prepare("DELETE FROM site_users_sites WHERE user_id=? AND site_id=?").bind(targetUser, targetSite).run();
+      await activity(env,user.id,"revoke","user_site",targetUser,{site:targetSite});
+      return ok({ok:true,role:null});
+    }
+    await env.DB.prepare(
+      "INSERT INTO site_users_sites(user_id,site_id,role,created_at) VALUES(?,?,?,?) ON CONFLICT(user_id,site_id) DO UPDATE SET role=excluded.role"
+    ).bind(targetUser, targetSite, role, now()).run();
+    await activity(env,user.id,"grant","user_site",targetUser,{site:targetSite,role});
+    return ok({ok:true,role});
   }
 
   if (path === "activity" && method === "GET") {

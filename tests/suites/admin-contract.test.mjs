@@ -331,6 +331,7 @@ async function main() {
   check("an uploaded theme is not reported as bundled", Number(thBundled.items.find((x) => x.name === "admtheme").bundled), 0);
 
   console.log("\n4. CPT CRUD via /content/{type} (what the editor calls)");
+
   const created = await (await req(worker, env, "/api/v1/content/widget?site=adm", {
     method: "POST", headers: json,
     body: JSON.stringify({ title: "First Widget", slug: "first-widget", status: "published", locale: "en", content: [], meta: { sku: "W-1" } }),
@@ -475,6 +476,7 @@ async function main() {
   checkTruthy("recent content is present as an array", Array.isArray(dash.recent));
 
   console.log("\n12. The content list opens on the site's default language");
+
   // The list pins one row per post. That row used to be `MIN(locale)` —
   // alphabetically first, which answered "which translation sorts first",
   // not "which language does this site consider primary". Make the site's
@@ -500,6 +502,7 @@ async function main() {
     [Boolean(lp2), lp2?.title ?? "", lp2?.locales], [true, "", ["en"]]);
 
   console.log("\n13. Menus: CRUD, batch reorder, nesting contract, site scoping");
+
   // Idempotent: an aborted earlier run must not leave half a fixture behind.
   sqlite.exec("DELETE FROM menu_items WHERE site_id='adm' AND menu_id IN ('m_a','m_b')");
   sqlite.exec("DELETE FROM menus WHERE site_id='adm' AND id IN ('m_a','m_b')");
@@ -574,12 +577,6 @@ async function main() {
   const w1gone = (await (await req(worker, env, "/api/v1/widgets?site=adm", { headers: auth })).json()).items.some((x) => x.id === w1.id);
   check("and the widget is really gone", w1gone, false);
 
-  // Leave the shared local D1 as we found it (see `sweep` above).
-  sweep();
-
-  // Leave the shared local D1 as we found it (see `sweep` above).
-  sweep();
-
   console.log("\n15. Platform settings: a second level, with its own permission");
   // Two levels, two endpoints, two permissions. The platform level is where
   // keys that mean the same thing for every site live (`admin.path`); writing
@@ -640,6 +637,7 @@ async function main() {
   }
 
   console.log("\n16. Sites: per-row content counts, the site's own theme, and its languages");
+
   // The Sites screen is a management view: every row answers "where is this
   // site's front end, how much is in it, what does it render with". All three
   // are contracts, and each has a wrong answer that looks right.
@@ -750,6 +748,7 @@ async function main() {
   }
 
   console.log("\n17. Front-end members: a second identity, structurally apart from the admin's");
+
   // Batch D. The front end gets its own identity (`members`), its own sessions
   // (`member_sessions`), its own cookie (`cfpress_member`) and its own endpoint
   // family (`/api/v1/front/…`). The point of the design is that the isolation is
@@ -899,6 +898,198 @@ async function main() {
     check("no member sessions survive", sqlite.prepare("SELECT COUNT(*) AS n FROM member_sessions WHERE member_id IN (SELECT id FROM members WHERE username LIKE 'adm_mem%')").get().n, 0);
   }
 
+  console.log("\n18. A permission answer names the site it is about");
+  // Batch E. Batch D split the identities; this section proves the *authority*
+  // is split too. The suite's own `admin` is the migration-0023 superadmin, so
+  // it is the one identity that may act everywhere — which makes it the perfect
+  // control: every "scoped user is refused" assertion below has a matching
+  // "superadmin is allowed" assertion on the same route, so a 403 from a broken
+  // route cannot masquerade as correct scoping.
+  //
+  // Fixtures: two sites created here (`scopeda`, `scopedb`), each with
+  // `admtheme` activated so both declare the same `widget` post type, and one
+  // scoped `editor` on `scopeda` alone. The probe is `POST /content/{type}` — a
+  // write that requires `content.write` **on the target site** and a post type
+  // active there, so a refusal can only be the permission.
+  //
+  // The two sites are made *here* rather than reusing `adm`: this section must
+  // not depend on a fixture another section owns and may have torn down.
+  {
+    const SITE_A = "scopeda";
+    const SITE_B = "scopedb";
+    const uname = "adm_scoped_editor";
+    const wipeScoped = () => {
+      for (const sql of [
+        "DELETE FROM site_users_sites WHERE user_id IN (SELECT id FROM site_users WHERE username LIKE 'adm_scoped%')",
+        "DELETE FROM admin_sessions WHERE user_id IN (SELECT id FROM site_users WHERE username LIKE 'adm_scoped%')",
+        "DELETE FROM site_users WHERE username LIKE 'adm_scoped%'",
+        `DELETE FROM post_translations WHERE post_id IN (SELECT id FROM posts WHERE site_id IN ('${SITE_A}','${SITE_B}') OR slug LIKE 'scoped_%')`,
+        `DELETE FROM post_meta WHERE post_id IN (SELECT id FROM posts WHERE site_id IN ('${SITE_A}','${SITE_B}') OR slug LIKE 'scoped_%')`,
+        `DELETE FROM posts WHERE site_id IN ('${SITE_A}','${SITE_B}') OR slug LIKE 'scoped_%'`,
+        `DELETE FROM post_types WHERE declared_by_theme='admtheme' AND site_id IN ('${SITE_A}','${SITE_B}')`,
+        `DELETE FROM field_defs WHERE declared_by_theme='admtheme' AND site_id IN ('${SITE_A}','${SITE_B}')`,
+        `DELETE FROM theme_routes WHERE declared_by_theme='admtheme' AND site_id IN ('${SITE_A}','${SITE_B}')`,
+        `DELETE FROM site_locales WHERE site_id IN ('${SITE_A}','${SITE_B}')`,
+        `DELETE FROM settings WHERE site_id IN ('${SITE_A}','${SITE_B}')`,
+        `DELETE FROM sites WHERE id IN ('${SITE_A}','${SITE_B}')`,
+      ]) { try { sqlite.exec(sql); } catch { /* ok */ } }
+    };
+    wipeScoped();
+
+    // Two sites, both with `admtheme` active so both declare the `widget` post
+    // type — otherwise "refused on B" could be the missing post type rather
+    // than the permission, and the test would prove nothing.
+    for (const id of [SITE_A, SITE_B]) {
+      const mkSite = await req(worker, env, "/api/v1/sites", { method: "POST", headers: json, body: JSON.stringify({ id, name: id }) });
+      check(`site ${id} was created for the scoping fixtures`, mkSite.status, 201);
+      await req(worker, env, `/api/v1/extensions/themes/admtheme/activate?site=${id}`, { method: "POST", headers: auth });
+    }
+    const aTypes = await req(worker, env, `/api/v1/theme/post-types?site=${SITE_A}`, { headers: auth });
+    const bTypes = await req(worker, env, `/api/v1/theme/post-types?site=${SITE_B}`, { headers: auth });
+    check("site A really declares the post type", (await aTypes.json()).items?.map((x) => x.name), ["widget"]);
+    check("site B declares the same post type (the control is not a missing type)", (await bTypes.json()).items?.map((x) => x.name), ["widget"]);
+
+    // Create a scoped editor *on site A* through the ordinary endpoint, which
+    // is the code path the UI uses.
+    const mk = await req(worker, env, `/api/v1/users?site=${SITE_A}`, {
+      method: "POST", headers: json,
+      body: JSON.stringify({ username: uname, password: "scoped-pass-1", role: "editor" }),
+    });
+    check("a scoped editor can be created on site A", mk.status, 201);
+    const editorId = sqlite.prepare("SELECT id FROM site_users WHERE username=?").get(uname).id;
+
+    // The membership is exactly one row: (editor, scopeda). Not scopeda's
+    // sibling.
+    const memberships = sqlite.prepare("SELECT site_id, role FROM site_users_sites WHERE user_id=? ORDER BY site_id").all(editorId);
+    check("the scoped editor's membership is exactly (scopeda, editor)", memberships.map((m) => [m.site_id, m.role]), [[SITE_A, "editor"]]);
+
+    // Sign them in and prove the *allowed* direction first.
+    const el = await req(worker, env, "/admin/api/v1/auth/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: uname, password: "scoped-pass-1" }),
+    });
+    check("the scoped editor can sign in", el.status, 200);
+    const eAuth = { Cookie: (el.headers.get("set-cookie") ?? "").split(";")[0] };
+
+    // ALLOWED: writing on site A (their site). A content save answers 200 with
+    // the row's id (the endpoint's create status is 200, not 201 — §4 pins the
+    // body shape, so assert the id is present rather than a bare status).
+    const wOk = await req(worker, env, `/api/v1/content/widget?site=${SITE_A}`, {
+      method: "POST", headers: { ...eAuth, "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "scoped ok", slug: "scoped_ok", content: "x" }),
+    });
+    check("an editor may write on the site they are on", wOk.status, 200);
+    checkTruthy("and the write really produced a row", Boolean((await wOk.json()).id));
+
+    // ── THE ACCEPTANCE CRITERION ──
+    // REFUSED: writing on site B (a site they hold no membership for). Before
+    // batch E this asked `site_users.role`, which said "editor", and the write
+    // succeeded — the exact defect this batch exists to close.
+    const wBad = await req(worker, env, `/api/v1/content/widget?site=${SITE_B}`, {
+      method: "POST", headers: { ...eAuth, "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "scoped leak", slug: "scoped_leak", content: "x" }),
+    });
+    check("an editor is refused on a site they have no membership for (403)", wBad.status, 403);
+
+    // And the refusal is a *permission* refusal, not a missing post type — the
+    // superadmin writing the same payload on site B goes through.
+    const adminB = await req(worker, env, `/api/v1/content/widget?site=${SITE_B}`, {
+      method: "POST", headers: json,
+      body: JSON.stringify({ title: "admin on b", slug: "scoped_admin_b", content: "x" }),
+    });
+    check("the control: the superadmin may write on site B", adminB.status, 200);
+    checkTruthy("and the superadmin's write produced a row", Boolean((await adminB.json()).id));
+    // Site B holds the superadmin's post and *not* the editor's refused one —
+    // the refusal was real, not a write that landed anyway. Titles live in
+    // `post_translations` (the main `posts` row carries no title).
+    check("and nothing leaked: site B holds only the superadmin's post",
+      sqlite.prepare(
+        "SELECT t.title FROM posts p JOIN post_translations t ON t.post_id=p.id WHERE p.site_id=? ORDER BY t.title"
+      ).all(SITE_B).map((r) => r.title), ["admin on b"]);
+
+    // ── Cross-site lists are not visible ──
+    // The sites a scoped user can *see* is exactly the set they hold rows for.
+    const eSites = await (await req(worker, env, `/api/v1/sites?site=${SITE_A}`, { headers: eAuth })).json();
+    check("a scoped editor sees only the sites they are a member of", (eSites.items ?? []).map((s) => s.id), [SITE_A]);
+    // …while the superadmin sees all of them, so the filter is a filter and not
+    // an accidental emptier.
+    const aSites = await (await req(worker, env, `/api/v1/sites?site=${SITE_A}`, { headers: auth })).json();
+    checkTruthy("the superadmin sees every site",
+      (aSites.items ?? []).some((s) => s.id === SITE_B) && (aSites.items ?? []).some((s) => s.id === SITE_A));
+
+    // ── Platform powers are not on a site screen ──
+    // `platform.manage` (create/edit/delete a site) is install-wide; a scoped
+    // editor is refused it even on their own site. `users.manage` is likewise
+    // install-wide, so they cannot edit roles — including their own.
+    const createSite = await req(worker, env, `/api/v1/sites?site=${SITE_A}`, {
+      method: "POST", headers: { ...eAuth, "Content-Type": "application/json" },
+      body: JSON.stringify({ id: "scoped_nope", name: "nope" }),
+    });
+    check("a scoped editor cannot create a site (install-wide)", createSite.status, 403);
+    const listUsers = await req(worker, env, `/api/v1/users?site=${SITE_A}`, { headers: eAuth });
+    check("a scoped editor cannot list users (install-wide)", listUsers.status, 403);
+
+    // ── The per-site role endpoint: grant, then a row exists; revoke, then it does not ──
+    const grant = await req(worker, env, `/api/v1/users/${editorId}/sites/${SITE_B}?site=${SITE_A}`, {
+      method: "PUT", headers: json, body: JSON.stringify({ role: "author" }),
+    });
+    check("the superadmin can grant a per-site role", grant.status, 200);
+    check("the grant is written as a membership row",
+      sqlite.prepare("SELECT role FROM site_users_sites WHERE user_id=? AND site_id=?").get(editorId, SITE_B)?.role, "author");
+    // Now the editor may *see* site B — the grant actually changed the answer.
+    const eSites2 = await (await req(worker, env, `/api/v1/sites?site=${SITE_A}`, { headers: eAuth })).json();
+    check("the granted site joins the switcher", (eSites2.items ?? []).map((s) => s.id).sort(), [SITE_A, SITE_B].sort());
+    // …and may write there: `author` carries `content.write` in the shipped
+    // matrix, so the same request that was 403 above is now 201.
+    const wAfterGrant = await req(worker, env, `/api/v1/content/widget?site=${SITE_B}`, {
+      method: "POST", headers: { ...eAuth, "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "after grant", slug: "scoped_after_grant", content: "x" }),
+    });
+    check("the grant really confers access (200, not 403)", wAfterGrant.status, 200);
+
+    // Revoke: the denial is the *absence* of the row, so this is a DELETE.
+    const revoke = await req(worker, env, `/api/v1/users/${editorId}/sites/${SITE_B}?site=${SITE_A}`, {
+      method: "PUT", headers: json, body: JSON.stringify({ role: null }),
+    });
+    check("a null role revokes the membership", revoke.status, 200);
+    check("no membership row survives the revoke",
+      sqlite.prepare("SELECT COUNT(*) AS n FROM site_users_sites WHERE user_id=? AND site_id=?").get(editorId, SITE_B).n, 0);
+    // The absence is a denial: the write that succeeded after the grant is
+    // refused again, with no fallback to the install-wide role column.
+    const wAfterRevoke = await req(worker, env, `/api/v1/content/widget?site=${SITE_B}`, {
+      method: "POST", headers: { ...eAuth, "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "after revoke", slug: "scoped_after_revoke", content: "x" }),
+    });
+    check("revoking really removes access (no fallback) (403)", wAfterRevoke.status, 403);
+
+    // ── superadmin is not assignable from a site screen ──
+    const escalate = await req(worker, env, `/api/v1/users/${editorId}/sites/${SITE_A}?site=${SITE_A}`, {
+      method: "PUT", headers: json, body: JSON.stringify({ role: "superadmin" }),
+    });
+    check("a site screen cannot hand out superadmin (400)", escalate.status, 400);
+    check("and the editor's role is unchanged",
+      sqlite.prepare("SELECT role FROM site_users_sites WHERE user_id=? AND site_id=?").get(editorId, SITE_A).role, "editor");
+
+    // The users list carries the two facts the role editor needs: the role on
+    // the site being viewed, and the full membership map.
+    const users = await (await req(worker, env, `/api/v1/users?site=${SITE_A}`, { headers: auth })).json();
+    const editorRow = (users.items ?? []).find((u) => u.username === uname);
+    check("the users list reports role_here for the viewed site", editorRow?.role_here, "editor");
+    check("the users list reports the full membership map", editorRow?.sites, { [SITE_A]: "editor" });
+    check("the users list names the site it was asked about", users.site, SITE_A);
+
+    wipeScoped();
+    check("the scoped fixtures are gone", sqlite.prepare("SELECT COUNT(*) AS n FROM site_users WHERE username LIKE 'adm_scoped%'").get().n, 0);
+    // The wipe took the memberships with it. This asserts what *this section*
+    // removed — not a global "no orphans exist", because the shared local D1
+    // accumulates orphan rows from other suites' own teardowns (they delete
+    // `site_users` directly, and `site_users_sites` has no cascade). That
+    // orphan risk is real and is recorded in HANDOVER as a batch-F item; here
+    // the claim is the narrow one: the rows this section created are gone.
+    check("and this section's memberships went with it",
+      sqlite.prepare("SELECT COUNT(*) AS n FROM site_users_sites WHERE user_id = ?").get(editorId).n, 0);
+  }
+
   // Clean up: this section wrote directly, so it removes directly.
   for (const sql of [
     "DELETE FROM media_files WHERE site_id='cnt'",
@@ -908,7 +1099,16 @@ async function main() {
     "DELETE FROM sites WHERE id IN ('cnt','cnt2','cnt3')",
   ]) { try { sqlite.exec(sql); } catch { /* ok */ } }
   check("the count fixtures are gone", sqlite.prepare("SELECT COUNT(*) AS n FROM sites WHERE id IN ('cnt','cnt2','cnt3')").get().n, 0);
-  void defBefore; // the default site's own posts are swept by `sweep()` below.
+  void defBefore;
+
+  // End-of-suite sweep, **here** rather than mid-file. It tears down this
+  // suite's own fixtures (`adm`, `admtheme`, the `adm_*`/`widget_*` posts) so
+  // the shared local D1 is left as the suite found it. It has to run after
+  // every section that uses those fixtures: an earlier placement ran it in the
+  // middle of the file, which silently deleted `adm` out from under the
+  // sections below it (they were written to not notice). Keep it last.
+  sweep();
+  check("the admin fixtures are gone", sqlite.prepare("SELECT COUNT(*) AS n FROM sites WHERE id='adm'").get().n, 0);
 
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail) console.log("Failed: " + failures.join(", "));

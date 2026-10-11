@@ -1374,16 +1374,16 @@ const SCENARIOS = [
     // not a scenario, it is a note. The parts scan is defence in depth; the
     // assertion it feeds is what must be load-bearing.)
     label: "a part reads a camelCase member field",
-    file: THEME_FILE("sakura", "templates/parts/header.html"),
+    file: THEME_FILE("prism", "templates/parts/header.html"),
     before: ["{{member.display_name}}"],
     after: ["{{member.displayName}}"],
-    // The assertion name carries the theme prefix (`sakura: templates/parts/…`),
+    // The assertion name carries the theme prefix (`prism: templates/parts/…`),
     // and the injector matches the *whole* `FAIL <name>` line, so the prefix is
     // part of the expected string. Omitting it made this scenario report "did
     // NOT go red" while the suite was in fact red on exactly this line — a
     // matcher that is stricter than the thing it checks reads a correct red as
     // a miss.
-    runs: [["tests/suites/theme-bundled.test.mjs", "sakura: templates/parts/header.html names the signed-in reader"]],
+    runs: [["tests/suites/theme-bundled.test.mjs", "prism: templates/parts/header.html names the signed-in reader"]],
   },
 ];
 
@@ -1422,7 +1422,7 @@ const WATCHED = [...new Set([SCHEMA, EVENTS, ARCH, SCOPE, MANIFEST, VALIDATION,
   // dirty against `public/themes/` until `sync-bundled-themes` re-runs — the
   // scenarios below inject into `content/`, which the injector restores.
   MEMBERS,
-  THEME_FILE("sakura", "templates/parts/header.html"),
+  THEME_FILE("prism", "templates/parts/header.html"),
   join(ROOT, "tests/suites/theme-bundled.test.mjs"),
   join(ROOT, "tests/suites/theme-default.test.mjs")])];
 

@@ -23,14 +23,14 @@
         </div>
         <figure class="hero-fig">
           <div class="frame">{{#if post.cover}}<img src="{{post.cover}}" alt="{{post.title}}">{{/if}}</div>
-          <figcaption><span>✦</span>{{default(theme.strings.hero.pick, "Editor's pick")}}{{#if post.reading_time}} · {{post.reading_time}}{{/if}}</figcaption>
+          <figcaption><span class="spark" aria-hidden="true"></span>{{default(theme.strings.hero.pick, "Editor's pick")}}{{#if post.reading_time}} · {{post.reading_time}}{{/if}}</figcaption>
         </figure>
       </header>
     {{/if}}
   {{/each}}
 
   <div class="ticker">
-    {{#each posts as post}}{{#if @first}}<span><b>{{default(theme.strings.ticker.latest, "Latest")}}</b>《{{post.title}}》{{default(theme.strings.ticker.published, "just published")}}</span>{{/if}}{{/each}}
+    {{#each posts as post}}{{#if @first}}<span><b>{{default(theme.strings.ticker.latest, "Latest")}}</b>{{post.title}} — {{default(theme.strings.ticker.published, "just published")}}</span>{{/if}}{{/each}}
     <span><b>{{default(theme.strings.subscribe, "Subscribe")}}</b>{{default(theme.strings.ticker.feed, "RSS is live")}} · /feed.xml</span>
     <span><b>{{default(theme.strings.ticker.index, "Index")}}</b>/sitemap.xml</span>
   </div>
@@ -56,13 +56,13 @@
         <div class="card-img">{{#if post.cover}}<img loading="lazy" src="{{post.cover}}" alt="{{post.title}}">{{/if}}</div>
         <div class="card-body">
           <div class="card-cat">
-            <span><em>◆</em> {{#if post.meta.category}}{{post.meta.category}}{{else}}{{default(theme.strings.uncategorized, "Uncategorised")}}{{/if}}</span>
+            <span><em aria-hidden="true"></em> {{#if post.meta.category}}{{post.meta.category}}{{else}}{{default(theme.strings.uncategorized, "Uncategorised")}}{{/if}}</span>
             <span>{{#if post.reading_time}}{{post.reading_time}}{{/if}}</span>
           </div>
           <h3>{{post.title}}</h3>
           {{#if post.excerpt}}<p>{{post.excerpt}}</p>{{/if}}
           <div class="card-foot">
-            <span class="avatar">{{#if post.meta.category}}{{truncate(post.meta.category, 1)}}{{else}}樱{{/if}}</span>
+            <span class="avatar">{{#if post.meta.category}}{{truncate(post.meta.category, 1)}}{{else}}P{{/if}}</span>
             {{#if post.date_display}}<span>{{post.date_display}}</span>{{/if}}
           </div>
         </div>
@@ -117,7 +117,7 @@
       <div class="kicker">{{default(theme.strings.about.kicker, "Independent publishing")}}</div>
       <h2>{{site.title}}</h2>
       {{#if site.description}}<p>{{site.description}}</p>{{/if}}
-      <div class="quote">{{default(theme.strings.about.quote, "“Keep the spark.”")}}</div>
+      <div class="quote">{{default(theme.strings.about.quote, "“Say it plainly.”")}}</div>
       <div class="hero-cta">
         <a class="btn" href="/{{locale}}/feed.xml">{{default(theme.strings.footer.rss, "RSS feed")}}</a>
         <a class="btn btn-ghost" href="/sitemap.xml">{{default(theme.strings.footer.sitemap, "Sitemap")}}</a>
@@ -232,8 +232,8 @@
   var copy = document.getElementById("copyFeed");
   if (copy) copy.addEventListener("click", function () {
     var abs = location.origin + "/{{locale}}/feed.xml";
-    if (navigator.clipboard) navigator.clipboard.writeText(abs).then(function () { window.sakuraToast(copy.dataset.copied || abs); }, function () { window.sakuraToast(abs); });
-    else window.sakuraToast(abs);
+    if (navigator.clipboard) navigator.clipboard.writeText(abs).then(function () { window.prismToast(copy.dataset.copied || abs); }, function () { window.prismToast(abs); });
+    else window.prismToast(abs);
   });
   apply();
 })();

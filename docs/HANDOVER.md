@@ -1511,6 +1511,15 @@ node tests/<name>.test.mjs       # 逐个跑（判据是 0 failures，别把断�
 | theme-fixture | 47 | fixture 主题的声明与模板自洽 |
 | theme-default | 66 | default 主题（墨白 MOBAI）：模板真渲染 + head 的 SEO 契约（canonical/og/hreflang/feed）+ 语言包键完整性 + **§8b member fixture 由真 `memberScope()` 生成（规则 81）** |
 | theme-bundled | 112 | **走真 `BUNDLED_THEMES` 逐主题渲染全部 templates 与 parts**（两种登录状态各一遍）+ 语言包双向完整 + 空/降级作用域 + 非空校验（规则 81） |
+
+> **第二套自带主题：`prism`（棱镜 PRISM）。** 它最初以 `sakura` 之名落地，随即**整体改名**为 `prism`：
+> 目录 `content/themes/sakura/` → `content/themes/prism/`、界面词典 key 前缀 `theme.sakura.*` → `theme.prism.*`、
+> 语言包内的主题显示名改为「棱镜 PRISM」。改名同时**清掉了主题里所有 emoji 与符号字形**
+> （`☀️🔍🌙🌸◆✦🌸` 等）：装饰一律改成内联 SVG 或纯 CSS 画的形状（品牌标记是三个棱面、
+> 明暗切换是 SVG 日/月、搜索是 SVG 放大镜、分类前的「▸」是 `clip-path` 三角形）——**同一个字符在不同平台的
+> emoji 字体里画出来是两张图**，而主题的观感不该取决于读者装了什么字体。守卫无需改动：`theme-bundled`
+> 走 `BUNDLED_THEMES` 迭代，注入场景里的断言名跟着主题前缀一起改成 `prism: templates/parts/header.html …`。
+> 基线数字不变（26 套件 / 1940 条 / 0 失败）。
 | multisite | 100 | 多站点隔离（含 SEO 端点按站点、**§9 断言关掉 KV 镜像后确实没有 KV 写入**、**feed 按站点 + RSS 断言**） |
 | i18n | 75 | 多语言四层契约（§5.4① 八条）+ 翻译组 + 主题自有表 |
 | admin-contract | 133 | 后台 API 契约（含块面板形状/无漂移/en+zh 标签、**调色板下发的 attrs 契约（类型/必填/翻译标签/`itemKeys`/容器标记）**、dashboard cards 数组、设置 options 往返、**§12 列表按站点默认语言取代表行 + `locales` 集合 + `?locale=` 过滤 + 未翻译行不被吞**、**§13 菜单契约：CRUD + 批量重排先验归属 + 嵌套一层 + 删父升级子 + 跨站点 404**、**§14 小工具契约：scoped CRUD + config 校验 400 + 跨站 404**、**§15b 前缀挂载带全量请求：经前缀的 `?site=` 真的改变答案 + `?withCounts=1` 真的改变 payload 形状 + 分页参数到达**、**§16 站点计数契约：行级语言种子 + 每站计数含草稿 + 邻站计数是它自己的 + 空站报 0 + 主题读选择/未选报空 + 不带 withCounts 无新字段 + 非当前站点的默认语言可钉**） |

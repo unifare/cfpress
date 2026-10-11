@@ -1,9 +1,9 @@
 {
-  "name": "sakura",
-  "title": "樱序 SAKURA",
+  "name": "prism",
+  "title": "棱镜 PRISM",
   "version": "1.0.0",
   "author": "CFPress",
-  "description": "现代二次元风格主题：霓虹渐变、玻璃拟态卡片、圆角大留白。粉色主调搭配青与紫的辅助色，明暗两套配色。适合动漫资讯站、同人社团与个人作品集。全站无外链字体与第三方脚本，订阅走标准 RSS。",
+  "description": "暗色基调的二次元风格主题：深墨底色、玻璃拟态面板、克制的棱镜渐变。大圆角卡片、充足留白，明暗两套精调配色。适合动漫资讯站、同人社团与个人作品集。全站无外链字体与第三方脚本，订阅走标准 RSS。",
   "supports": [
     "blocks",
     "menus",
@@ -85,7 +85,7 @@
     {
       "key": "accent",
       "type": "text",
-      "label": "强调色（可选，如 #ff7ab8）",
+      "label": "强调色（可选，如 #4c6ef5）",
       "postTypes": [
         "post"
       ]

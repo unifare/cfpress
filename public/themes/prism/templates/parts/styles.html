@@ -3,20 +3,20 @@
     exist on that page. Everything lives here instead. }}
 <style>
 :root{
-  --bg:#fdf8fb;
-  --bg-soft:#f7eef6;
-  --surface:rgba(255,255,255,.72);
+  --bg:#f6f6fb;
+  --bg-soft:#eeeff8;
+  --surface:rgba(255,255,255,.74);
   --surface-solid:#ffffff;
-  --fg:#241a2b;
-  --fg-soft:#5a4a63;
-  --muted:#8a7a93;
-  --border:rgba(168,120,180,.22);
-  --accent:#e8548f;
-  --accent-2:#7b5cff;
-  --accent-3:#28c8d8;
+  --fg:#1b1a26;
+  --fg-soft:#4c4a5e;
+  --muted:#7c7a90;
+  --border:rgba(104,96,168,.20);
+  --accent:#6d4de0;
+  --accent-2:#2f9bd8;
+  --accent-3:#e0457d;
   --accent-ink:#ffffff;
-  --shadow:0 10px 30px rgba(120,60,140,.10);
-  --shadow-lg:0 22px 60px rgba(120,60,140,.18);
+  --shadow:0 10px 30px rgba(48,36,110,.10);
+  --shadow-lg:0 22px 60px rgba(48,36,110,.18);
   --radius:18px;
   --radius-lg:26px;
   --font-display:"Hiragino Sans","Yu Gothic","Source Han Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
@@ -24,20 +24,20 @@
   --font-mono:ui-monospace,SFMono-Regular,"Cascadia Code",Consolas,monospace;
 }
 [data-theme="dark"]{
-  --bg:#120c18;
-  --bg-soft:#1b1226;
-  --surface:rgba(38,26,50,.62);
-  --surface-solid:#241733;
-  --fg:#f3ebf8;
-  --fg-soft:#cdbcd8;
-  --muted:#9d8caa;
-  --border:rgba(190,140,220,.20);
-  --accent:#ff7ab8;
-  --accent-2:#a48bff;
-  --accent-3:#5de4ef;
-  --accent-ink:#1a1024;
-  --shadow:0 10px 30px rgba(0,0,0,.36);
-  --shadow-lg:0 26px 70px rgba(0,0,0,.52);
+  --bg:#100f18;
+  --bg-soft:#181626;
+  --surface:rgba(34,32,50,.62);
+  --surface-solid:#1c1a2a;
+  --fg:#f2f0fa;
+  --fg-soft:#c6c2d8;
+  --muted:#918da8;
+  --border:rgba(140,132,200,.20);
+  --accent:#8f78ff;
+  --accent-2:#4fc4f0;
+  --accent-3:#ff6a9c;
+  --accent-ink:#14121f;
+  --shadow:0 10px 30px rgba(0,0,0,.38);
+  --shadow-lg:0 26px 70px rgba(0,0,0,.54);
 }
 *,*::before,*::after{box-sizing:border-box}
 html{scroll-behavior:smooth}
@@ -56,26 +56,28 @@ pre{background:var(--bg-soft);border:1px solid var(--border);border-radius:var(-
 .skip{position:absolute;left:-9999px;top:0;background:var(--accent);color:var(--accent-ink);padding:.6rem 1rem;border-radius:0 0 12px 0;z-index:100}
 .skip:focus{left:0}
 
-{{! Decorative background orbs — fixed, non-interactive, behind everything. }}
-.aurora{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
-.orb{position:absolute;border-radius:50%;filter:blur(70px);opacity:.42}
-.orb-1{width:38rem;height:38rem;top:-12rem;left:-10rem;background:radial-gradient(circle,var(--accent),transparent 70%)}
-.orb-2{width:32rem;height:32rem;top:18%;right:-12rem;background:radial-gradient(circle,var(--accent-2),transparent 70%)}
-.orb-3{width:30rem;height:30rem;bottom:-12rem;left:28%;background:radial-gradient(circle,var(--accent-3),transparent 70%);opacity:.3}
+{{! Decorative background beams — fixed, non-interactive, behind everything.
+    Three soft light shafts rather than floating orbs: the theme is named for
+    refracted light, so the backdrop is straight light, not confetti. }}
+.prism-bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.beam{position:absolute;filter:blur(72px);opacity:.40;border-radius:50%}
+.beam-1{width:38rem;height:38rem;top:-12rem;left:-10rem;background:radial-gradient(circle,var(--accent),transparent 70%)}
+.beam-2{width:32rem;height:32rem;top:18%;right:-12rem;background:radial-gradient(circle,var(--accent-2),transparent 70%)}
+.beam-3{width:30rem;height:30rem;bottom:-12rem;left:28%;background:radial-gradient(circle,var(--accent-3),transparent 70%);opacity:.28}
 header.topbar,main,aside.side-widgets,footer.sitefoot{position:relative;z-index:1}
 
 {{! ---------- top bar ---------- }}
 header.topbar{position:sticky;top:0;z-index:20;backdrop-filter:blur(16px);background:color-mix(in oklab,var(--bg) 78%,transparent);border-bottom:1px solid var(--border)}
 .topbar .wrap{display:flex;align-items:center;gap:1.1rem;padding-block:.85rem;flex-wrap:wrap}
 .brand{display:flex;align-items:center;gap:.65rem;font-family:var(--font-display);font-weight:800;font-size:1.12rem;letter-spacing:-.01em}
-.brand-mark{width:2.1rem;height:2.1rem;border-radius:12px;display:grid;place-items:center;font-size:1.05rem;background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#fff;box-shadow:var(--shadow)}
+.brand-mark{width:2.1rem;height:2.1rem;border-radius:12px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),var(--accent-2));box-shadow:var(--shadow)}
 nav.nav{display:flex;gap:.35rem;flex-wrap:wrap;margin-inline:auto}
 nav.nav a{padding:.4rem .8rem;border-radius:999px;font-size:.93rem;color:var(--fg-soft);transition:background .18s,color .18s}
 nav.nav a:hover{background:var(--surface);color:var(--accent)}
 .top-actions{display:flex;align-items:center;gap:.5rem;margin-left:auto}
 .searchbox{display:flex;align-items:center;gap:.4rem;background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:.3rem .3rem .3rem .85rem;backdrop-filter:blur(8px)}
 .searchbox input{border:0;background:transparent;color:var(--fg);outline:0;width:9.5rem;font:inherit;font-size:.9rem}
-.icon-btn{width:2.2rem;height:2.2rem;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--fg);display:grid;place-items:center;cursor:pointer;font-size:.95rem;transition:transform .18s,border-color .18s}
+.icon-btn{width:2.2rem;height:2.2rem;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--fg);display:grid;place-items:center;cursor:pointer;transition:transform .18s,border-color .18s}
 .icon-btn:hover{transform:translateY(-1px);border-color:var(--accent)}
 .lang-nav{display:flex;gap:.25rem;font-size:.82rem}
 .lang-nav a{padding:.25rem .55rem;border-radius:999px;color:var(--muted);border:1px solid transparent}
@@ -96,10 +98,14 @@ nav.nav a:hover{background:var(--surface);color:var(--accent)}
 .hero-meta{display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;color:var(--muted);font-size:.88rem;margin-bottom:1.5rem}
 .hero-cta{display:flex;gap:.7rem;flex-wrap:wrap}
 .hero-fig{position:relative}
-.hero-fig .frame{position:relative;border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-lg);aspect-ratio:4/3;background:linear-gradient(135deg,var(--accent)22,var(--accent-2)22)}
+.hero-fig .frame{position:relative;border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-lg);aspect-ratio:4/3;background:linear-gradient(135deg,color-mix(in oklab,var(--accent) 22%,var(--bg-soft)),color-mix(in oklab,var(--accent-2) 22%,var(--bg-soft)))}
 .hero-fig .frame img{width:100%;height:100%;object-fit:cover}
 .hero-fig .frame::after{content:"";position:absolute;inset:0;background:linear-gradient(200deg,transparent 45%,color-mix(in oklab,var(--accent) 30%,transparent))}
-.hero-fig figcaption{position:absolute;left:1rem;bottom:1rem;z-index:2;display:inline-flex;align-items:center;gap:.5rem;font-size:.8rem;font-weight:700;color:#fff;background:rgba(20,10,26,.55);backdrop-filter:blur(8px);padding:.4rem .85rem;border-radius:999px}
+.hero-fig figcaption{position:absolute;left:1rem;bottom:1rem;z-index:2;display:inline-flex;align-items:center;gap:.5rem;font-size:.8rem;font-weight:700;color:#fff;background:rgba(16,14,26,.58);backdrop-filter:blur(8px);padding:.4rem .85rem;border-radius:999px}
+{{! A four-point spark drawn as a rotated square pair — the "editor's pick"
+    marker. It was a star glyph before; a character renders differently on every
+    platform, so the shape is drawn instead. }}
+.spark{width:.62rem;height:.62rem;background:currentColor;clip-path:polygon(50% 0,62% 38%,100% 50%,62% 62%,50% 100%,38% 62%,0 50%,38% 38%)}
 
 {{! ---------- ticker ---------- }}
 .ticker{display:flex;gap:1.6rem;flex-wrap:wrap;border:1px solid var(--border);background:var(--surface);backdrop-filter:blur(10px);border-radius:var(--radius);padding:.75rem 1.1rem;font-size:.87rem;color:var(--fg-soft);margin-bottom:2.4rem}
@@ -122,12 +128,13 @@ nav.nav a:hover{background:var(--surface);color:var(--accent)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(17.5rem,1fr));gap:1.5rem}
 .card{display:flex;flex-direction:column;background:var(--surface);backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow);transition:transform .22s,box-shadow .22s,border-color .22s}
 .card:hover{transform:translateY(-5px);box-shadow:var(--shadow-lg);border-color:color-mix(in oklab,var(--accent) 45%,var(--border))}
-.card-img{aspect-ratio:16/10;overflow:hidden;background:linear-gradient(135deg,var(--accent)22,var(--accent-2)22)}
+.card-img{aspect-ratio:16/10;overflow:hidden;background:linear-gradient(135deg,color-mix(in oklab,var(--accent) 22%,var(--bg-soft)),color-mix(in oklab,var(--accent-2) 22%,var(--bg-soft)))}
 .card-img img{width:100%;height:100%;object-fit:cover;transition:transform .4s}
 .card:hover .card-img img{transform:scale(1.045)}
 .card-body{padding:1.15rem 1.25rem 1.35rem;display:flex;flex-direction:column;gap:.5rem;flex:1}
 .card-cat{display:flex;justify-content:space-between;align-items:center;font-size:.76rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
-.card-cat em{color:var(--accent);font-style:normal}
+{{! The little facet beside the category: a CSS-drawn triangle, not a glyph. }}
+.card-cat em{width:.5rem;height:.5rem;background:var(--accent);clip-path:polygon(50% 0,100% 100%,0 100%);display:inline-block;font-style:normal}
 .card h3{font-size:1.11rem;font-weight:800;margin:0}
 .card p{margin:0;color:var(--fg-soft);font-size:.92rem;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .card-foot{display:flex;align-items:center;gap:.55rem;margin-top:auto;padding-top:.7rem;color:var(--muted);font-size:.82rem}
@@ -152,7 +159,7 @@ nav.nav a:hover{background:var(--surface);color:var(--accent)}
 .side{display:flex;flex-direction:column;gap:1.2rem}
 .tagcloud{display:flex;flex-wrap:wrap;gap:.45rem}
 .tagcloud button{border:1px solid var(--border);background:var(--surface);color:var(--fg-soft);font:inherit;font-size:.83rem;padding:.3rem .75rem;border-radius:999px;cursor:pointer;transition:all .18s}
-.tagcloud button:hover{border-color:var(--accent-3);color:var(--accent-3)}
+.tagcloud button:hover{border-color:var(--accent-2);color:var(--accent-2)}
 .tagcloud-empty{color:var(--muted);font-size:.85rem;font-style:italic}
 .newsbox{background:linear-gradient(150deg,color-mix(in oklab,var(--accent) 14%,var(--surface)),var(--surface));border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.4rem}
 .newsbox h5{margin:0 0 .4rem;font-size:1rem;font-weight:800}
@@ -209,7 +216,7 @@ h5{font-size:1rem;font-weight:800}
 .mypost:hover{border-color:var(--accent);transform:translateX(3px)}
 .mypost h4{margin:0 0 .2rem;font-size:1rem;font-weight:700}
 .mypost .sub{color:var(--muted);font-size:.82rem}
-.badge{display:inline-block;font-size:.72rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:.22rem .6rem;border-radius:999px;background:color-mix(in oklab,var(--accent-3) 20%,transparent);color:var(--accent-3)}
+.badge{display:inline-block;font-size:.72rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:.22rem .6rem;border-radius:999px;background:color-mix(in oklab,var(--accent-2) 20%,transparent);color:var(--accent-2)}
 
 {{! ---------- 404 / empty ---------- }}
 .notfound{text-align:center;padding:5rem 1.35rem}

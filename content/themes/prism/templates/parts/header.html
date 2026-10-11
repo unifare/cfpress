@@ -1,7 +1,15 @@
 <header class="topbar">
   <div class="wrap">
     <a class="brand" href="/{{locale}}">
-      <span class="brand-mark">樱</span>
+      {{! Three facets in a rounded tile — the theme's whole identity in one mark,
+          and it is drawn, not typed. }}
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none">
+          <path d="M12 3 21 19H3z" fill="rgba(255,255,255,.92)"/>
+          <path d="M12 3v16" stroke="rgba(20,16,32,.45)" stroke-width="1.1"/>
+          <path d="M7.2 19 12 10l4.8 9" stroke="rgba(20,16,32,.28)" stroke-width="1.1" fill="none"/>
+        </svg>
+      </span>
       <span>{{site.title}}</span>
     </a>
 
@@ -17,7 +25,9 @@
     <div class="top-actions">
       <form class="searchbox" method="get" action="/{{locale}}">
         <input id="q" name="q" type="search" placeholder="{{default(theme.strings.nav.search, "Search…")}}" aria-label="{{default(theme.strings.nav.search, "Search")}}">
-        <button class="icon-btn" type="submit" aria-label="{{default(theme.strings.nav.search, "Search")}}">🔍</button>
+        <button class="icon-btn" type="submit" aria-label="{{default(theme.strings.nav.search, "Search")}}">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        </button>
       </form>
 
       {{! One entry per enabled site locale; the platform omits the whole key on a
@@ -29,7 +39,7 @@
       </nav>
       {{/if}}
 
-      <button class="icon-btn" id="themeToggle" type="button" aria-pressed="false" aria-label="{{default(theme.strings.a11y.theme, "Toggle colour scheme")}}">☀️</button>
+      <button class="icon-btn" id="themeToggle" type="button" aria-pressed="false" aria-label="{{default(theme.strings.a11y.theme, "Toggle colour scheme")}}"></button>
 
       {{! The signed-in member, or a sign-in link. `member` is filled by the
           platform from the **member** session — never the admin's (rule 77) — so

@@ -1,0 +1,48 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+<div class="auth">
+  <div class="auth-card">
+    {{#if member}}
+      {{! Already signed in. Showing a second login form would be a dead end:
+          the only useful actions are "you are signed in" and "sign out". }}
+      <div class="kicker">{{default(theme.strings.auth.accountKicker, "Account")}}</div>
+      <h1>{{default(theme.strings.auth.welcome, "You are signed in")}}</h1>
+      <p class="lede">{{default(theme.strings.auth.signedInAs, "Signed in as")}} <b>{{member.display_name}}</b></p>
+      <form method="post" action="/api/v1/front/auth/logout" class="auth-form">
+        <button class="btn" type="submit">{{default(theme.strings.auth.signOut, "Sign out")}}</button>
+      </form>
+    {{else}}
+      <div class="kicker">{{default(theme.strings.auth.loginKicker, "Sign in")}}</div>
+      <h1>{{default(theme.strings.auth.loginTitle, "Welcome back")}}</h1>
+      <p class="lede">{{default(theme.strings.auth.loginLede, "Sign in to leave a comment or manage your profile.")}}</p>
+
+      {{! The form posts straight to the front-end API and then navigates back
+          here. There is no JavaScript requirement: a reader without scripts
+          gets the same form and the same result. }}
+      <form method="post" action="/api/v1/front/auth/login" class="auth-form">
+        <label class="field">
+          <span>{{default(theme.strings.auth.username, "Username")}}</span>
+          <input name="username" type="text" autocomplete="username" required>
+        </label>
+        <label class="field">
+          <span>{{default(theme.strings.auth.password, "Password")}}</span>
+          <input name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <input type="hidden" name="redirect" value="{{page.path}}">
+        <button class="btn" type="submit">{{default(theme.strings.auth.signIn, "Sign in")}}</button>
+      </form>
+
+      {{! Registration is opt-in per site (setting `members.registration`). The
+          theme cannot read that setting, so the link is always offered and the
+          endpoint answers 403 when it is closed — a form that renders only on
+          the happy path is a form nobody can fix when it stops appearing. }}
+      <p class="auth-alt">
+        {{default(theme.strings.auth.noAccount, "No account yet?")}}
+        <a href="/{{locale}}/register">{{default(theme.strings.auth.createOne, "Create one")}}</a>
+      </p>
+    {{/if}}
+  </div>
+</div>
+
+{{/section}}

@@ -2374,6 +2374,151 @@ section("Site counts are grouped per site, and the theme is the site's choice (r
 }
 
 // ---------------------------------------------------------------------------
+section("The two identities are structurally apart, not policy-apart (rule 77)");
+// ---------------------------------------------------------------------------
+
+/**
+ * Batch D. The front end has its own identity — `members`, `member_sessions`,
+ * the `cfpress_member` cookie, the `/api/v1/front/…` family — and the whole
+ * design rests on that identity being **structurally** separate from the
+ * admin's rather than gated by a check somebody has to remember to write.
+ *
+ * "There is nothing to exchange" is the claim, and it is a claim about code:
+ *
+ *   - the two session tables are different tables, so a member session id is
+ *     not a valid admin session id (and vice versa) — there is no shared id
+ *     space to confuse;
+ *   - `currentMember` reads `member_sessions`; `currentUser` reads
+ *     `admin_sessions`. Neither queries the other's table, so neither can
+ *     "accidentally" accept the other's token;
+ *   - the two cookies have different **names**, which is the only way a single
+ *     `Cookie:` header carrying both can be told apart. A generic name (or a
+ *     shared one) is how the next reader conflates them;
+ *   - the member tables carry `site_id` and every read puts it in the WHERE
+ *     clause, because "member" is a tenant fact — A site's account must not
+ *     exist on B site, and a missing `site_id` makes it exist everywhere.
+ *
+ * Each guard below is written against the *defect* shape, not the fix: the
+ * point is to go red when someone reintroduces the sharing, not merely to
+ * confirm that today's line is present.
+ */
+{
+  const membersSrc = blankComments(read(join(ROOT, "src", "platform", "members.ts")));
+  const authSrc = blankComments(read(join(ROOT, "src", "platform", "auth.ts")));
+  const apiSrc = blankComments(read(join(ROOT, "src", "api.ts")));
+  const migSrc = read(join(ROOT, "content", "migrations", "0022_front_members.sql"));
+
+  // (a) The cookie names differ. Reading the two constants and comparing them
+  // beats re-typing the literals here: a rename on one side is caught, and the
+  // guard cannot silently agree with a typo in its own expected value.
+  const adminCookie = authSrc.match(/const SESSION_COOKIE = "([^"]+)"/)?.[1] ?? "";
+  const memberCookie = membersSrc.match(/const MEMBER_COOKIE = "([^"]+)"/)?.[1] ?? "";
+  check("the admin cookie name is read from its definition (rule 77a)", adminCookie === "cfpress_admin", `got "${adminCookie}"`);
+  check("the member cookie name is read from its definition (rule 77a)", memberCookie === "cfpress_member", `got "${memberCookie}"`);
+  check("the two cookie names are different (rule 77a)", adminCookie !== "" && adminCookie !== memberCookie);
+
+  // (b) Each resolver reads only its own session table. This is the load-bearing
+  // assertion: a `currentMember` that read `admin_sessions` would accept an
+  // admin cookie on the front end, and the red-line test would still pass as
+  // long as nobody presented one.
+  check(
+    "currentMember resolves against member_sessions, never admin_sessions (rule 77b)",
+    /FROM member_sessions/.test(membersSrc) && !/FROM admin_sessions/.test(membersSrc)
+  );
+  check(
+    "currentUser resolves against admin_sessions, never member_sessions (rule 77b)",
+    /FROM admin_sessions/.test(authSrc) && !/member_sessions/.test(authSrc)
+  );
+  // The front-end API must go through `requireMember`/`currentMember`, never
+  // `requirePermission`/`currentUser` — those are the admin doors, and routing
+  // a member request through them is the conflation the whole design forbids.
+  check(
+    "the front-end API authorises with the member resolver, not the admin one (rule 77b)",
+    /requireMember\(/.test(apiSrc) && /handleFrontApi/.test(apiSrc)
+  );
+  // Extract the front-end router body and assert the admin authorisers are
+  // absent from it. Reading the *body* rather than the whole file matters:
+  // `api.ts` contains both routers, so a whole-file test would fail on the
+  // admin router's own (correct) `requirePermission` calls.
+  //
+  // `routeFrontApi` is defined *below* `handleFrontApi` (the export wraps the
+  // private router), and the next top-level declaration after it is the admin
+  // router `routeApi`. Bound the slice there — falling through into the admin
+  // router would fail this check on the admin's own correct `currentUser`.
+  const frontStart = apiSrc.indexOf("async function routeFrontApi");
+  let frontEnd = -1;
+  if (frontStart >= 0) frontEnd = apiSrc.indexOf("\nasync function ", frontStart + 1);
+  const frontBody = frontStart < 0 || frontEnd < 0 ? "" : apiSrc.slice(frontStart, frontEnd);
+  check(
+    "the front-end route body was actually extracted (non-vacuity)",
+    frontBody.length > 100
+  );
+  check(
+    "the front-end route never calls the admin permission check (rule 77b)",
+    !/requirePermission\(/.test(frontBody) && !/currentUser\(/.test(frontBody)
+  );
+
+  // (c) The member tables are site-scoped in the schema itself. A table that
+  // declared neither a `site_id` column nor a derived tenant would let
+  // `deleteSite` skip it silently — the purge loop is `WHERE site_id=?`.
+  check(
+    "members is created with its own site_id (rule 77c)",
+    /CREATE TABLE[^;]*\bmembers\b[\s\S]*?site_id\s+TEXT NOT NULL/i.test(migSrc)
+  );
+  check(
+    "member_sessions carries site_id too (rule 77c)",
+    /CREATE TABLE[^;]*member_sessions[\s\S]*?site_id\s+TEXT NOT NULL/i.test(migSrc)
+  );
+  // The username is unique *within a site*, not globally: two sites may each
+  // have a `bob`, and the uniqueness that stops a duplicate is scoped to the
+  // tenant. A global UNIQUE would make one site's registration block another's.
+  check(
+    "the member username is unique per site, not globally (rule 77c)",
+    /UNIQUE INDEX[^;]*idx_members_site_username[^;]*\(site_id,\s*username\)/i.test(migSrc)
+  );
+  // And every read in the member platform filters on it. `WHERE site_id=?` two
+  // or more times is the shape of the join (`s.site_id=? AND m.site_id=?`);
+  // a single filter is not enough because the join could be satisfied by the
+  // session row while the member row belongs to another site.
+  check(
+    "the member lookup always constrains both halves by site (rule 77c)",
+    (membersSrc.match(/site_id\s*=\s*\?/g) ?? []).length >= 3
+  );
+
+  // (d) The member tables are declared in the schema contract as site tables,
+  // so they can never be forgotten by the per-site purge.
+  const contractSrc = read(join(ROOT, "src", "extensions", "contract", "schema.ts"));
+  check(
+    "the contract declares members a site table (rule 77d)",
+    /\{\s*table:\s*"members",\s*tenant:\s*"site"/.test(contractSrc)
+  );
+  check(
+    "the contract declares member_sessions a site table (rule 77d)",
+    /\{\s*table:\s*"member_sessions",\s*tenant:\s*"site"/.test(contractSrc)
+  );
+  // Non-vacuity: the files really were read. A regex over an empty string
+  // passes every `!test` guard above, which is the classic way a guard goes
+  // green on a typo'd path.
+  check(
+    "the rule-77 sources were actually read (non-vacuity)",
+    membersSrc.length > 500 && migSrc.length > 300 && authSrc.length > 500
+  );
+
+  // (e) The theme scope carries the member, and it does so through
+  // `currentMember` — a theme must never be handed the admin resolver. The
+  // field is on the platform side, so a theme cannot forge or clear it.
+  const declSrc = blankComments(read(join(ROOT, "src", "extensions", "theme", "runtime-declarative.ts")));
+  check(
+    "the theme scope resolves the member through currentMember (rule 77e)",
+    /currentMember\(env,\s*o\.request,\s*siteId\)/.test(declSrc)
+  );
+  check(
+    "the theme scope exposes member as its own key (rule 77e)",
+    /^\s*member,$/m.test(declSrc)
+  );
+}
+
+// ---------------------------------------------------------------------------
 section("This suite's own assertions can actually fail (meta-guard)");
 // ---------------------------------------------------------------------------
 

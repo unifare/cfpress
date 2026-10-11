@@ -256,14 +256,49 @@ async function main() {
   checkTruthy("it runs before the stylesheet", scriptAt > -1 && styleAt > -1 && scriptAt < styleAt);
   checkTruthy("it sets colorScheme for native controls", layout.includes("colorScheme"));
 
-  // -- 9. the pack actually covers what the templates ask for ---------------
+  // -- 8b. the member pages -------------------------------------------------
   //
+  // The sign-in and register templates are the only pages whose markup changes
+  // on who is asking, and the two branches are reached through the `member`
+  // scope the platform sets from the **member** session (rule 77). Both
+  // branches must render cleanly: an unauthenticated visitor sees the form, a
+  // signed-in reader sees the account state. A template that only ever got
+  // tested signed-out would ship an `{{#if member}}` branch nobody ever saw.
+  section("8b. The member pages render in both states");
+  const loginOut = await render("login.html", base({ member: null, page: { title: "Sign in", kind: "page", document_title: "Sign in · 墨白", path: "/zh-CN/login" } }));
+  const loginIn = await render("login.html", base({ member: { id: "mem_1", username: "bob", display_name: "Bob", role: "member" }, page: { title: "Sign in", kind: "page", document_title: "Sign in · 墨白", path: "/zh-CN/login" } }));
+  const regOut = await render("register.html", base({ member: null, page: { title: "Create an account", kind: "page", document_title: "Create an account · 墨白", path: "/zh-CN/register" } }));
+  for (const [name, html] of [["login (signed out)", loginOut], ["login (signed in)", loginIn], ["register (signed out)", regOut]]) {
+    const problems = [];
+    if (!html.includes("<html")) problems.push("shell did not render");
+    if (html.includes("{{")) problems.push("unresolved template syntax leaked");
+    if (html.includes("undefined")) problems.push("output contains undefined");
+    check(`${name} renders clean`, problems, []);
+  }
+  // The form must post to the front-end API, and only there — a theme form that
+  // forgot its `action` would post back to the page itself and appear to do
+  // nothing, which is indistinguishable from a broken endpoint.
+  checkTruthy("the login form posts to the front-end auth endpoint", loginOut.includes('action="/api/v1/front/auth/login"'), loginOut.match(/<form[^>]*>/)?.[0] || "(no form)");
+  checkTruthy("the register form posts to the front-end auth endpoint", regOut.includes('action="/api/v1/front/auth/register"'), regOut.match(/<form[^>]*>/)?.[0] || "(no form)");
+  // Signed out: a password field. Signed in: a sign-out button instead of a
+  // second login form — showing the form again is the dead end this guards.
+  checkTruthy("signed out shows a password field", loginOut.includes('type="password"'));
+  checkTruthy("signed in does NOT show a second login form", !loginIn.includes('type="password"'), "a signed-in reader would be asked to sign in again");
+  checkTruthy("signed in shows the sign-out action", loginIn.includes('action="/api/v1/front/auth/logout"'));
+  checkTruthy("signed in names the reader", loginIn.includes("Bob"));
+  // The header reflects the same state, so the account entry point is reachable
+  // from every page rather than only from the login URL itself.
+  checkTruthy("the header offers sign in when signed out", loginOut.includes("/zh-CN/login") && loginOut.includes("登录"));
+  checkTruthy("the header shows the member name when signed in", loginIn.includes("Bob"));
+
+  // -- 9. the pack actually covers what the templates ask for ---------------  //
   // `{{default(theme.strings.x.y, "English literal")}}` degrades silently: a
   // key that is missing from the pack renders the literal, so a typo in the
   // template or a forgotten entry in `langs/` shows an English string on a
   // Chinese site and nothing anywhere else. This is the only place that notices.
   section("9. Every string the templates ask for exists in both packs");
   const tplFiles = ["home.html", "index.html", "archive.html", "single.html", "page.html", "404.html",
+    "login.html", "register.html",
     "parts/layout.html", "parts/header.html", "parts/footer.html"];
   const refs = new Set();
   for (const f of tplFiles) {

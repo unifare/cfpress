@@ -29,7 +29,7 @@ async function renderPage(env:Env,o:ThemeRenderOptions,request:Request){
   // The origin a page has to publish about itself — `rel=canonical`, `og:url`,
   // the feed link. Derived here rather than at the nine call sites so `path`
   // and `origin` can never come from two different requests.
-  o = { ...o, origin: new URL(request.url).origin };
+  o = { ...o, origin: new URL(request.url).origin, request };
   const theme=await activeTheme(env,o.siteId);
   const viaWorker=await tryRenderWithThemeWorker(env,theme,{
     request,
@@ -470,7 +470,15 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
   // Run the route's declarative query to populate the listing variable. A table
   // route already filled `rows` from its own table; running the post query on
   // top would replace them with an empty list.
-  if(kind==="archive"&&!resolveTable){
+  //
+  // ⚠️ Only when the route *declared* something to list. `runThemeQuery`
+  // defaults to `type: "post", limit: 10`, so an unconditional call made every
+  // static route (`/login`, `/register`, `/contact`) pay for a post query whose
+  // result no template reads — and, worse, filled `posts` on a page that has no
+  // business having one. A route with no `query` and no `resolve` renders the
+  // template it named and nothing else.
+  const declaredListing=!!route.query_json&&Object.keys(query).length>0;
+  if(kind==="archive"&&!resolveTable&&declaredListing){
     const q:Record<string,string|number>={...query,locale:String(query.locale??locale)};
     // `as` names the binding, it is not a query parameter.
     delete q.as;

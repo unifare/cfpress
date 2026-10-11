@@ -13,6 +13,7 @@ import { esc, setting, siteInfo, menusForLocation, widgetGroups, locales, render
 import { resolveMetaByPost } from "../../platform/post-meta";
 import { parsePack } from "../../platform/i18n/translate";
 import { resolveLocale } from "../../platform/i18n/resolve";
+import { currentMember } from "../../platform/members";
 import { themePackKey } from "./packs";
 import { resolveTemplate, templateCandidates, type TemplateContext } from "../../rendering/template-resolver";
 import { resolveContentLocale } from "../../platform/i18n/locale-registry";
@@ -383,6 +384,17 @@ export interface ThemeRenderOptions {
   /** Pre-built scope additions (e.g. `posts` on an archive). */
   extra?: Record<string, unknown>;
   /**
+   * The request being rendered.
+   *
+   * Optional because most call sites (tests, a render without an HTTP request)
+   * have none, and because the front-end member scope is the only thing that
+   * needs it. When present, `buildScope` reads the **member** cookie through
+   * `currentMember` and exposes the result as `member` — never the admin
+   * cookie, and never through `currentUser`. A theme cannot tell the two
+   * sessions apart because it is only ever handed one of them (rule 77).
+   */
+  request?: Request;
+  /**
    * The plugin hook dispatcher.
    *
    * Optional only so that tests and narrow call sites can render without
@@ -493,7 +505,17 @@ export async function buildScope(
   // rather than a control that points at the page it is already on.
   // Plugins may contribute extra scope keys via the `beforeRender` action by
   // mutating the payload object handed to them.
-  const extra: Record<string, unknown> = { ...(o.extra ?? {}) };  const hooks = hooksOf(o);
+  const extra: Record<string, unknown> = { ...(o.extra ?? {}) };
+  const hooks = hooksOf(o);
+  // The front-end member, if this request carries a valid member session.
+  //
+  // Read through `currentMember`, which is bound to the **member** cookie and
+  // the **member_sessions** table — a completely different door from the one
+  // `currentUser` opens. A theme therefore cannot see an admin session here
+  // even when an admin is logged in, and the reverse holds too (rule 77).
+  // Absent when the caller had no request to read a cookie from, or nobody is
+  // signed in; templates guard on it.
+  const member = o.request ? await currentMember(env, o.request, siteId) : null;
   await hooks.boot(env);
   try {
     await hooks.doAction("beforeRender", { env, siteId }, { siteId, locale: o.locale, path: o.path, kind: o.kind, scope: extra });
@@ -532,6 +554,11 @@ export async function buildScope(
     // enabled widgets is absent so templates can `{{#if …}}` on it.
     widgets,
     post: o.post ?? null,
+    // The signed-in front-end member, or null. Deliberately its own key rather
+    // than folded into `extra`: it comes from a platform lookup a plugin cannot
+    // forge, and a theme reads `{{#if member}}` to decide between "sign in" and
+    // the account menu.
+    member,
     lang_nav: langNavRows.length > 1 ? langNavRows : [],
     theme: { name: theme.name, version: theme.version, title: theme.manifest.title, strings },
     ...extra,

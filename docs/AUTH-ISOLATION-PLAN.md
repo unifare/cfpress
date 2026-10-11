@@ -1,6 +1,6 @@
 # 多站点隔离 / 用户隔离 / 后台隐身 / 设置分两级 —— 实施方案（批次 A–F）
 
-> 状态：**批次 A（hosts/域名绑定）、B（设置分两级）与 C（后台隐身）已完成**。
+> 状态：**批次 A（hosts/域名绑定）、B（设置分两级）、C（后台隐身）与 D（前台会员）已完成**；E（staff 按站点）、F（契约收尾）待做。
 > A：三个域名经 dev server 各自命中 default / shop-demo / de-demo，hosts 改动在标记块内、已自动备份。
 > B：`platform_settings` + `SETTING_DEFS` + 唯一读取阶梯 + 设置屏两栏 + `platform.manage`。
 > C：`admin.path` 可配（平台级）；整个后台（SPA + 资产 + API + 登录端点）挂前缀之下、旧地址
@@ -167,6 +167,14 @@
 - **D2（主题）**：`login`/`register` 模板部件、`member` 作用域进模板、登出动作；中英词典。
 - **验收（具名断言 + 注入场景）**：member cookie 打 `requireAdmin` 端点 → 401；admin cookie 打 `/front/*` → 401；A 站 member 在 B 站登录失败；注册开关关闭时 403；`_schema-scope` 对新表两轴分类与真库一致。
 - **改动面**：迁移、`contract/schema.ts`、`src/platform/members.ts`、`src/api.ts`、主题模板与词典、`theme-default.test.mjs`、注入器。
+
+**已完成（2026-10-11）**，落地与计划的两处偏差记录如下：
+
+1. **`member_sessions` 带 `site_id`**。计划里 D1 只说"两张新表"；实际建表时 `member_sessions` 一度按派生租户声明（`member_id → members.site_id`，不带 `site_id`），`_schema-scope` 立刻报它在两轴模型里缺列。真正的原因是 `deleteSite()` 用统一的 `DELETE FROM <table> WHERE site_id=?` 遍历 `PURGE_ON_SITE_DELETE`——**没有 `site_id` 的表无法进入循环**，只能加一段 bespoke 删除（第二个会忘的地方）。结论写进迁移注释：派生根租户表只在局部列**冗余**时才对（连接表），这里它是**承重**的。
+2. **带前缀站点走不通前台 API（真实缺陷，先于测试发现）**。`/accm/api/v1/front/auth/register` 404，两个根因：(a) 站点解析原先放在 `routeFrontApi` 内部，而 API 层运行在站点解析**之前**，永远只解析到 default；(b) `if(request.method!=="GET")return env.ASSETS.fetch(request)` 的兜底在站点解析之前，把所有 POST 送进静态资源层。修复：抽出 `handleFrontApi(env, request, siteId, resolvedPath)`，由 `index.ts` 的 `frontApiRelPath()` 识别路径、**先 resolveSite** 再调用，位置放在非 GET 兜底之前。
+3. **静态主题路由不再跑无约束查询**。`/login`、`/register` 这类不声明 `query`/`resolve` 的路由原先仍会执行 `runThemeQuery` 的默认 `type:"post", limit:10`，为一个不读它的模板白付一次查询；现在只有真正声明了列表的路由才查。
+
+**新增守卫**：`architecture` 规则 77（a 两个 cookie 名不同 / b 两个解析器各读各的会话表 + front 路由不许出现 `requirePermission`·`currentUser` / c 两张表带 `site_id` + 用户名按站点唯一 / d 契约声明为站点表 / e 主题 scope 走 `currentMember`）；`admin-contract` §17；注入器 4 个场景（反读 `admin_sessions`、cookie 同名、`member_sessions` 丢 `site_id`、契约降级为平台表）。
 
 ### 批次 E —— 后台用户按站点隔离
 - **E1（权限接线）**：`site_users_sites` 表 + 迁移平移；`can(env,user,perm,siteId)` 站点感知；**全部** `requirePermission` 调用点补 `siteId`（先统计数量）+ 一条架构守卫强制。

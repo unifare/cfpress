@@ -1,12 +1,16 @@
 # CFPress (CFCMS) 交接文档
 
-> 更新时间：2026-10-11 (GMT+8) ｜ 交接基线：**MENUS 批次 28 —— 站点屏管理深度（规则 76）**
+> 更新时间：2026-10-11 (GMT+8) ｜ 交接基线：**AUTH 批次 D —— 前台会员（规则 77）**
 > （本仓库同时有两份活动计划：`docs/MENUS-WIDGETS-SITES-PLAN.md`（批次 26–28，**26/27/28 全部完成**）
-> 与 `docs/AUTH-ISOLATION-PLAN.md`（批次 A–F，A/B/C 已完成）。两套编号**互相独立**，勿混。
-> 上一条交接基线：批次 C —— 后台隐身：前缀可配 + cookie 收紧 + SPA base 注入（规则 75）。
-> 批次 28 站点屏：`sites?withCounts=1` 每站一行计数 + 主题徽标 + 前台预览链接 + 新建站点
-> 引导默认语言（规则 76）；顺带修掉 `createSite` **从未调用** `seedSiteLocales` 的根因。
-> （批次 26 菜单管理落地 + 菜单位置确定性（规则 73）；批次 25 拒绝必须带出口：主题强制卸载（规则 72）；
+> 与 `docs/AUTH-ISOLATION-PLAN.md`（批次 A–F，**A/B/C/D 已完成**，E/F 待做）。两套编号**互相独立**，勿混。
+> 上一条交接基线：批次 28 —— 站点屏管理深度：`sites?withCounts=1` 每站一行计数 + 主题徽标 +
+> 前台预览链接 + 新建站点引导默认语言（规则 76）；顺带修掉 `createSite` **从未调用** `seedSiteLocales`。
+> 批次 D 前台会员：`members`（**按站点**）+ `member_sessions` 两张新表 + `/api/v1/front/{auth/*,me}` +
+> `src/platform/members.ts`；主题 `login`/`register` 模板 + `member` 作用域 + 中英词典；
+> **两套身份的隔离是结构性的**（不同表/不同 cookie 名/不同端点族），规则 77 钉住。
+> 顺带修掉带前缀站点**走不通前台 API** 的真实缺陷（站点解析早于 API 层 + 非 GET 兜底吞掉 POST）。
+> （批次 C —— 后台隐身：前缀可配 + cookie 收紧 + SPA base 注入（规则 75）。
+> 批次 26 菜单管理落地 + 菜单位置确定性（规则 73）；批次 25 拒绝必须带出口：主题强制卸载（规则 72）；
 > 批次 24 后台多语言：列表按默认语言取代表行 + 语言过滤/版本徽标 + 编辑器语言切换重新取数（规则 71）；
 > 批次 23 post_meta 语言维度（B5）+ 列表 reading_time + /blog 归档路由 + 单页字段修复；
 > 批次 22 双语内容上线、注册行不等于安装（规则 69）、启动链自动安装主题声明；
@@ -248,6 +252,73 @@ x-default）；`/{locale}/feed.xml`；`lang_nav` 切换器进 scope。规则 56�
 > 其中 `/*` 让 `architecture.test.mjs` 的 `blankComments()`（非贪婪 `/\/\*[\s\S]*?\*\//g`）
 > 一路吞到后文 `catch{/* ignore */}` 的 `*/`，**把整段路由抹成空白**——media 守卫的两个锚点
 > 都变 `-1`，报「非空性」失败。代码是对的，是**注释里的字符**弄瞎了守卫。已记进 AGENTS.md。
+
+**批次 D（前台会员：两套身份结构性分离）—— ✅ 本轮完成**
+
+计划 `docs/AUTH-ISOLATION-PLAN.md` 批次 D。前台要有自己的身份（读者能注册、登录、留言），
+而它与后台身份的隔离**必须由构造保证**，不是由某个"记得写"的检查把门——否则「member cookie
+能不能打后台端点」这件事就取决于某一行代码有没有被漏掉。
+
+**两套登录从存储到 cookie 完全分离**
+
+| | 后台 staff | 前台 member |
+|---|---|---|
+| 身份表 | `site_users`（install 级） | **`members`（按 `site_id`）** |
+| 会话表 | `admin_sessions` | **`member_sessions`** |
+| cookie | `cfpress_admin`，`Path=<后台前缀>` | **`cfpress_member`，`Path=/`** |
+| 端点 | `{前缀}/api/v1/…` | **`/api/v1/front/…`** |
+| 密码哈希 | `shared/crypto.ts`（PBKDF2 25k） | 同一份实现 |
+
+「毫无关联」的落地方式就是**不同的表 + 不同的 cookie 名 + 不同的端点族**：两个会话表是
+不同的表，因此 member 会话 id 天然不是合法 admin 会话 id（**没有东西可交换**）；
+`currentMember` 读 `member_sessions`、`currentUser` 读 `admin_sessions`，互不可见——
+**隔离是构造性的，不是策略性的**。
+
+**改了什么**
+
+1. **迁移 `0022_front_members.sql`**：`members`（PK + `site_id NOT NULL` + `UNIQUE(site_id, username)`）
+   与 `member_sessions`（PK + **`site_id NOT NULL`**）。⚠️ `member_sessions` 带 `site_id` 走过一次
+   设计反转：初版按派生租户声明（可由 `member_id` 推出），`_schema-scope` 立刻报缺列；真正的
+   原因是 `deleteSite()` 用统一的 `DELETE FROM <table> WHERE site_id=?` 遍历 purge 清单，
+   **没有 `site_id` 的表进不了循环**。规律：派生根租户表只在局部列**冗余**时才对（连接表）。
+2. **`src/platform/members.ts`**（新）：`registerMember`/`loginMember`/`logoutMember`/`currentMember`/
+   `requireMember`。每个函数都要 `siteId` 并把它放进 WHERE（连接的两半都带）；`publicMember`
+   永不暴露 `password_hash`；注册受 `members.registration`（**站点级**设置，默认关）控制。
+3. **`/api/v1/front/{auth/register,auth/login,auth/logout,me}`**（`src/api.ts`）：
+   `closed` → 403、凭证错 → 401、`me` 无会话 → 401。**⚠️ 真实缺陷（先于测试发现）**：
+   带前缀站点 `/accm/api/v1/front/…` 404，两个根因——(a) 站点解析原先放在 `routeFrontApi` 内部，
+   而 API 层运行在站点解析**之前**，永远只解析到 default；(b) `if(request.method!=="GET")→ASSETS`
+   的兜底在站点解析之前，把所有 POST 送进静态资源层。修复：抽出 `handleFrontApi(env,request,siteId,
+   resolvedPath)`，由 `index.ts` 的 `frontApiRelPath()` 识别路径、**先 resolveSite** 再调用。
+4. **主题侧（D2）**：`content/themes/default/templates/{login,register}.html` + `theme.json` 路由 +
+   `parts/styles.html` 的 `.auth` 样式 + 中英词典各 18 键；`parts/header.html` 加登录/账户入口。
+   `ThemeRenderOptions` 新增可选 `request`，`buildScope` 输出 `member`（走 `currentMember`，
+   **绝不**是后台解析器）。
+5. **静态主题路由不再跑无约束查询**：不声明 `query`/`resolve` 的路由（`/login`、`/register`）
+   原先仍执行 `runThemeQuery` 的默认 `type:"post", limit:10`，为一个不读它的模板白付一次查询。
+
+**红线验收（`admin-contract.test.mjs` §17，35 条）**：member cookie 打后台 API → **401**；
+admin cookie 打 `/front/me` → **401**；A 站 member 在 B 站登录失败（`invalid_credentials`）；
+注册关时 **403**；带前缀站点可注册且加入该站；登出后会话失效；响应体不含 `password_hash`。
+
+**比看上去严重得多的缺陷**（规则 77 主角）：如果把 `member_sessions` 与 `admin_sessions` 合成
+一张表（"加个 role 不就行了"），member 会话 id 就**天然是**合法 admin 会话 id，红线只能靠一个
+"记得写"的检查维持——而那正是本批次存在的理由。规则 77 因此断言的是**代码结构**（两个解析器
+各读各的表、cookie 名不同、两表带 `site_id`），不是运行时行为。
+
+> ⚠️ **本轮踩到的坑（值得记）**：`blankComments()` 陷阱**第三次**。我在 `src/api.ts` 新写的
+> 注释里三处写了 `/front/*`，每个 `/*` 吞掉后文直到某个 `*/`，`api.ts` 变成 31 个 `/*` / 28 个 `*/`
+> → 规则 76a 的 `GROUP BY site_id` 锚点「不存在」。此后加了**注释标记平衡守卫**（architecture 2 条），
+> 它立刻又抓到 3 处潜伏的同型问题：`validation.ts`（`langs/*.json`）、`packs.ts`
+> （`plugins/*\/langs/*.json`，两个 `/*`）、`runtime-worker.ts`（`/__cfpress/theme-api/*`）。
+> **项目约定：注释里写通配一律用 `…`（U+2026），不写 `*`。**
+
+**验证**：`architecture` **180/0**（163→180，规则 77 节 17 条）；`admin-contract` **161/0**
+（133→161，§17 三十五条含两条红线）；`theme-default` **64/0**（51→64，§8b 十条 + §9 三张模板）；
+`_schema-scope` **26/0**（新表两轴分类与真库一致）；`_tenant-query-audit` 全部命中已裁决；
+`tsc --noEmit` src/ 0 错误；`_skeleton-inject` 重跑（新增 4 个历史形状场景）。
+
+**新基线**：**24 套件 / 1648 条 + `_schema-scope` 26 = 1674 条 / 0 失败**；`tsc` src/ 0 错误。
 
 **批次 28（站点屏管理深度 + 还债）—— ✅ 本轮完成**
 

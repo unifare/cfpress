@@ -1,0 +1,41 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+<div class="auth">
+  <div class="auth-card">
+    {{#if member}}
+      <div class="kicker">{{default(theme.strings.auth.accountKicker, "Account")}}</div>
+      <h1>{{default(theme.strings.auth.welcome, "You are signed in")}}</h1>
+      <p class="lede">{{default(theme.strings.auth.signedInAs, "Signed in as")}} <b>{{member.display_name}}</b></p>
+      <p class="auth-alt"><a href="/{{locale}}">{{default(theme.strings.footer.home, "Back to the front page")}}</a></p>
+    {{else}}
+      <div class="kicker">{{default(theme.strings.auth.registerKicker, "Join")}}</div>
+      <h1>{{default(theme.strings.auth.registerTitle, "Create an account")}}</h1>
+      <p class="lede">{{default(theme.strings.auth.registerLede, "An account on this site. Username, password, and an email if you want one.")}}</p>
+
+      <form method="post" action="/api/v1/front/auth/register" class="auth-form">
+        <label class="field">
+          <span>{{default(theme.strings.auth.username, "Username")}}</span>
+          <input name="username" type="text" autocomplete="username" minlength="3" maxlength="32" required>
+        </label>
+        <label class="field">
+          <span>{{default(theme.strings.auth.email, "Email (optional)")}}</span>
+          <input name="email" type="email" autocomplete="email">
+        </label>
+        <label class="field">
+          <span>{{default(theme.strings.auth.password, "Password")}}</span>
+          <input name="password" type="password" autocomplete="new-password" minlength="8" required>
+        </label>
+        <input type="hidden" name="redirect" value="/{{locale}}">
+        <button class="btn" type="submit">{{default(theme.strings.auth.createAccount, "Create account")}}</button>
+      </form>
+
+      <p class="auth-alt">
+        {{default(theme.strings.auth.haveAccount, "Already have an account?")}}
+        <a href="/{{locale}}/login">{{default(theme.strings.auth.signIn, "Sign in")}}</a>
+      </p>
+    {{/if}}
+  </div>
+</div>
+
+{{/section}}

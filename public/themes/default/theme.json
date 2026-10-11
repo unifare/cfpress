@@ -23,7 +23,9 @@
     "single",
     "page",
     "archive",
-    "404"
+    "404",
+    "login",
+    "register"
   ],
   "parts": [
     "layout",
@@ -45,6 +47,16 @@
         "limit": 50,
         "order": "created_at desc"
       }
+    },
+    {
+      "path": "/login",
+      "template": "login",
+      "title": "Sign in"
+    },
+    {
+      "path": "/register",
+      "template": "register",
+      "title": "Create an account"
     }
   ],
   "fields": [

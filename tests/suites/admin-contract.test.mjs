@@ -749,6 +749,156 @@ async function main() {
     check("pinning one site's default leaves the current site alone", other.site, "default");
   }
 
+  console.log("\n17. Front-end members: a second identity, structurally apart from the admin's");
+  // Batch D. The front end gets its own identity (`members`), its own sessions
+  // (`member_sessions`), its own cookie (`cfpress_member`) and its own endpoint
+  // family (`/api/v1/front/…`). The point of the design is that the isolation is
+  // **structural**: there is no "also check" between the two, because the two
+  // session tables are different tables and `currentMember` never queries
+  // `admin_sessions`. This section pins the two red lines and the four answers
+  // that make the feature real, and it can only do so by presenting each
+  // session to the *other* family's door.
+  {
+    const frontJson = { "Content-Type": "application/json" };
+    const ftReq = (path, init = {}) => req(worker, env, path, init);
+    // Fixtures: this suite owns the `adm_mem_*` usernames and the `fb` site.
+    //
+    // Swept by **username**, not by id: member ids are minted by the platform
+    // (`randomId()`), so a wipe keyed on an `adm_mem%` id prefix matches
+    // nothing and leaves the account behind — which then fails the *next* run
+    // with `taken` on a registration that should have succeeded. The username
+    // is the one identifier this suite actually controls.
+    const wipeMembers = () => {
+      for (const sql of [
+        "DELETE FROM member_sessions WHERE member_id IN (SELECT id FROM members WHERE username LIKE 'adm_mem%')",
+        "DELETE FROM members WHERE username LIKE 'adm_mem%' OR site_id='fb'",
+        "DELETE FROM settings WHERE site_id='fb' OR (site_id='default' AND key='members.registration')",
+        "DELETE FROM site_locales WHERE site_id='fb'",
+        "DELETE FROM sites WHERE id='fb'",
+      ]) { try { sqlite.exec(sql); } catch { /* ok */ } }
+    };
+    wipeMembers();
+
+    // ── The endpoint family exists and answers a session-less caller 401 ──
+    const anon = await ftReq("/api/v1/front/me");
+    check("GET /front/me without a session is 401", anon.status, 401);
+
+    // ── Registration is closed until the site opens it ──
+    // The default is closed: a registration form that appears without anyone
+    // switching it on is an open door nobody chose to open. The endpoint must
+    // refuse with 403 (not 400 — this is permission, not a malformed body).
+    const closed = await ftReq("/api/v1/front/auth/register", {
+      method: "POST", headers: frontJson, body: JSON.stringify({ username: "adm_mem_closed", password: "longenough1" }),
+    });
+    check("registration is refused while the site has it switched off", closed.status, 403);
+    check("and the refusal names the reason", (await closed.json()).error, "closed");
+
+    // ── Opening it on the default site lets a member in ──
+    const open = await req(worker, env, "/api/v1/settings", {
+      method: "POST", headers: json, body: JSON.stringify({ key: "members.registration", value: "1" }),
+    });
+    check("the site can open registration", open.status, 200);
+    try {
+      const reg = await ftReq("/api/v1/front/auth/register", {
+        method: "POST", headers: frontJson, body: JSON.stringify({ username: "adm_mem_alice", password: "longenough1", email: "alice@example.test" }),
+      });
+      check("registering on an open site answers 201", reg.status, 201);
+      const sc = reg.headers.get("set-cookie") ?? "";
+      checkTruthy("registering sets the member cookie, not the admin one", sc.startsWith("cfpress_member=") && !sc.includes("cfpress_admin="));
+      checkTruthy("the member cookie is scoped to / (the whole front end)", /;\s*Path=\/(?:\s*;|$)/.test(sc));
+      // The response body must never carry the hash — a public member payload
+      // that leaks `password_hash` is the one field that must not cross this
+      // boundary, and it is exactly the field a careless `SELECT *` includes.
+      const regBody = await reg.json();
+      check("the registration response omits the password hash", regBody.member?.password_hash, undefined);
+      const memberCookie = sc.split(";")[0];
+
+      // ── RED LINE 1: a member cookie must not open any admin door ──
+      const adminDoor = await req(worker, env, "/admin/api/v1/sites", { headers: { Cookie: memberCookie } });
+      check("red line: a member cookie on the admin API is 401", adminDoor.status, 401);
+      const bareAdmin = await req(worker, env, "/api/v1/sites", { headers: { Cookie: memberCookie } });
+      check("red line: a member cookie on the bare admin alias is 401", bareAdmin.status, 401);
+
+      // ── RED LINE 2: an admin cookie must not open the front-end member door ──
+      const frontDoor = await req(worker, env, "/api/v1/front/me", { headers: auth });
+      check("red line: an admin cookie on /front/me is 401", frontDoor.status, 401);
+
+      // ── The member's own door works, and `/me` names them ──
+      const me = await ftReq("/api/v1/front/me", { headers: { Cookie: memberCookie } });
+      check("the member cookie opens /front/me", me.status, 200);
+      const meBody = await me.json();
+      check("and it is the right member", meBody.member?.username, "adm_mem_alice");
+      check("and it still does not leak the hash", meBody.member?.password_hash, undefined);
+
+      // ── Logout invalidates the session ──
+      const out = await ftReq("/api/v1/front/auth/logout", { method: "POST", headers: { Cookie: memberCookie } });
+      check("logout answers 200", out.status, 200);
+      const afterOut = await ftReq("/api/v1/front/me", { headers: { Cookie: memberCookie } });
+      check("the session is dead after logout", afterOut.status, 401);
+
+      // ── Bad credentials are 401, not 403 and not 400 ──
+      const badPw = await ftReq("/api/v1/front/auth/login", {
+        method: "POST", headers: frontJson, body: JSON.stringify({ username: "adm_mem_alice", password: "wrong-password" }),
+      });
+      check("a wrong password is 401", badPw.status, 401);
+      check("and the error does not distinguish user from password", (await badPw.json()).error, "invalid_credentials");
+      const goodPw = await ftReq("/api/v1/front/auth/login", {
+        method: "POST", headers: frontJson, body: JSON.stringify({ username: "adm_mem_alice", password: "longenough1" }),
+      });
+      check("the right password is 200", goodPw.status, 200);
+
+      // ── The identity is per site: a second site cannot see it ──
+      // This is what "registered on the shop site" means — the account is a
+      // tenant fact, not an install-wide identity. The same username on another
+      // site must fail to log in, and the account must not exist there at all.
+      sqlite.exec("INSERT INTO sites(id,name,host,path_prefix,is_default,status,created_at,updated_at) VALUES ('fb','Front B',NULL,'fb',0,'active',1,1) ON CONFLICT(id) DO NOTHING");
+      sqlite.exec("INSERT INTO site_locales(site_id,code,is_default,enabled,sort_order) VALUES ('fb','en',1,1,0) ON CONFLICT(site_id,code) DO NOTHING");
+      const crossSite = await ftReq("/fb/api/v1/front/auth/login", {
+        method: "POST", headers: frontJson, body: JSON.stringify({ username: "adm_mem_alice", password: "longenough1" }),
+      });
+      check("the same username does not exist on another site (401)", crossSite.status, 401);
+      check("and it reports the same credentials error, not a different one", (await crossSite.json()).error, "invalid_credentials");
+      // And the member's session, presented back on the other site, is not a
+      // session there even though the id is a valid member session id — because
+      // `currentMember` filters on `site_id` on both halves of the join.
+      const back = await ftReq("/fb/api/v1/front/me", { headers: { Cookie: memberCookie } });
+      check("a member session from one site is not a session on another", back.status, 401);
+
+      // ── The prefixed site resolves the front-end API too ──
+      // Without the `frontApiRelPath` route the prefixed form 404s, which is
+      // the failure mode this whole route exists to prevent.
+      //
+      // `members.registration` is a *per-site* setting, so opening it on the
+      // default site does not open it on `fb` — which is itself the point: one
+      // site's decision to accept members is not every site's. Open it here.
+      const openFb = await req(worker, env, "/api/v1/settings?site=fb", {
+        method: "POST", headers: json, body: JSON.stringify({ key: "members.registration", value: "1" }),
+      });
+      check("registration can be opened for one site without opening another", openFb.status, 200);
+      const prefixedReg = await ftReq("/fb/api/v1/front/auth/register", {
+        method: "POST", headers: frontJson, body: JSON.stringify({ username: "adm_mem_carol", password: "longenough1" }),
+      });
+      check("a prefixed site can register its own member", prefixedReg.status, 201);
+      const carolCookie = (prefixedReg.headers.get("set-cookie") ?? "").split(";")[0];
+      check("the prefixed member joins the prefixed site", (await (await ftReq("/fb/api/v1/front/me", { headers: { Cookie: carolCookie } })).json()).member?.siteId, "fb");
+      // And the per-site flag held: the default site's `carol` does not exist,
+      // so the same credentials fail there.
+      const leak = await ftReq("/api/v1/front/auth/login", {
+        method: "POST", headers: frontJson, body: JSON.stringify({ username: "adm_mem_carol", password: "longenough1" }),
+      });
+      check("a member registered on one site cannot sign in on another", leak.status, 401);
+    } finally {
+      // Restore the default site's registration flag: leaving it open would
+      // change what the next suite (and the operator's own install) observes.
+      await req(worker, env, "/api/v1/settings", {
+        method: "POST", headers: json, body: JSON.stringify({ key: "members.registration", value: "0" }),
+      });
+      wipeMembers();
+    }
+    check("the member fixtures are gone", sqlite.prepare("SELECT COUNT(*) AS n FROM members WHERE username LIKE 'adm_mem%' OR site_id='fb'").get().n, 0);
+    check("no member sessions survive", sqlite.prepare("SELECT COUNT(*) AS n FROM member_sessions WHERE member_id IN (SELECT id FROM members WHERE username LIKE 'adm_mem%')").get().n, 0);
+  }
+
   // Clean up: this section wrote directly, so it removes directly.
   for (const sql of [
     "DELETE FROM media_files WHERE site_id='cnt'",

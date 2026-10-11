@@ -823,6 +823,34 @@ Set-Cookie / 连错 6 次 429 / 把 `admin.path` 移到 `/manage` 后新前缀�
 （`COUNT` 丢 `GROUP BY` + 主题改走 `activeTheme()` + 新建站点不播语言行——三条都是历史形状）。
 站点屏的前台预览链接由**该站点自己的**前缀/host 拼出（`siteFrontEnd()`），拼当前站点的是错的。
 
+## 两套身份是**结构性**隔离，不是策略性隔离（规则 77）
+
+批次 D 的前台会员。前台有自己的身份——`members`（**按站点**）、`member_sessions`、
+`cfpress_member` cookie、`/api/v1/front/…` 端点族——整套设计的地基是：它与后台的隔离
+**由构造保证**，而不是由某个"记得写"的检查把门。断言要证明的是「没有东西可交换」，
+而这是一句关于**代码**的话：
+
+| 规则 | 说明 |
+|---|---|
+| 77a | **两个 cookie 名必须不同**（`cfpress_admin` vs `cfpress_member`）。同一个浏览器同时登录后台与前台时会发出一个 `Cookie:` 头同时带着两者，**不同的名字是唯一能把它们分开的东西**。守卫从两处常量定义读出来再比较——重命名一侧会红，守卫也不会因为自己写错的期望值而静默同意 |
+| 77b | **两个解析器各读各的会话表**：`currentMember` 绝不出现 `FROM admin_sessions`，`currentUser` 绝不出现 `FROM member_sessions`。**这是承重的断言**——一个改读 `admin_sessions` 的 `currentMember` 会接受后台 cookie，而红线测试只要没人去试就照样绿。前台路由函数体里也**不许出现** `requirePermission`/`currentUser`：那是后台的门 |
+| 77c | **两张表在 schema 里就带 `site_id`**，且每次读都把 `site_id` 放进 WHERE（连接的两半都要：会话行与成员行各属哪个站点）。**用户名按站点唯一**（`UNIQUE INDEX (site_id, username)`）——两个站可以各有一个 `bob`；全局 `UNIQUE` 会让一个站的注册挡住另一个站 |
+| 77d | **两张表在契约里声明为站点表**（`tenant: "site"` / `onSiteDelete: "purge"`），否则进不了 `PURGE_ON_SITE_DELETE`，删站后留下解析不到任何东西的登录行 |
+| 77e | **主题 scope 的 `member` 走 `currentMember`**（在 `runtime-declarative.ts` 里由平台填），主题永远拿不到后台解析器，也伪造不了/清不掉这个字段 |
+
+> ⚠️ **`member_sessions` 带 `site_id` 是承重的，不是冗余。** 一度按派生租户声明
+> （可由 `member_id → members.site_id` 推出），`_schema-scope` 立刻报它缺列。真正原因是
+> `deleteSite()` 用统一的 `DELETE FROM <table> WHERE site_id=?` 遍历 purge 清单——
+> **没有 `site_id` 的表进不了这个循环**，只能加一段 bespoke 删除（第二个会忘的地方）。
+> 规律：派生根租户表只在局部列**冗余**时才对（连接表）；这里它是**承重**的。
+
+守卫在 `architecture.test.mjs`（规则 77 节，**17 条**）；行为断言在 `admin-contract.test.mjs`
+§17（**35 条**，含两条红线：member cookie 打后台 API → 401、admin cookie 打 `/front/me` → 401，
+外加 A 站 member 在 B 站登录失败 / 注册关时 403 / 带前缀站点可达 / 登出后会话失效 /
+响应体不含 `password_hash`）；主题侧在 `theme-default.test.mjs` §8b（登录注册模板两种状态各渲染）；
+注入场景在 `_skeleton-inject.mjs`（`currentMember` 反读 `admin_sessions` + cookie 同名 +
+`member_sessions` 丢 `site_id` + 契约降级为平台表——四条都是真实缺陷形状）。
+
 ## 守卫失效记录（READ THIS）
 
 `tests/suites/architecture.test.mjs` 自己出过**三次假绿**，都是「检查存在但从不触发」。

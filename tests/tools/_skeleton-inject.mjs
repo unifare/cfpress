@@ -111,6 +111,15 @@ const CAPABILITIES = join(ROOT, "src/extensions/theme/capabilities.ts");
 //     on every front-end request and left the two session kinds indistinguishable).
 const ADMIN_STATE = join(ROOT, "public/admin/js/state.js");
 const AUTH = join(ROOT, "src/platform/auth.ts");
+// The other identity: the front-end member. It is deliberately a *different*
+// module from `auth.ts` — the point of batch D is that the two identities are
+// structurally apart, so the two live in two files that do not import each
+// other's session table.
+const MEMBERS = join(ROOT, "src/platform/members.ts");
+// The migration that creates the member tables. `member_sessions` carrying its
+// own `site_id` is load-bearing: `deleteSite`'s purge loop is
+// `WHERE site_id=?`, so a session table without the column is unreachable.
+const MIGRATION_0022 = join(ROOT, "content/migrations/0022_front_members.sql");
 // The Sites screen. Its per-row preview URL is built from the site's own prefix
 // or host — and from the site's own, not the current one, because a browser
 // cannot count rows and the screen has no other source for the numbers.
@@ -1126,6 +1135,55 @@ const SCENARIOS = [
     before: ["  await seedSiteLocales(env, safeId);\n"],
     after: [""],
     runs: [["tests/suites/admin-contract.test.mjs", "a newly created site has its own language switch rows"]],
+  },
+  // --- the two identities must not converge (batch D, rule 77) --------------
+  {
+    // The historical shape: one session table for everyone. This is the shape a
+    // "just add a role" design produces, and it is the defect the whole batch
+    // exists to prevent — a member session id becomes a valid admin session id
+    // *by construction*, so the red line (member cookie on the admin API) can
+    // only be held by a check somebody has to remember.
+    //
+    // The member resolver reading `admin_sessions` must turn rule 77b red.
+    label: "the member resolver reads the admin session table",
+    file: MEMBERS,
+    before: ["    FROM member_sessions s JOIN members m"],
+    after: ["    FROM admin_sessions s JOIN members m"],
+    runs: [["tests/suites/architecture.test.mjs", "currentMember resolves against member_sessions, never admin_sessions (rule 77b)"]],
+  },
+  {
+    // The same defect from the other side, and the one that is easiest to write
+    // by accident: giving both cookies the same name. A single `Cookie:` header
+    // carrying both is then unreadable, and whichever parser runs first wins —
+    // the exact conflation the separate names exist to make impossible.
+    label: "the member cookie reuses the admin cookie's name",
+    file: MEMBERS,
+    before: ['const MEMBER_COOKIE = "cfpress_member";'],
+    after: ['const MEMBER_COOKIE = "cfpress_admin";'],
+    runs: [["tests/suites/architecture.test.mjs", "the two cookie names are different (rule 77a)"]],
+  },
+  {
+    // A member is a tenant fact, so its session row must carry the tenant. Drop
+    // `site_id` from `member_sessions` and the table can no longer be reached
+    // by `deleteSite`'s `WHERE site_id=?` purge — and `currentMember`'s join
+    // loses the half of its constraint that keeps one site's session from
+    // authenticating on another.
+    label: "member_sessions is created without its own site_id",
+    file: MIGRATION_0022,
+    before: ["  site_id TEXT NOT NULL,\n  member_id TEXT NOT NULL,"],
+    after: ["  member_id TEXT NOT NULL,"],
+    runs: [["tests/suites/architecture.test.mjs", "member_sessions carries site_id too (rule 77c)"]],
+  },
+  {
+    // And the schema contract's half: the table is not declared site-scoped, so
+    // it never enters `PURGE_ON_SITE_DELETE` and a deleted site's sessions
+    // survive it. (`schema-scope` catches the column mismatch too — this names
+    // the declaration the purge list is derived from.)
+    label: "the contract does not declare members a site table",
+    file: SCHEMA,
+    before: ['  { table: "members", tenant: "site"'],
+    after: ['  { table: "members", tenant: "platform"'],
+    runs: [["tests/suites/architecture.test.mjs", "the contract declares members a site table (rule 77d)"]],
   },
 ];
 

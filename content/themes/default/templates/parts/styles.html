@@ -182,6 +182,22 @@ img{max-width:100%;display:block}
 .notfound .btn{margin-top:24px}
 .empty{margin:36px 0;padding:48px 24px;text-align:center;color:var(--muted);border:1px dashed var(--border);background:var(--surface)}
 
+/* auth — sign in / register. A single narrow card, no chrome around it: the
+   form is the page. */
+.auth{padding:72px 24px;display:flex;justify-content:center}
+.auth-card{width:100%;max-width:420px;border:1px solid var(--border);background:var(--surface);padding:36px}
+.auth-card h1{font-family:var(--font-display);font-size:28px;margin:8px 0 0;line-height:1.2}
+.auth-card .lede{color:var(--muted);margin:12px 0 0;font-size:14.5px;line-height:1.7}
+.auth-form{display:flex;flex-direction:column;gap:16px;margin-top:26px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field span{font-family:var(--font-mono);font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)}
+.field input{border:1px solid var(--border);padding:11px 12px;background:var(--bg);color:var(--fg);font-size:14px;outline:0;font-family:var(--font-body)}
+.field input:focus{border-color:var(--accent)}
+.auth-form .btn{justify-content:center;margin-top:4px}
+.auth-alt{margin:22px 0 0;font-size:14px;color:var(--muted)}
+.auth-alt a{color:var(--accent);text-decoration:none}
+.auth-alt a:hover{text-decoration:underline}
+
 /* footer */
 footer{margin:64px 0 0;border-top:1px solid var(--border);background:var(--surface)}
 .foot{display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;gap:32px;padding:48px 0}

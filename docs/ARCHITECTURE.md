@@ -2360,6 +2360,30 @@ SPA 的 `if (d.error)` 分支因此不可达，错误对话框要 `explain(err.m
    守卫：`admin-contract.test.mjs` §16（23 条）；注入 `_skeleton-inject.mjs`
    （`COUNT` 丢 `GROUP BY` + 主题改走 `activeTheme()` + 新建站点不播语言行，历史形状）
    另：站点屏前台预览链接由**该站点自己的**前缀/host 拼（`siteFrontEnd()`），拼当前站点的是错的
+
+【两套身份是结构性隔离，不是策略性隔离】（AGENTS.md 规则 77，批次 D）
+77. 前台有自己的身份：`members`（**按站点**）、`member_sessions`、`cfpress_member` cookie、
+    `/api/v1/front/…` 端点族。地基是它与后台的隔离**由构造保证**，不是由某个"记得写"的检查
+    把门——断言要证明的是「没有东西可交换」，而这是一句关于代码的话：
+   a) **两个 cookie 名必须不同。** 同一浏览器同时登录前后台时发出一个 `Cookie:` 头带着两者，
+      不同的名字是唯一能把它们分开的东西。守卫从两处常量定义读出来再比较（重命名一侧会红，
+      守卫也不会因为自己写错的期望值而静默同意）
+   b) **两个解析器各读各的会话表**：`currentMember` 绝不出现 `FROM admin_sessions`，`currentUser`
+      绝不出现 `FROM member_sessions`。承重：改读 `admin_sessions` 的 `currentMember` 会接受
+      后台 cookie，而红线测试只要没人去试就照样绿。前台路由体里也不许出现
+      `requirePermission`/`currentUser`——那是后台的门
+   c) **两张表在 schema 里就带 `site_id`**，每次读都把 `site_id` 放进 WHERE（连接两半都要）。
+      **用户名按站点唯一**（`UNIQUE INDEX (site_id, username)`）：两个站可以各有一个 `bob`；
+      全局 `UNIQUE` 会让一个站的注册挡住另一个站
+   d) **两张表在契约里声明为站点表**（`tenant:"site"` / `onSiteDelete:"purge"`），否则进不了
+      `PURGE_ON_SITE_DELETE`，删站后留下解析不到任何东西的登录行
+   e) **主题 scope 的 `member` 走 `currentMember`**，主题拿不到后台解析器、也伪造不了该字段
+   ⚠️ **`member_sessions` 带 `site_id` 是承重的**：`deleteSite()` 用统一的
+      `DELETE FROM <table> WHERE site_id=?` 遍历 purge 清单，没有 `site_id` 的表进不了循环。
+      规律：派生根租户表只在局部列**冗余**时才对（连接表），这里它是**承重**的
+   守卫：`architecture.test.mjs`（规则 77 节，17 条）；行为 `admin-contract.test.mjs` §17（35 条，
+   含两条红线）+ `theme-default.test.mjs` §8b；注入 `_skeleton-inject.mjs`（反读 admin_sessions +
+   cookie 同名 + 丢 site_id + 契约降级，历史形状）
 ```
 
 ---

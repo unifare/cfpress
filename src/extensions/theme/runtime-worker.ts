@@ -311,7 +311,7 @@ export type ThemeApiCapability = (typeof THEME_API_CAPABILITIES)[number];
  * Handle a request from a sandboxed theme Worker. The path decides the data;
  * the theme's declared capabilities decide whether it is allowed.
  *
- * Reached at `/__cfpress/theme-api/*` on the host Worker.
+ * Reached at `/__cfpress/theme-api/…` on the host Worker.
  *
  * ## Why `x-cfpress-site` is validated, not trusted
  *

@@ -251,7 +251,7 @@ function validateChannels(channels: unknown) {
  * A plugin declares its strings in `plugin.json` rather than shipping a
  * `langs/` directory, because a plugin package is stored as a zip and never
  * unpacked (see `uploadExtension`). The namespace rule is the same one the
- * architecture test applies to a theme's `langs/*.json`: two extensions that
+ * architecture test applies to a theme's `langs/….json`: two extensions that
  * both define `nav.home` overwrite each other once the dictionaries are merged,
  * and which one wins depends on load order — a heisenbug with no correct fix at
  * the call site.

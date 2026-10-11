@@ -18,6 +18,11 @@ import { featureSnapshot, inheritedValue, truthy, FEATURE_SETTINGS_KEY, FEATURE_
 import { clearOwnerMenusAllSites, listAdminMenuGroups } from "./platform/admin-menus";
 import { clearPluginMenus } from "./extensions/plugin/menus";
 import { createSite, updateSite, deleteSite, listSites, DEFAULT_SITE_ID } from "./platform/sites";
+// The front-end identity is a separate module with a separate table and a
+// separate cookie on purpose (§2.1) — importing it here does not merge the two
+// logins, it is what lets the front API read the member session without ever
+// touching `admin_sessions`.
+import { registerMember, loginMember, logoutMember, requireMember } from "./platform/members";
 // The custom-field read ladder is defined once; the admin read has to agree
 // with what the front end renders for the same post in the same language.
 import { resolveMetaByPost } from "./platform/post-meta";
@@ -1014,9 +1019,101 @@ export async function handleApi(env: Env, request: Request): Promise<Response> {
   }
 }
 
+/**
+ * The front-end API: `/api/v1/front/…`.
+ *
+ * Deliberately dispatched **before** `routeApi`'s `bootstrapAdmin` and
+ * `requireAdmin`, because this surface must not consult the admin session at
+ * all. That is the isolation: a request carrying an admin cookie is not
+ * "an admin browsing the front end", it is an anonymous visitor — the front
+ * end reads `cfpress_member` and nothing else. Handing a *staff* credential to
+ * a front-end endpoint and being recognised is exactly the conflation §2.1
+ * forbids, so it is enforced by construction rather than by a check that could
+ * be reordered later.
+ *
+ * ## Why the site comes in as a parameter
+ *
+ * `index.ts` calls this **after** `resolveSite`, with the already-resolved
+ * `siteId` and the already-stripped `path`. That ordering is the point: the
+ * generic `/api/` branch runs before the site is known, so resolving the site
+ * here again would always land on the default one — and a member on a
+ * path-prefixed site (`/shop/api/v1/front/auth/login`) would find no API at
+ * all. The visitor does not get to name their tenant either: there is no
+ * `?site=` on this surface, and the resolved site is the only input.
+ */
+export async function handleFrontApi(env: Env, request: Request, siteId: string, resolvedPath: string): Promise<Response> {
+  try {
+    return await routeFrontApi(env, request, siteId, resolvedPath);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("front api error:", message);
+    return ok({ error: message }, 500);
+  }
+}
+
+async function routeFrontApi(env: Env, request: Request, siteId: string, resolvedPath: string): Promise<Response> {
+  // `resolvedPath` is the path *after* the site prefix was stripped, so the
+  // match is on `/api/v1/front/…` regardless of how the site is mounted.
+  const path = resolvedPath.replace(/^\/api\/v1\/front\/?/, "");
+  const method = request.method;
+
+  if (path === "auth/register" && method === "POST") {
+    const b = (await request.json().catch(() => ({}))) as any;
+    const r = await registerMember(env, siteId, String(b.username ?? ""), String(b.password ?? ""), b.email ? String(b.email) : null);
+    if ("error" in r) {
+      // `closed` is a policy refusal (403); the rest are input errors (400).
+      // The codes are stable so the theme can translate them.
+      return ok({ error: r.error }, r.error === "closed" ? 403 : 400);
+    }
+    return new Response(JSON.stringify({ ok: true, member: r.member }), {
+      status: 201,
+      headers: { "Content-Type": "application/json", "Set-Cookie": r.cookie },
+    });
+  }
+
+  if (path === "auth/login" && method === "POST") {
+    const b = (await request.json().catch(() => ({}))) as any;
+    const r = await loginMember(env, siteId, String(b.username ?? ""), String(b.password ?? ""));
+    if ("error" in r) return ok({ error: r.error }, 401);
+    return new Response(JSON.stringify({ ok: true, member: r.member }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Set-Cookie": r.cookie },
+    });
+  }
+
+  if (path === "auth/logout" && method === "POST") {
+    const r = await logoutMember(env, request);
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Set-Cookie": r.cookie },
+    });
+  }
+
+  if (path === "me" && method === "GET") {
+    // `requireMember` answers 401 with JSON; `me` returning `{ member: null }`
+    // with 200 would make "not signed in" and "signed in" the same shape, and
+    // the theme's header would have to guess which it got.
+    const m = await requireMember(env, request, siteId);
+    if (m instanceof Response) return m;
+    return ok({ member: m });
+  }
+
+  return ok({ error: "Not found" }, 404);
+}
+
 async function routeApi(env: Env, request: Request): Promise<Response> {
-  await bootstrapAdmin(env);
   const url = new URL(request.url);
+  // ⚠️ The *unprefixed* `/api/v1/front/…` path is answered here too, but with
+  // the default site (the site is not known yet at this point). A site mounted
+  // on a path prefix reaches its own front API through `index.ts`, which
+  // resolves the site first and calls `handleFrontApi` with the stripped path
+  // — see the call site. Reaching it here means "no site prefix in the URL",
+  // i.e. the default site.
+  if (url.pathname.startsWith("/api/v1/front/")) {
+    await bootstrapAdmin(env);
+    return handleFrontApi(env, request, DEFAULT_SITE_ID, url.pathname);
+  }
+  await bootstrapAdmin(env);
   const path = url.pathname.replace(/^\/api\/v1\/?/, "");
   const method = request.method;
 

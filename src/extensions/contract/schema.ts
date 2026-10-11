@@ -101,6 +101,8 @@ export const PLATFORM_SCHEMA = [
   { table: "theme_routes", tenant: "site", locale: null, onSiteDelete: "purge", note: "front-end routes are per site; the 404-on-theme-switch defect lived here" },
   { table: "theme_table_defs", tenant: "site", locale: null, onSiteDelete: "purge", note: "logical→physical table map is per site" },
   { table: "media_files", tenant: "site", locale: null, onSiteDelete: "retain", note: "site_id added in migration 0009; uploaded_by added in 0018 (NULL = uploaded before ownership existed, grandfathered visible site-wide); alt_text/title are language-neutral by design — one alt for every language, stated in the editor UI rather than silently assumed" },
+  { table: "members", tenant: "site", locale: null, onSiteDelete: "purge", note: "front-end member accounts, per site by construction (migration 0022). Deliberately NOT a role on site_users: 'registered on the shop site' is a tenant fact, not an install-wide identity" },
+  { table: "member_sessions", tenant: "site", locale: null, onSiteDelete: "purge", note: "member session token → member, carrying site_id so deleteSite()'s uniform per-site purge reaches it. A table distinct from admin_sessions, so a member session id is not a valid admin session id by construction (migration 0022)" },
 
   // -- tenant-scoped via a parent (no local site_id, by design) --------------
   { table: "post_meta", tenant: "platform", derivedTenant: "post_id → posts.site_id", locale: { kind: "column" }, note: "custom post fields; scoped by the post they hang off, per language since 0019 (a category name is prose, not a number). '' = written before the dimension existed; the read ladder is own locale → site default → '' → any" },

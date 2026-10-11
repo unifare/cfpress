@@ -1,4 +1,4 @@
-import{Env}from "./shared/types";import{handleApi}from "./api";import{findContent,contentAlternates,siteInfo,locales,defaultLocale}from "./platform/frontend";import{robots,sitemap,feed}from "./platform/seo";import{seedBundledExtensions,bootPluginRuntime,doAction,applyFilters,renderShortcodes}from "./extensions/plugin/runtime";import{setPluginTableSync}from "./extensions/plugin/menus";import{syncOwnerTables}from "./extensions/theme/tables";import{setHostHooks}from "./extensions/contract/hooks";import{renderThemePage,runThemeQuery,activeTheme,type ThemeRenderOptions}from "./extensions/theme/runtime-declarative";import{tryRenderWithThemeWorker,handleThemeApi}from "./extensions/theme/runtime-worker";import{processScheduled}from "./shared/scheduler";import{resolveSite,siteListMemo,listSites,resetSiteListMemo}from "./platform/sites";
+import{Env}from "./shared/types";import{handleApi,handleFrontApi}from "./api";import{findContent,contentAlternates,siteInfo,locales,defaultLocale}from "./platform/frontend";import{robots,sitemap,feed}from "./platform/seo";import{seedBundledExtensions,bootPluginRuntime,doAction,applyFilters,renderShortcodes}from "./extensions/plugin/runtime";import{setPluginTableSync}from "./extensions/plugin/menus";import{syncOwnerTables}from "./extensions/theme/tables";import{setHostHooks}from "./extensions/contract/hooks";import{renderThemePage,runThemeQuery,activeTheme,type ThemeRenderOptions}from "./extensions/theme/runtime-declarative";import{tryRenderWithThemeWorker,handleThemeApi}from "./extensions/theme/runtime-worker";import{processScheduled}from "./shared/scheduler";import{resolveSite,siteListMemo,listSites,resetSiteListMemo}from "./platform/sites";
 // The media read path's three gates (tenant / session / owner) live in one
 // module so this route and the admin media API cannot answer differently.
 import{currentUser,loginRequest}from "./platform/auth";import{adminPath,resetAdminPathMemo}from "./platform/settings";import{readMediaPolicy,mediaReadDecision}from "./platform/media-policy";import{listRoutes,findPostTypeBySlug,listPostTypes}from "./extensions/theme/capabilities";
@@ -93,6 +93,27 @@ function htmlResponse(html:string,template:string,status:number,siteId:string,se
   const h:Record<string,string>={"Content-Type":"text/html;charset=UTF-8","Cache-Control":"public,max-age=60","X-CFPress-Template":template,"X-CFPress-Site":siteId};
   if(setCookie)h["Set-Cookie"]=setCookie;
   return new Response(html,{status,headers:h});
+}
+
+/**
+ * Does this request path address the front-end API, and under which prefix?
+ *
+ * Returns the path *relative to the site mount* (`/api/v1/front/…`), or `null`
+ * when the path is not a front-API request at all.
+ *
+ * This is deliberately syntactic — it only recognises the `/api/v1/front/`
+ * segment and returns everything from there on. Which *site* it belongs to is
+ * `resolveSite`'s job, and the two are kept apart because the front API is
+ * reached both ways: on a bare `/api/v1/front/…` (the default site) and on a
+ * path-prefixed site (`/shop/api/v1/front/…`). Matching the segment rather
+ * than a fixed offset is what lets both work without a second router — the
+ * bug this replaces was a first version that only matched the bare path, so a
+ * prefixed site could render its login form and never submit it.
+ */
+function frontApiRelPath(pathname:string):string|null{
+  const i=pathname.indexOf("/api/v1/front/");
+  if(i<0)return null;
+  return pathname.slice(i);
 }
 
 /** Match a theme-declared route against a path. `:param` captures a segment. */
@@ -267,6 +288,21 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
  // served is how the hidden admin stays discoverable — a scanner that finds
  // `/admin/admin.js` has found the admin, prefix or no prefix.
  if(adminBase==="/admin"&&(u.pathname==="/admin"||u.pathname.startsWith("/admin/")))return env.ASSETS.fetch(request);
+ // ⚠️ The front-end API is POST-heavy, so it must be routed **before** the
+ // method bail-out below — that bail-out sends every non-GET to the asset
+ // layer, which is right for a static site and wrong for a login endpoint. The
+ // check is done on the *unprefixed* path shape (`/api/v1/front/…`) and on the
+ // site-prefixed shape (`/{prefix}/api/v1/front/…`); the site is resolved
+ // first so a member authenticates against their own tenant, never the default
+ // one. `/api/v1/front/…` with no prefix is the default site.
+ {
+   const frontRel=frontApiRelPath(u.pathname);
+   if(frontRel!==null){
+     const sites=await siteListMemo(env);
+     const r=await resolveSite(env,u,sites);
+     return handleFrontApi(env,request,r.siteId,frontRel);
+   }
+ }
  if(request.method!=="GET")return env.ASSETS.fetch(request);
 
  // Resolve which site this request belongs to (host or path prefix).

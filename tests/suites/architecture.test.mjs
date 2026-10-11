@@ -2435,6 +2435,53 @@ section("This suite's own assertions can actually fail (meta-guard)");
 }
 
 // ---------------------------------------------------------------------------
+section("Comment markers are balanced in every source file (the blankComments trap)");
+// ---------------------------------------------------------------------------
+
+/**
+ * `blankComments()` above strips block comments with a **non-greedy**
+ * `/\/\*[\s\S]*?\*\//g`. That is correct for well-formed files and catastrophic
+ * for a file with an *unbalanced* `/*`: one stray opener in a `//` line comment
+ * (writing `` `/api/*` `` to describe a route, say) makes the next `*​/` — which
+ * may be hundreds of lines away, in a genuinely unrelated `catch { /* ignore *​/ }`
+ * — close a "comment" that swallowed everything between them. Every guard in
+ * this file then reads a source whose middle has been blanked to whitespace,
+ * and reports "anchor not found" **against correct code**.
+ *
+ * This has caused three separate debugging sessions, twice in the same line of
+ * `src/index.ts` and once in `src/api.ts`. The failure is uniquely expensive
+ * because the symptom points at the guarded code, not at the comment.
+ *
+ * So it is caught at the source, once, for the whole tree: in every source file
+ * the number of `/*` must equal the number of `*​/`. That is not a complete
+ * parser — a file could have two strays that happen to balance — but it catches
+ * exactly the shape that has actually happened (a single stray opener), and it
+ * costs one `npm test` assertion instead of one forensic session.
+ *
+ * The scan is on the **raw** source, not `blankComments`'s output: the whole
+ * point is to look at what `blankComments` would have mangled.
+ */
+{
+  const srcFiles = walk(join(ROOT, "src"), [".ts"]);
+  const unbalanced = [];
+  for (const f of srcFiles) {
+    const raw = read(f);
+    // Counts, not a regex replace: `match` with `g` returns every occurrence.
+    const opens = (raw.match(/\/\*/g) ?? []).length;
+    const closes = (raw.match(/\*\//g) ?? []).length;
+    if (opens !== closes) unbalanced.push(`${rel(f)} (${opens} open, ${closes} close)`);
+  }
+  checkEmpty("every source file has the same number of /* and */", unbalanced);
+  // Non-vacuity: the walk must actually see the tree, or a rename of `src/`
+  // would make this pass by looking at nothing.
+  check(
+    "the comment-marker scan actually walked source files (non-vacuity)",
+    srcFiles.length > 20,
+    `walked ${srcFiles.length} files`
+  );
+}
+
+// ---------------------------------------------------------------------------
 section("The schema declaration covers the real database (§10 rules 41–44)");
 // ---------------------------------------------------------------------------
 

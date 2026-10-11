@@ -32,6 +32,8 @@ export const SETTING_DEFS = [
     note: "per-site admin menu customisation (nav.js reads it)" },
   { key: "i18n.defaultLocale", scope: "site", type: "string", default: "", sensitive: false, inherit: false,
     note: "legacy: the site's default locale used to be a setting and is now site_locales.is_default; kept declared so an old row cannot be written blind" },
+  { key: "members.registration", scope: "site", type: "boolean", default: "0", sensitive: false, inherit: false,
+    note: "whether the front end accepts new member registrations on this site. Off by default: a registration form that appears without being switched on is an open door nobody chose to open (batch D)" },
   // -- platform: install-wide ------------------------------------------------
   { key: "admin.path", scope: "platform", type: "string", default: "/admin", sensitive: false, inherit: false,
     note: "the backend's own path prefix (SPA + its API). Changing it hides the admin from scanners; the old path answers 404, never a redirect" },

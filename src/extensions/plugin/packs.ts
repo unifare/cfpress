@@ -23,7 +23,7 @@
  * ```
  *
  * Keys still carry the `plugin.{name}.` prefix (§10 rule 7); the architecture
- * test scans the shipped `plugins/*\/langs/*.json` files, and
+ * test scans the shipped `plugins/…/langs/….json` files, and
  * `validateManifest` rejects an inline pack whose keys are unnamespaced.
  */
 import { Env } from "../../shared/types";

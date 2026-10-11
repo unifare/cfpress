@@ -44,6 +44,10 @@ const suites = [
   // cascades, so the platform function that owns the identity has to do it.
   // Runs right after the admin contract, next to the other auth-shaped suite.
   ["user delete (identity + memberships)", "suites/user-delete.test.mjs"],
+  // The multi-site isolation matrix (MS stories): three sites, one deleted
+  // mid-suite, per-site members, cross-site revision reads, the scheduler.
+  // Runs next to the other multi-site suite so the shared-fixture order holds.
+  ["multi-site isolation matrix", "suites/multisite-isolation-matrix.test.mjs"],
   // Media access: the tenant and owner axes of `media_files`, checked on both
   // doors (the public `/media/<key>` read path and the admin API) so the two
   // cannot drift apart again.

@@ -334,6 +334,7 @@ $Script:Suites = [ordered]@{
     'account'            = 'tests/suites/account.test.mjs'
     'menu-custom'        = 'tests/suites/menu-custom.test.mjs'
     'user-delete'        = 'tests/suites/user-delete.test.mjs'
+    'multisite-matrix'   = 'tests/suites/multisite-isolation-matrix.test.mjs'
     'plugin-hooks'       = 'tests/suites/plugin-hooks.test.mjs'
     'plugin-channels'    = 'tests/suites/plugin-channels.test.mjs'
     'plugin-pages'       = 'tests/suites/plugin-pages.test.mjs'

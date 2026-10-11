@@ -501,7 +501,7 @@ async function genericTable(env: Env, table: string, url: URL, siteId: string) {
   if (!allowed.has(table)) return ok({ error: "Unsupported resource" }, 404);
   // Tables that carry site_id are filtered; global registries (plugins/themes)
   // are not, because an extension install is shared by every site.
-  const scoped = new Set(["menus", "menu_items"]);
+  const scoped = new Set(["menus", "menu_items", "redirects", "rewrites"]);
   const sql = scoped.has(table)
     ? `SELECT * FROM ${table} WHERE site_id=? ORDER BY rowid DESC LIMIT 500`
     : `SELECT * FROM ${table} ORDER BY rowid DESC LIMIT 500`;
@@ -2226,14 +2226,21 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   const capm=path.match(/^extensions\/(plugins|themes)\/([^/]+)\/capabilities$/);
   if(capm&&method==="GET") return ok({items:await capabilityList(env,capm[1]==="plugins"?"plugin":"theme",capm[2])});
   const revm=path.match(/^(posts|pages)\/([^/]+)\/revisions$/);
-  if(revm&&method==="GET") {const r=await env.DB.prepare("SELECT * FROM post_revisions WHERE post_id=? ORDER BY locale,version DESC LIMIT 200").bind(revm[2]).all();return ok({items:r.results});}
+  // Revisions inherit their tenant from the post (no local site_id), so the
+  // site filter comes from the JOIN — a plain `WHERE post_id=?` answered for
+  // every site at once, and a scoped editor could read another site's drafts
+  // by id. The same JOIN guards autosave and the restore read below.
+  if(revm&&method==="GET") {const r=await env.DB.prepare("SELECT r.* FROM post_revisions r JOIN posts p ON p.id=r.post_id WHERE r.post_id=? AND p.site_id=? ORDER BY r.locale,r.version DESC LIMIT 200").bind(revm[2],siteId).all();return ok({items:r.results});}
   if(revm&&method==="POST") {const b=await jsonBody(request);const v=await createRevision(env,revm[2],user.id,await resolveContentLocale(env,siteId,b.locale),String(b.title||""),String(b.excerpt||""),typeof b.content==="string"?b.content:JSON.stringify(b.content||[]));return ok({version:v},201);}
   const am=path.match(/^(posts|pages)\/([^/]+)\/autosave$/);
-  if(am&&method==="GET"){const locale=await resolveContentLocale(env,siteId,url.searchParams.get("locale"));const r=await env.DB.prepare("SELECT * FROM post_autosaves WHERE post_id=? AND user_id=? AND locale=?").bind(am[2],user.id,locale).first();return ok({item:r||null});}
+  if(am&&method==="GET"){const locale=await resolveContentLocale(env,siteId,url.searchParams.get("locale"));const r=await env.DB.prepare("SELECT a.* FROM post_autosaves a JOIN posts p ON p.id=a.post_id WHERE a.post_id=? AND p.site_id=? AND a.user_id=? AND a.locale=?").bind(am[2],siteId,user.id,locale).first();return ok({item:r||null});}
   if(am&&method==="POST"){const b=await jsonBody(request);await autosave(env,am[2],user.id,await resolveContentLocale(env,siteId,b.locale),b);return ok({ok:true,updated_at:now()});}
   const restore=path.match(/^(posts|pages)\/([^/]+)\/revisions\/([^/]+)\/restore$/);
   if(restore&&method==="POST"){
-    const r=await env.DB.prepare("SELECT * FROM post_revisions WHERE id=? AND post_id=?").bind(restore[3],restore[2]).first<any>();
+    // The read is site-filtered for the same reason as revisions GET above:
+    // a revision of another site's post must not be resolvable here at all,
+    // even though the write that follows is already site-scoped.
+    const r=await env.DB.prepare("SELECT r.* FROM post_revisions r JOIN posts p ON p.id=r.post_id WHERE r.id=? AND r.post_id=? AND p.site_id=?").bind(restore[3],restore[2],siteId).first<any>();
     if(!r)return ok({error:"revision not found"},404);
     return savePost(env,user.id,restore[2],{locale:r.locale,title:r.title,excerpt:r.excerpt,content:r.content},restore[1]==="posts"?"post":"page",siteId);
   }

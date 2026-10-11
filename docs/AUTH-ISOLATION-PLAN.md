@@ -1,6 +1,6 @@
 # 多站点隔离 / 用户隔离 / 后台隐身 / 设置分两级 —— 实施方案（批次 A–F）
 
-> 状态：**批次 A（hosts/域名绑定）、B（设置分两级）、C（后台隐身）、D（前台会员）与 E（staff 按站点：权限接线 + 站点-角色 UI）已完成**；F（契约收尾）待做。
+> 状态：**批次 A–F 全部完成**（F 收尾 2026-10-11）。
 > A：三个域名经 dev server 各自命中 default / shop-demo / de-demo，hosts 改动在标记块内、已自动备份。
 > B：`platform_settings` + `SETTING_DEFS` + 唯一读取阶梯 + 设置屏两栏 + `platform.manage`。
 > C：`admin.path` 可配（平台级）；整个后台（SPA + 资产 + API + 登录端点）挂前缀之下、旧地址
@@ -206,8 +206,23 @@ E1 只修了**服务端**那半；E2 是**客户端**那半，它的失败方式
 
 **E2 与计划的一处偏差（记录）**：计划写"`users` 屏加'站点-角色'编辑"，未指明**谁**能编辑。E1 把 `users.manage` 定为 install 级（只有 `superadmin`），所以本站屏的定稿是**保持 superadmin-only**（一个作用域受限的站点管理员管内容、不管账号），不新增一条没人要求的授权规则。守卫把 UI 侧这一条也钉住：非 superadmin 的用户屏拿不到列表（`admin-contract` §18 已断言 scoped editor 打 `GET users` → 403）。
 
-### 批次 F —— 契约与守卫收尾
-- `CHANGE-CONTRACT.md` 新增三个维度（**前台/后台分离**、**后台前缀隐身**、**每站点角色**）+ 交织矩阵补行；`AGENTS.md` DoD 同步；`_schema-scope` 新表两轴；注入器场景；`_residue-guard` 跑一遍确认无残留。
+### 批次 F —— 契约与守卫收尾（已完成 2026-10-11）
+
+- `CHANGE-CONTRACT.md` 新增三个维度（**18 前台/后台分离**、**19 后台前缀隐身**、**20 每站点角色**）
+  + 交织矩阵补 4 行 + 新增 §3.10–§3.12 三份清单 + §5 补 6 个真实案例 + §6 三行机器强制 + §8
+  「三条边界的由来」（解释 18–20 为什么是"一直在、加第二实例才暴露"）；`AGENTS.md` DoD 同步
+  （维度列表 17→20 + 三条新交织 + 铁律 3b「守卫锚在消费上」）。
+- **`_schema-scope` 新表两轴确认**：`site_users_sites` / `members` / `member_sessions` 已在
+  `contract/schema.ts` 声明（tenant + locale + `onSiteDelete`），工具 **26/0**，无需改动。
+- **删用户时的成员行清理（F 待办，已落地）**：新增 `platform/auth.ts` 的 `deleteUser()`——
+  **两行一次 `batch` 删掉**（成员行在前、身份在后），定义在身份旁边，因为失败形态不是"留一行"
+  而是"后来复用同一 id 的用户继承陌生人的访问"。**产品侧仍无删用户端点**（本批不加，属计划外）；
+  清理先立起来，加端点的人会**找到**它。新增**规则 80**（`architecture` 5 条 + 注入 1 场景）。
+- `_tenant-query-audit`：新语句 `DELETE FROM site_users_sites WHERE user_id=?` 报 `NEW` →
+  已写**书面裁决**（安装级删除是**正确**的：身份要走，它每个站点的授权都要跟着走；
+  加站点过滤反而是错的）。现在「Every hit has a recorded verdict」。
+- `_residue-guard` 跑一遍：14 套件全部 `DB unchanged`。
+- 反向验证：`_skeleton-inject` **99 场景 / 0 问题**（新增规则 80 场景，确认真的变红）。
 
 ---
 

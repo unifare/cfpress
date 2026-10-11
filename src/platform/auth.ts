@@ -198,6 +198,42 @@ export async function setMenuPrefs(env: Env, userId: string, hidden: string[]): 
 }
 
 /**
+ * Delete a staff identity **and everything that hangs off it**, in one place.
+ *
+ * ## Why this function exists even though nothing calls it yet
+ *
+ * Batch E split a staff user in two: the identity (`site_users`, install-wide)
+ * and the memberships (`site_users_sites`, one row per (person, site)). The
+ * split introduced a second row that must die with the first, and SQLite's
+ * `ON DELETE CASCADE` is not available — D1 enables `PRAGMA foreign_keys` per
+ * connection and the table has no FK declared, so nothing cascades.
+ *
+ * There is **no product endpoint that deletes a user**, so this is not a live
+ * bug today: the only orphaned memberships in this repository are in test
+ * teardowns, which delete `site_users` directly and now also delete
+ * `site_users_sites` by hand (four suites do). That is exactly the shape of
+ * problem that becomes a real bug the moment a "delete user" button appears —
+ * a row keyed by a user id nothing points at is invisible until it makes a
+ * *later* user with the same id inherit a stranger's access.
+ *
+ * So the cleanup is defined **here**, next to the identity it belongs to, and
+ * `architecture.test.mjs` pins it: a direct `DELETE FROM site_users` outside
+ * this function is a red. A future endpoint calls this; it does not re-derive
+ * the two-statement delete and get one of them wrong.
+ *
+ * Both statements run in one `batch`, in this order: memberships first, then
+ * the identity. Neither is observable between the two, so no reader can see a
+ * user whose membership rows still exist but whose identity is gone.
+ */
+export async function deleteUser(env: Env, userId: string): Promise<{ ok: true }> {
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM site_users_sites WHERE user_id=?").bind(userId),
+    env.DB.prepare("DELETE FROM site_users WHERE id=?").bind(userId),
+  ]);
+  return { ok: true };
+}
+
+/**
  * Roles that may hold an admin session at all.
  *
  * Derived from the two sources that define roles — the per-site memberships

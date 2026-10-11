@@ -131,6 +131,7 @@ const REVIEWED = {
   "src/shared/scheduler.ts:23": "UPDATE posts … WHERE id=? — the site was just read from that very row",
   "src/platform/admin-menus.ts:268": "DELETE FROM admin_menu_registry WHERE owner_type=? AND owner_name=? — this is `clearOwnerMenusAllSites`, and install-wide is its *name*: an activation interrupted before it wrote `theme.active` leaves menus on sites that no longer select the theme, pointing at tables an uninstall is about to drop. Owner-scoped by design",
   "src/platform/members.ts:166": "DELETE FROM member_sessions WHERE id=? — the logout row is addressed by the session id read from the caller's own cookie (`cookieValue(request, MEMBER_COOKIE)`), which is the PK; there is no site dimension to add, and deleting someone else's id is impossible without already holding it",
+  "src/platform/auth.ts:230": "DELETE FROM site_users_sites WHERE user_id=? — `deleteUser` removing *all* of one person's memberships as part of deleting that person. `user_id` is the PK half, and install-wide is the intent: the identity is going away, so every site's grant for it must go too. Adding a site filter here would leave the other memberships orphaned, which is the very defect rule 80 exists to prevent",
 };
 
 const unreviewed = hits.filter((h) => !(h.where in REVIEWED));

@@ -2786,6 +2786,73 @@ section("The admin UI answers the same question the API does (rule 79)");
 }
 
 // ---------------------------------------------------------------------------
+section("A staff identity is deleted together with its memberships (rule 80)");
+// ---------------------------------------------------------------------------
+
+/**
+ * Batch F. Batch E split a staff user in two: the identity (`site_users`) and
+ * the per-site memberships (`site_users_sites`). Splitting one row out of
+ * another is how a second row is born that has to die with the first — and
+ * SQLite does not cascade here (no FK declared on the table, and D1 enables
+ * foreign keys per connection), so nothing removes the memberships for us.
+ *
+ * There is no product endpoint that deletes a user, so today the only orphan
+ * memberships are in test teardowns. That is precisely why the cleanup belongs
+ * in **one function next to the identity** rather than in a future endpoint:
+ * the failure mode is not "a row stays behind" (invisible while nothing points
+ * at it) but "a *later* user reusing an id inherits a stranger's access".
+ *
+ * The guard does not require that a caller exists — it requires that the
+ * two-statement delete has exactly one definition, so that whoever adds the
+ * endpoint finds it instead of re-deriving half of it.
+ */
+{
+  const authSrc = blankComments(read(join(ROOT, "src", "platform", "auth.ts")));
+
+  check(
+    "the membership-and-identity delete is defined once, next to the identity (rule 80)",
+    /export async function deleteUser\s*\(\s*env\s*:\s*Env\s*,\s*userId\s*:\s*string\s*\)/.test(authSrc)
+  );
+  // Both rows, in one batch: the memberships first, then the identity. A
+  // `deleteUser` that removes only `site_users` reintroduces the orphan this
+  // rule exists to prevent, and reads identically at the call site.
+  check(
+    "it removes the memberships as well as the identity (rule 80)",
+    /DELETE FROM site_users_sites WHERE user_id=\?/.test(authSrc) &&
+      /DELETE FROM site_users WHERE id=\?/.test(authSrc)
+  );
+  // The two statements are not run independently: an identity gone while its
+  // membership rows still exist is a state no reader expects, and the way to
+  // make that unobservable is a single `batch`.
+  check(
+    "both statements run in one batch, so the intermediate state is unobservable (rule 80)",
+    /env\.DB\.batch\(\[\s*[\s\S]{0,400}?DELETE FROM site_users_sites[\s\S]{0,400}?DELETE FROM site_users\b/.test(authSrc)
+  );
+  // The defect shape, pinned lexically across the whole platform: a direct
+  // `DELETE FROM site_users` outside `deleteUser` is a delete that forgot the
+  // memberships. Scoped to `src/` — tests legitimately delete users inline in
+  // teardowns, and the point here is the product's own code.
+  const productSrc = blankComments(
+    walk(join(ROOT, "src"), [".ts"])
+      .map((f) => read(f))
+      .join("\n")
+  );
+  const directDeletes = [
+    ...productSrc.matchAll(/DELETE FROM site_users\b(?!_)/g),
+  ].length;
+  check(
+    "no other place in src/ deletes an identity on its own (rule 80)",
+    directDeletes === 1,
+    `${directDeletes} direct \`DELETE FROM site_users\` in src/ (expected exactly the one in deleteUser)`
+  );
+
+  check(
+    "the rule-80 source was actually read (non-vacuity)",
+    authSrc.length > 3000 && productSrc.length > 10000
+  );
+}
+
+// ---------------------------------------------------------------------------
 section("This suite's own assertions can actually fail (meta-guard)");
 // ---------------------------------------------------------------------------
 

@@ -7,11 +7,14 @@
 > | 文档 | 回答 | 组织方式 |
 > |---|---|---|
 > | `AGENTS.md` | **不做会怎样变红** | 硬规则 + 跑什么命令 |
-> | `docs/ARCHITECTURE.md` §10 | **每个面为什么存在** | 历史教训目录（规则 1–74） |
+> | `docs/ARCHITECTURE.md` §10 | **每个面为什么存在** | 历史教训目录（规则 1–79） |
 > | **本文** | **你正在做的事要覆盖哪些面** | 按「改动类型」组织 |
 >
-> §10 是**踩过的坑**，本文是**要做的清单**。坑会继续增加；清单不会——清单的条目数
-> 等于这个系统的维度数（17 个），维度不会因为你多学一个教训而变多。
+> §10 是**踩过的坑**，本文是**要做的清单**。坑会继续增加；清单的条目数
+> 等于这个系统的维度数（20 个），维度不会因为你多学一个教训而变多。
+> > 维度 18–20（前台/后台分离、后台前缀隐身、每站点角色）是批次 C–E 加的：
+> > 它们**不是**新坑，而是三条一直存在、只是从前**没有第二个例子来暴露**的边界。
+> > 维度数从 17 变 20 是因为系统长出了这三条边界，不是因为教训变多。
 
 ---
 
@@ -21,21 +24,37 @@
 不适用的维度要**写明为什么不适用**，不能默认跳过。一份改动说明里没有出现的维度，
 默认等于「没想过」，而不是「不需要」。
 > 本仓库历史上所有「丢三拉四」都是这一条的反面：改动者心里只有 1–2 个维度
-> （"我加了个表" / "我加了个屏"），而系统有 17 个。
+> （"我加了个表" / "我加了个屏"），而系统有 20 个（批次 C–E 后）。
 
 **铁律 2 —— 凡是「能存东西」的新东西，必须回答两个轴。**
 租户（哪個站点：`site_id` / 派生 / 平台全局）与语言（逐语言 / 语言中立）。
 `contract/schema.ts` 是唯一权威，**没分类 = `_schema-scope.mjs` 当场红**。
 > 两个轴都不是从表名能猜出来的：`media_files` 看着全局其实是按站点；
 > `locales` 看着按站点其实是平台全局（规则 43）。
+> 批次 D 的 `member_sessions` 是第三个例子：它**看着**可以由 `member_id → members.site_id`
+> 推出（派生租户），但 `deleteSite()` 的统一 purge 只认本地 `site_id` 列——
+> **能推导 ≠ 够用**：只要那张表要进 purge 循环，`site_id` 就是承重的，不是冗余（规则 77 ⚠️）。
+
+**铁律 2b —— 凡是「一个新身份面」的新东西，必须回答「另一套身份能不能用它」。**
+系统里有两套身份（staff / member，规则 77）。加任何**门**（端点、cookie、会话表、解析器）
+都要顺手回答：**另一套身份的凭据打过来会怎样**。答案必须是 401，且这个答案要**由构造给出**
+（不同的表 + 不同的 cookie 名 + 不同的端点前缀），不是由一个"记得写"的检查把门——
+"记得写"的检查在没人去试的时候照样绿（§12 的共同盲区）。
 
 **铁律 3 —— 每个新守卫必须反向验证。**
 注入一次违规，确认它真的变红，再撤回。**测不出失败的检查等于没有检查**
 （§12 记录了十五种假绿，每一种都是"检查存在但从没红过"）。
 
+**铁律 3b —— 守卫锚在「消费」上，不是「提及」上。**
+一条断言要钉的是**代码读了哪个事实**，不是**文件里出现了哪个词**。规则 79 的两条守卫
+第一版都是死的：锚在子串（`x.sites` 匹配到一处无关的读）或距离窗口
+（`state.sites` 附近 400 字内出现 `data-switch-site`——而 `state.sites.find(...)` 自己就满足了）。
+**修法**是锚在**绑定**上：`const siteOptions = state.sites.map(...)`、`otherSitesText(x.sites, here)`。
+反向验证抓到的，不是评审抓到的——所以铁律 3 是这条的验证手段，不是可选项。
+
 ---
 
-## 1. 十七个维度
+## 1. 二十个维度
 
 「怎么验」一列写的是**命令**，不是建议。改动涉及的维度必须跑过；不涉及的要说明。
 
@@ -58,6 +77,9 @@
 | 15 | **数据迁移** | 迁移**有序、只增不改**；SQLite 改不了 PK → 重建表（抄 0019/0020 套路）；遗留行**故意不回填**且读阶梯有唯一定义；新表同步进 `contract/schema.ts` | `_schema-scope.mjs`、`_apply-migrations.mjs` | 44、70 |
 | 16 | **测试与文档** | 规则**三处同步**（`AGENTS.md` + `ARCHITECTURE.md` §10 + `architecture.test.mjs`）；新套件要进**四个注册表**（`package.json` test 链、`run-all.mjs`、`cfpress.sh`、`cfpress.ps1`）；文档里写的测试路径必须存在 | `architecture.test.mjs`（末节）、`launcher-parity.test.mjs` | 18–23 |
 | 17 | **部署与启动器** | 配置**一份手写 + 一份生成**（真 id 绝不进 `wrangler.jsonc`）；主题随 assets 分发；**新增 manifest 声明后必须重新激活主题**（`ensureThemeCapabilities` 是"从零修复"不是"增量同步"）；改 `cfpress.ps1` 后 BOM 还在 | `launcher-parity.test.mjs`、`cfpress.sh doctor` | 52–55、66、69 |
+| 18 | **前台 / 后台身份分离** | 两套身份从**存储到 cookie 完全分离**：`site_users`(install 级) vs `members`(按站点)、`admin_sessions` vs `member_sessions`、`cfpress_admin` vs `cfpress_member`、`{前缀}/api/v1/…` vs `/api/v1/front/…`；**没有东西可交换**（member cookie 打后台端点 401，反之亦然）；member 用户名按站点唯一 | `architecture.test.mjs`（规则 77 节）、`admin-contract.test.mjs` §17、`theme-default.test.mjs` §8b | 77 |
+| 19 | **后台前缀隐身** | 整个后台（SPA + 资产 + API + 登录端点）挂在可配前缀（`admin.path`）之下；SPA **不硬编码前缀**（读注入的 `window.CFP_ADMIN_BASE`）；**旧地址一律 404 不重定向**（含旧资产）；cookie `cfpress_admin` 的 `Path=<前缀>`（前台响应不含它）；登录端点限流 | `admin-spa.test.mjs`（规则 75 节）、`architecture.test.mjs`（规则 75 节）、`admin-contract.test.mjs` §0b/§0c/§15b | 75 |
+| 20 | **每站点角色** | 权限答案**带站点**：`can(env,user,perm,siteId)` 的 `siteId` 是**必填**（不是可选带默认）；查 `site_users_sites` **且带站点过滤**；**绝不回退 `site_users.role`**；行的缺席 = 拒绝；`superadmin` 首先短路且不可从站点屏授予；UI 问和 API **同一个**问题（读 `role_here` 不读安装级 `role`） | `architecture.test.mjs`（规则 78/79 节）、`admin-contract.test.mjs` §18、`admin-spa.test.mjs`（users 屏） | 78、79 |
 
 ---
 
@@ -81,6 +103,10 @@
 | **改 schema / 新增站点级表** | ① `PLATFORM_SCHEMA` ② `deleteSite` 是否该清它 ③ 若不该清，**写明理由**（内容按策略保留） | 不清 → 删除站点后 `GET admin-menus` 仍返回它的菜单（已知债） |
 | **改内容保存路径** | ① `bumpContentCache` ② 每语言 slug ③ `meta` 按语言写（`resolveMetaByPost` 是唯一读阶梯）④ 修订/自动保存也带 locale | 少 ③ → 分类名不翻译；少 ② → 永久链接静默变成 post id |
 | **改任何面向用户的东西** | ① 中英词典都补 ② 用 `t()` 不写字面量 ③ 跑 `_i18n-browser.cjs` | 缺键**是静默的**（`t()` 有英文兜底，界面其余部分已本地化） |
+| **给系统加一个新身份面（新 cookie / 新会话表 / 新解析器）** | ① 与**另一套**身份结构性分开（不同表 + 不同 cookie 名 + 不同端点前缀，规则 77）② 用 A 身份打 B 的门 → **401** 的**行为断言**（不是"没人试过"）③ 两套解析器各读各的会话表（`currentMember` 不许出现 `admin_sessions`，反之亦然）④ 新表两轴分类 + `onSiteDelete` ⑤ cookie `Path` 与**用途一致**（后台前缀限定 / 前台 `/`）⑥ 登录端点限流 | 少 ① → 一个改读对方会话表的解析器**接受对方的 cookie**，红线测试只要没人去试就照样绿（规则 77b 是**承重的**）；少 ④ → 删站后留下解析不到任何东西的登录行 |
+| **加 / 改后台入口（前缀、路由、资产、登录端点）** | ① SPA 不硬编码前缀（读注入的 base）② 后台 API 整套挂前缀下（不只登录门）③ **旧地址 404 不重定向**（含旧资产——只 404 页面等于留指路牌）④ `Path=<前缀>` 的 cookie ⑤ **重写 URL 必须带上 `u.search`**（否则经前缀进来的请求所有 query 参数全丢，且**没有一个请求报错**） | 少 ⑤ →「有些参数生效、有些不生效」铺满后台，`?site=` 掉了就是"当前站点"＝默认值（批次 28 真实事故）；少 ③ → 扫描器顺着旧资产路径找到新前缀 |
+| **加 / 改权限判断（`can` / `requirePermission` / 能力）** | ① `siteId` 从调用点**必传**（不是可选带默认，规则 78a）② 查成员表**且带站点过滤** ③ **绝不回退 `site_users.role`**（回退 = "从站点移除"变成"仍然有访问"）④ 该权限属于平台级还是站点级（`PLATFORM_PERMISSIONS` 是显式清单）⑤ 后台门 `requireAdmin` 的角色集**派生**自 `SITE_ROLES` + `SUPERADMIN_ROLE` ⑥ **屏**读的字段和 API 问的**同一个**（`role_here` 不读安装级 `role`） | 少 ① → 某个调用点**悄悄**重问站点盲问题，而那个问题**仍然有答案**，缺陷因此能通过评审；少 ⑤ → 加新角色时静默把 owner 锁在门外（批次 E 真实踩过）；少 ⑥ → API 不再问的问题，屏还在答，**不报错** |
+| **给权限答案加一个事实（改 `users` 屏 / 列表 payload）** | ① API 新增字段与**屏读取处逐字对齐**（读错永远是 `undefined` 且静默）② 屏**点名它所看的站点**（`state.site` 与端点 `site` 不一致时静默显示错站点）③ 空值要有**可见**的表示（空白格与渲染失败外观上无从区分）④ 守卫锚在**屏读了哪个事实**上，不锚在"某词出现过" | 少 ④ → 锚在子串/距离窗口的守卫**永远绿**（规则 79 两条守卫第一版都是死的，反向验证抓到的） |
 
 ---
 
@@ -167,7 +193,52 @@
 2. 新套件进**四张表**：`package.json` test 链、`tests/run-all.mjs`、`cfpress.sh`、`cfpress.ps1`。
 3. `.ps1` 的 BOM 必须还在（`head -c 3 scripts/cfpress.ps1 | xxd` → `efbbbf`）。
 4. 真 id 只进 `wrangler.ids.json`（gitignore），`wrangler.jsonc` 只放占位符。
-5. 验：`launcher-parity.test.mjs`、`node tests/tools/_launcher-inject.mjs`、`./scripts/cfpress.sh doctor`。
+5. 验：`launcher-parity.test.mjs`、`node tests/tools/_launcher-inject.mjs`、`./cfpress.sh doctor`。
+
+### 3.10 新增一个身份面（新 cookie / 新会话表 / 新登录端点）
+
+1. **先决定它属于哪一套**（staff 后台 / member 前台）——系统里**只有这两套**，不要造第三套。
+2. 存储到 cookie **四件套与另一套不同名**：身份表、会话表、cookie 名、端点前缀（规则 77a）。
+3. 两个解析器**各读各的会话表**：`currentMember` 不许出现 `FROM admin_sessions`，
+   `currentUser` 不许出现 `FROM member_sessions`；前台路由体不许出现 `requirePermission`/`currentUser`。
+   这是**承重**断言：一个改读对方会话表的解析器会**接受对方的 cookie**，而红线测试只要没人去试就照样绿。
+4. 新表进 `PLATFORM_SCHEMA`（两轴 + `onSiteDelete`）——**要能进 `deleteSite()` 的 purge 循环就必须有本地
+   `site_id`**（能推导 ≠ 够用，规则 77 ⚠️）。
+5. 用户名若按站点唯一：`UNIQUE INDEX (site_id, username)`（全局 `UNIQUE` 会让一个站的注册挡住另一个站）。
+6. cookie 的 `Path` 与用途一致：后台前缀限定（前台请求不该带上它）、前台 `/`（访客每个请求都要带）。
+7. **登录端点限流**（隐藏与否都要有）；注册可关。
+8. 验：`architecture.test.mjs`（规则 77 节）、`admin-contract.test.mjs` §17（含两条方向的 401 红线）、
+   `theme-default.test.mjs`（若动了主题 scope）+ 注入场景。
+
+### 3.11 新增 / 改一条权限判断
+
+1. **`siteId` 从调用点必传**——不是可选带默认。可选会让调用点**悄悄**重问站点盲问题，
+   而那个问题**仍然有答案**（它读到某人的一行），缺陷因此能通过评审（规则 78a）。
+2. 该权限**属于哪一级**：`PLATFORM_PERMISSIONS = {platform.manage, users.manage, extensions.manage}`
+   （install 级，只有 `superadmin`）？还是按站点？**没想清楚就在 `can()` 里答一个站点无关的答案。**
+3. 查 `site_users_sites` **且带站点过滤**（`WHERE user_id = ? AND site_id = ?`）——
+   只留表、丢掉站点的查询形态合法、返回一行、**只是错的那行**。
+4. **绝不回退 `site_users.role`**（回退 = "从站点移除"变成"仍然有访问"）。
+5. `superadmin` 是唯一有意例外，且**首先**短路（它是"尚不存在的站点"的答案）。
+6. 后台门 `requireAdmin` 的角色集**派生**自 `SITE_ROLES` + `SUPERADMIN_ROLE`（写死会漏新角色）。
+7. `superadmin` **不在** `SITE_ROLES` 里，站点屏不能授予 install 级角色。
+8. **后台 UI 问和 API 同一个问题**：屏读端点回的**按站点事实**（`role_here` / `sites`），
+   不读安装级 `role`；屏点名它所看的站点；站点切换器（列表）建自**服务端已按成员过滤**的
+   `GET sites`，不是硬编码列表（规则 79）。
+9. 验：`architecture.test.mjs`（规则 78/79 节）+ `admin-contract.test.mjs` §18 + `admin-spa.test.mjs`
+   （若动了屏）+ 注入场景（回退全局 role / 丢站点过滤 / `siteId` 变可选 / 屏印安装级 role / 切换器硬编码）。
+
+### 3.12 加 / 改后台入口（前缀、路由、资产、登录端点）
+
+1. 后台前缀可配（平台级 `admin.path`）；SPA **不硬编码前缀**，读服务端注入的 `window.CFP_ADMIN_BASE`。
+2. 后台 API **整套**挂前缀之下（不只登录门）；`index.ts` 剥前缀交给 `handleApi`。
+   ⚠️ **重写 URL 必须带上 `u.search`**：只从 `u.origin` 重建会丢掉**所有查询参数**
+   （`?site=`/`?withCounts=1`/`?locale=`/分页），而 `/api/*` 那条拿原始 request 照常工作——
+   「有些参数生效、有些不生效」铺满后台，**没有一个请求报错**。
+3. **旧地址一律 404**，不重定向（重定向把新前缀交给扫描器）：旧页面、旧**资产**、旧登录端点都要 404。
+4. 会话 cookie `Path=<前缀>`；**前台响应不含 `Set-Cookie: cfpress_admin`**。
+5. 验：`admin-spa.test.mjs`（规则 75 节）、`architecture.test.mjs`（规则 75 节，含"前缀挂载带 `u.search`"）、
+   `admin-contract.test.mjs` §0b/§0c/§15b、真实浏览器验收（默认前缀 + 移到 `/manage` 两种情形）+ 注入场景。
 
 ---
 
@@ -209,6 +280,12 @@
 | 分类名不翻译 | 3、5 | `post_meta` 没有 locale（迁移 0019 修的，规则 70） |
 | 保存了但页面没变 | 13 | 少了 `bumpContentCache` |
 | 按钮点了没反应，无报错 | 14 | 内联 `onclick` 的 handler 没登记进 `window` |
+| **owner 被锁在每一个后台端点之外** | 20 | 迁移 0023 把唯一管理员提升为 `superadmin`，而 `requireAdmin` 的角色集**写死**成 `["admin","editor","author"]`（不含 `superadmin`）——已修：派生自 `SITE_ROLES` + `SUPERADMIN_ROLE`（规则 78a） |
+| **A 站 editor 能管 B 站** | 20 | 旧 `can(env,user,permission)` 读一列 `site_users.role`，"此人能否**在此**发布"从来没被问过——地基换成 `site_users_sites`（迁移 0023，规则 78） |
+| **屏说某人是 "author"，但他其实是本站 admin** | 20 | `users` 屏印 `x.role`（安装级身份列）当站点角色；E1 之后 API 已不再问那个问题，**屏不报错、只是答错**（规则 79，批次 E2 真实缺陷） |
+| **经前缀进来的请求 `?site=` 全丢** | 19 | 批次 C：重写 URL 只从 `u.origin` 重建，没带 `u.search`——`/api/*` 那条照常工作，于是"有些参数生效、有些不生效"铺满后台且**没有一个请求报错**（规则 75b） |
+| **删站点后 admin 里仍列着它的菜单** | 19（前身是 2） | 原 `deleteSite` 只删 `sites` 行与 `theme.active`；后改为**声明式** `onSiteDelete`（规则 46），每张站点级表必须表态 |
+| **一次备份"成功"但没保住东西** | 18（测试卫生） | §12 #5：备份/清理**必须验证**（字节数一致）——`dev-hosts` 与 `_residue-guard` 沿用这条 |
 
 ---
 
@@ -236,6 +313,9 @@
 | 15 迁移 | ✅ | `_schema-scope.mjs` |
 | 16 测试与文档 | ✅ | `architecture.test.mjs` 末节 + `launcher-parity` |
 | 17 部署 | ⚠️ 靠纪律 | `doctor` + 部署清单 |
+| 18 前台/后台身份分离 | ✅ | `architecture.test.mjs`（规则 77 节，17 条）+ `admin-contract.test.mjs` §17（两条方向的 401 红线）；注入 4 场景。**结构性**：两个 cookie 名不同、两个解析器各读各的会话表 |
+| 19 后台前缀隐身 | ✅ | `admin-spa.test.mjs`（规则 75 节）+ `architecture.test.mjs`（规则 75 节，含"前缀挂载带 `u.search`"）+ `admin-contract.test.mjs` §0b/§0c/§15b；注入 4 场景 |
+| 20 每站点角色 | ✅（服务端 + UI 两侧） | `architecture.test.mjs` 规则 78 节（15 条，`siteId` 必填 + 31 个调用点 + 无回退 + 角色集派生）+ 规则 79 节（8 条，屏读 `role_here` 不读安装级 `role` + 切换器建自 `state.sites` + `superadmin` 不可授予）；行为 `admin-contract` §18（31 条）+ `admin-spa`（users 屏 8 条）；注入 10 场景 |
 | **语言数量无上限** | ✅ | `tests/tools/_locale-literal.mjs`：拦「把行为钉在某个语言上」（`locale === "xx"`、`/^xx/i.test(locale)`、写死的语言清单）与 i18n 层之外的语言字面量；每条白名单都要写理由。已知缺口：`frontend.ts` 的阅读时长标签仍是「zh 或非 zh」二分，待改成走语言包（见白名单里的 ⚠️） |
 
 ---
@@ -247,5 +327,25 @@
 1. **写进本文**（§1 加维度 / §2 加交织行 / §3 加清单项）——说明**判据**。
 2. **写进 `AGENTS.md`** 的「改动面清单」——说明**不做会怎样**。
 3. **尽量变成机器判据**：能在测试里断言的，别留在文档里。
-4. **反向验证**它（铁律 3）。
+4. **反向验证**它（铁律 3）——注入一次违规，确认它**真的变红**；红得不对也算没红（§12 #10）。
+   锚要锚在**消费**上，不是**提及**上（铁律 3b）。
 5. 若它推翻/细化了某条既有规则，**三处同步**：`AGENTS.md` + `ARCHITECTURE.md` §10 + `architecture.test.mjs`。
+6. **给维度一个「什么时候适用」的判据**：新维度最难的不是写下来，而是让人知道**它在这一轮适不适用**。
+   写清"改了 X 就必须看它"，否则下一个人会在一条不适用的维度上写"已覆盖"，而真正适用的那条被跳过。
+
+---
+
+## 8. 三条边界的由来（维度 18–20 为什么是「一直在、后来才被暴露」）
+
+维度 1–17 是**加功能**时踩出来的坑。18–20 不同：它们是**系统增长出第二条实例**之后
+才从"看不见"变成"必须回答"的**边界**。记在这里，是因为它们的失效方式与前面十七条不一样：
+
+| 边界 | 为什么从前看不见 | 什么把它暴露出来 |
+|---|---|---|
+| 18 前台/后台分离 | 只有**一套**身份时，"两个身份会不会串"这个问题不存在；系统里唯一的 cookie 服务所有用途 | 批次 D 加**前台会员**：一个读 `admin_sessions` 的 `currentMember` 会**接受后台 cookie**，而没人去试的话红线测试照样绿 |
+| 19 后台前缀隐身 | 后台路径硬编码 `/admin` 时，"能不能挪"不是问题；只有**一个**入口时"旧地址"不存在 | 批次 C 让前缀**可配**：从那一刻起，旧地址的存在、SPA 里的裸绝对路径、`Path=/` 的 cookie 都成了可被扫描的**指路牌** |
+| 20 每站点角色 | 单站点安装里，"这个人能否在此发布"与"这个人能否发布"**是同一个问题**——单站点安装正是所有人手工测的那个配置 | 批次 E 加**第二个站点**：一列 `site_users.role` 对多站点安装给出"一个答案回答 N 个问题"，而 A 站 editor 管 B 站在单站测试里**永远测不出来** |
+
+> **共同规律**：这三条边界在"只有一个实例"时全部**隐身**。加第二个身份 / 第二个入口 /
+> 第二个租户，是让它们从"不存在"变成"必须回答"的那一步。所以**加第二实例时最该做的
+> 不是写代码，是先问"哪些从前只有一个的东西，现在有了两个"**——这正是维度 18–20 全部的内容。

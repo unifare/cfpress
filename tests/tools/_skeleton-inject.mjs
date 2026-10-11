@@ -1308,6 +1308,19 @@ const SCENARIOS = [
     after: ['const SITE_ROLE_VALUES = ["admin", "editor", "author", "superadmin"];'],
     runs: [["tests/suites/architecture.test.mjs", "superadmin is not offered as a per-site role in the UI (rule 79d)"]],
   },
+  // --- an identity dies with its memberships (batch F, rule 80) -------------
+  {
+    // The identity delete forgetting the memberships it is now paired with.
+    // Batch E added a second row per person; this is the shape a delete
+    // written against the *old* single-table model produces — it removes the
+    // person and leaves their per-site grants pointing at nothing, which is
+    // invisible until a later user reuses the id.
+    label: "deleting a staff identity leaves its per-site memberships behind",
+    file: AUTH,
+    before: ['    env.DB.prepare("DELETE FROM site_users_sites WHERE user_id=?").bind(userId),'],
+    after: ['    env.DB.prepare("SELECT 1").bind(userId),'],
+    runs: [["tests/suites/architecture.test.mjs", "it removes the memberships as well as the identity (rule 80)"]],
+  },
 ];
 
 /** Every file any scenario may touch, hashed before and after. */

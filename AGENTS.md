@@ -263,6 +263,18 @@ stderr 包成 `NativeCommandError`，`Stop` 让它变**终止性**错误；本�
 扫 `tests/*.test.mjs` 的真实清单，逐个要求出现在 launcher 套件表里。
 （这是**观测面层**的又一例：断言全成立，只是没人测过"全集"。）
 
+**5b 节自己也被反向验证过（批次 F 追加 `tests/suites/user-delete.test.mjs` 时）**：
+把注册键改名 → 守卫报 `no suite name is listed only by .sh` 与 `... only by .ps1` 两条；
+把整条删掉 → 再加报 `every tests/**/*.test.mjs on disk is in the launcher table` 与
+`every suite in npm test is in the launcher table` 三条。**每条都指名道姓、且不中断**——
+所以"某套件漏注册"这四类事故各有独立的一条能抓到它。
+
+⚠️ **改 `cfpress.sh` / `cfpress.ps1` 的脚本一律用二进制模式读写**：Python **文本模式**
+（`open(p,'w')`）会把整文件转成 **CRLF**，而 `.gitattributes` 把 `*.sh` 钉成 LF——
+`SUITES="…"\n` 的正则匹配不到 `"\r\n`，`launcher-parity` 会报 `parsed the shell suite table —
+not found`，**看起来像守卫坏了**。改完务必
+`python -c "print(open('scripts/cfpress.sh','rb').read().count(b'\r\n'))"` 确认是 `0`。
+
 **文档里的测试路径也是可执行的（`architecture.test.mjs` 末节）**：AGENTS.md 告诉贡献者
 "改了 X 就跑 Y"，所以一个指向已删除套件的路径不是排版瑕疵，是一条**照做就会失败**的指令，
 且失败长得像"套件坏了"而不是"文档过期了"。批次 10 删掉两个主题套件后留下 **8 处**引用，

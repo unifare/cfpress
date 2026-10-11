@@ -1,6 +1,6 @@
 # CFPress (CFCMS) 交接文档
 
-> 更新时间：2026-10-11 (GMT+8) ｜ 交接基线：**AUTH 批次 F —— 契约与守卫收尾（规则 80）**
+> 更新时间：2026-10-11 (GMT+8) ｜ 交接基线：**AUTH 批次 F —— 契约与守卫收尾（规则 80）+ `user-delete` 行为套件**
 > （本仓库同时有两份活动计划：`docs/MENUS-WIDGETS-SITES-PLAN.md`（批次 26–28，**26/27/28 全部完成**）
 > 与 `docs/AUTH-ISOLATION-PLAN.md`（批次 A–F，**A/B/C/D/E/F 全部完成**）。两套编号**互相独立**，勿混。
 > 批次 F：`CHANGE-CONTRACT.md` 新增**三个维度**（18 前台/后台分离、19 后台前缀隐身、20 每站点角色）
@@ -8,6 +8,8 @@
 > 「三条边界的由来」（18–20 为什么是"一直在、加第二实例才暴露"）；`AGENTS.md` DoD 同步（17→20 维）
 > + 新铁律 3b「守卫锚在**消费**上，不是**提及**上」；**新增规则 80**（`deleteUser` 两行一次 batch 删，
 > 身份和成员行一起死）+ 注入 1 场景；`_tenant-query-audit` 新语句写**书面裁决**。
+> **本轮追加**：`tests/suites/user-delete.test.mjs`（**驱动真函数打真数据库**，含 negative control 与
+> batch 原子性 spy；反向变异证明 4 条断言各自会红）+ 入四张表；基线 **25 套件 / 1734 条**。
 > 上一条交接基线：批次 E2 —— staff 按站点（UI 与切面，规则 79）：`users` 屏「角色」列改为
 > **本站角色**（读端点新加的 `role_here`/`sites`/`site`，不再渲染安装级 `role`）+ superadmin 标为跨站
 > + 「其他站点」逐站点名 + **站点-角色编辑器**（只发变化的行，`role:null` 撤权）+ 站点切换器按角色
@@ -391,7 +393,43 @@ editor 打 `GET users` → 403，即这条约束在 UI 侧也成立。
 `_residue-guard` **14 套件全部 `DB unchanged`**；`_tenant-query-audit` **每个 hit 都有裁决**
 （新语句已写）；`tsc --noEmit` src/ 0 错误。
 
-**新基线**：**24 套件 / 1718 条 + `_schema-scope` 26 = 1744 条 / 0 失败**；`tsc` src/ 0 错误。
+**基线**：**24 套件 / 1718 条 + `_schema-scope` 26 = 1744 条 / 0 失败**；`tsc` src/ 0 错误。
+
+**`user-delete` 套件（批次 F 的行为验证）—— ✅ 本轮完成（2026-10-11）**
+
+批次 F 的 `deleteUser()` 上文只有**静态守卫**（规则 80 读函数体、词汇禁第二处裸删）。用户要求
+"自己去实际测试"——补一个**驱动真实函数打真实数据库**的套件 `tests/suites/user-delete.test.mjs`：
+
+1. **反向验证的套件也需要反向验证**。先写 **negative control**：手写 `DELETE FROM site_users`
+   （批次 F 之前的产品形状、也是"未来端点重新推导一半"会写的形状）→ 断言成员行**确实**变孤儿。
+   没有这一步，正向断言可能在"成员行本来就空"时假绿。
+2. **调用真函数**：`esbuild` 单独 bundle `src/platform/auth.ts`（external `cloudflare:workers`），
+   拿到真的 `deleteUser` 调它——测的是它对数据库的**效果**，不是它在文件里的字符串。
+3. **原子性用 spy 证明**：一个记录 `batchCalls`/`batchSize`/`topLevelRuns` 的 D1 适配器（用
+   `inBatch` 标志区分"batch 内部执行"与"顶层执行"）。若实现是两次独立 `.run()`，spy 会看到
+   0 batch / 2 run——中间态（身份没了、成员行还在）对读者可见。
+4. **套件要能自愈**：本地 D1 是**跨套件共享**的，上一次跑崩在 cleanup 之前会留下孤儿成员行。
+   sweep 因此**按 id 前缀直接删孤儿**（不靠"身份还在"的子查询，否则找不到孤儿）；且每个 section
+   在 `mkUser` 前先清自己的行——**真回归应在每个 section 各报一条失败**，而不是在 section 4 被
+   `UNIQUE constraint failed` 打断、把后面几个断言藏掉。
+
+**反向验证（套件本身）**：把 `deleteUser` 变异成"只删身份"（批次 F 之前的形状）→ 套件在
+section 3/4/5 **各报失败共 4 条**（`and so is every membership row` / `deleting them removes their
+membership too` / `the batch carries both statements` / `the person is fully gone after that one call`），
+**不中断、summary 照常打印**；恢复后 16/0。**硬化前**同一变异会 `UNIQUE constraint failed` 中断。
+
+**入四张表**（维度 16）：`package.json`（`test:user-delete` + `test` 链）、`tests/run-all.mjs`、
+`scripts/cfpress.sh`、`scripts/cfpress.ps1`。守卫 `launcher-parity` **62/0**；反向验证：
+改名注册键 → 守卫报 `no suite name is listed only by .sh/.ps1` 两条（**指名道姓、不中断**）；
+整条删除 → 再加报 `every tests/**/*.test.mjs on disk is in the launcher table` 与
+`every suite in npm test is in the launcher table` 三条。
+
+⚠️ **踩坑（本轮实测）**：Python **文本模式写入会把整个文件转成 CRLF**，而 `cfpress.sh` 被
+`.gitattributes` 钉成 LF——`SUITES="…"\n` 的解析正则匹配不到 `"\r\n`，守卫报"table not found"
+（**看起来像守卫坏了，其实是变异方法污染了被测文件**）。改脚本一律**二进制模式**（`'rb'`/`'wb'`），
+改完 `python -c "print(open(p,'rb').read().count(b'\r\n'))"` 确认为 0。
+
+**新基线**：**25 套件 / 1734 条 + `_schema-scope` 26 = 1760 条 / 0 失败**；`tsc` src/ 0 错误。
 
 **验证**：`architecture` **195/0**（180→195，规则 78 节 15 条）；`admin-contract` **192/0**
 （161→192，§18 三十一条）；`media` **71/0**（69→71，两站点成员授权）；`_schema-scope` **26/0**；

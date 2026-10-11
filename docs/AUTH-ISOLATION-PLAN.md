@@ -1,6 +1,6 @@
 # 多站点隔离 / 用户隔离 / 后台隐身 / 设置分两级 —— 实施方案（批次 A–F）
 
-> 状态：**批次 A（hosts/域名绑定）、B（设置分两级）、C（后台隐身）、D（前台会员）与 E1（staff 按站点：权限接线）已完成**；E2（站点-角色 UI）、F（契约收尾）待做。
+> 状态：**批次 A（hosts/域名绑定）、B（设置分两级）、C（后台隐身）、D（前台会员）与 E（staff 按站点：权限接线 + 站点-角色 UI）已完成**；F（契约收尾）待做。
 > A：三个域名经 dev server 各自命中 default / shop-demo / de-demo，hosts 改动在标记块内、已自动备份。
 > B：`platform_settings` + `SETTING_DEFS` + 唯一读取阶梯 + 设置屏两栏 + `platform.manage`。
 > C：`admin.path` 可配（平台级）；整个后台（SPA + 资产 + API + 登录端点）挂前缀之下、旧地址
@@ -178,7 +178,7 @@
 
 ### 批次 E —— 后台用户按站点隔离
 - **E1（权限接线）**：`site_users_sites` 表 + 迁移平移；`can(env,user,perm,siteId)` 站点感知；**全部** `requirePermission` 调用点补 `siteId`（先统计数量）+ 一条架构守卫强制。
-- **E2（UI）**：站点切换器按角色过滤；`users` 屏的站点-角色编辑；中英词典。
+- **E2（UI）**：站点切换器按角色过滤（E1 的 `GET sites` 已实现，E2 钉住）；`users` 屏的站点-角色编辑；中英词典。
 - **验收**：A 站 editor 打 B 站 `content.write` → 403；`superadmin` 全站；`site_users.role` 平移后旧行为不回归；跨站点列表互不可见。
 - **改动面**：迁移、`contract/schema.ts`、`src/platform/permissions.ts`、`src/api.ts`（所有调用点）、`admin-spa`、`admin-contract`、注入器。
 
@@ -189,6 +189,22 @@
 3. **`requireAdmin` 的硬编码角色列表是升级陷阱（真实缺陷，先于测试发现）**。迁移 0023 把唯一管理员提升为 `superadmin` 之后，`admin-contract` 的 §0b 立刻红：`requireAdmin` 写死 `["admin","editor","author"]`，**不含 `superadmin`** → owner 被锁在每一个后台端点之外。修复：`ADMIN_ROLES` 从 `SITE_ROLES` + `SUPERADMIN_ROLE` **派生**（规则 78a 钉住"必须是派生的"）。
 
 **新增守卫**：`architecture` 规则 78（a `can`/`requirePermission` 的 `siteId` 必填 + 后台角色集派生 / b 全部 31 个调用点带 `siteId` + 平台权限集非空 / c `can()` 只读成员表且带站点过滤 + 无行即拒 + `superadmin` 先短路 / d 契约声明为站点表 + `superadmin` 不可按站点授予 + 迁移带 `site_id` 且平移）；`admin-contract` §18（31 条：A 站 editor 打 B 站 403、superadmin 对照、站点列表按成员过滤、平台权限 install 级、授/撤站点角色、`role_here`/`sites` 契约）；注入器 6 个场景（回退全局 role、丢站点过滤、`siteId` 变可选、迁移丢平移、`superadmin` 进可授集、后台角色集写死）。
+
+### 批次 E2 —— UI 与切面（已完成 2026-10-11）
+
+E1 只修了**服务端**那半；E2 是**客户端**那半，它的失败方式不一样：**服务端不再读 `site_users.role`，而仍然在渲染它的屏不会报任何错**。三件事：
+
+1. **`users` 屏的"角色"列改为"本站角色"（`role_here`），并把安装级 `role` 从站点角色位挪开**。这是本批的真实缺陷：E1 之后 `x.role`（安装级身份列）不再是"在这里能做什么"的答案，屏上却还印着它——一个安装级角色是 `author`、却是**当前站点 `admin`** 的账号，渲染成 "author"，而这是运维唯一用来判断"谁能做什么"的屏。端点早把两个事实（`role_here` + `sites` 映射 + 回声的 `site`）都发过来了，屏没读。
+   - `superadmin` 单独成一个徽标（`All sites`），**不当站点角色**：它跨全站、排在所有成员行之上，且不可从本站屏授予（端点 400，规则 78d）。
+   - 「其他站点」列把该账号的其余成员身份**逐个点名**（`default: Author · …`），没有其余站点时写「仅本站」——**空白格与渲染失败在外观上无从区分**。
+2. **站点-角色编辑器**：`data-user-roles` → 对话框列出**每个站点**及该人在其上的角色，选项含「无角色（无法打开）」（= 撤权，`role: null`）。**只发变化的行**：端点没有"整表覆盖"形态，而重写一行"本来就是那个值"的行在结果里看不见、在活动日志里却是真的；一次意图被拆成 N 个请求也就会拆成 N 条互相矛盾的提示。部分失败按部分失败报告（点名失败的那个请求 + 重读表格显示**实际落库**的样子）。
+3. **站点切换器按角色过滤**——E1 的 `GET sites` 已经按 `accessibleSiteIds` 过滤，所以 `state.sites` 天然只含该用户有成员行的站点，切换器**不用改**。E2 的任务是**把这个事实钉住**：换成一个硬编码列表，被过滤掉的站点就会重新出现在切换器里、点下去 403——正是本批要消掉的"先给后拒"。
+
+**中英词典**：新增 19 个 key（**两个包都加**，架构守卫双向查对等），并**删掉过时的 `core.users.viewer` 与 `core.users.sub`**——`viewer` 这个角色在本产品的 `role_permissions` 里根本不存在（规范是 admin/editor/author），下拉里留着它等于让人建一个没有任何权限的账号。
+
+**新增守卫**：`architecture` 规则 79（a 屏读 `role_here` + 读 `sites` + **不把安装级 `role` 当站点角色渲染** / b 切换器建自 `state.sites` 的绑定 + 每行带端点回的 `id` / d `superadmin` 不出现在站点角色的选项里 + 非空）；`admin-spa` "users 屏按站点显示角色"（8 条：本站角色而非安装级列、superadmin 标为跨站、其他站点点名、屏点名所看站点、每行有编辑器、切换器恰好列出端点返回的站点、被过滤的站点不会被补回）。
+
+**E2 与计划的一处偏差（记录）**：计划写"`users` 屏加'站点-角色'编辑"，未指明**谁**能编辑。E1 把 `users.manage` 定为 install 级（只有 `superadmin`），所以本站屏的定稿是**保持 superadmin-only**（一个作用域受限的站点管理员管内容、不管账号），不新增一条没人要求的授权规则。守卫把 UI 侧这一条也钉住：非 superadmin 的用户屏拿不到列表（`admin-contract` §18 已断言 scoped editor 打 `GET users` → 403）。
 
 ### 批次 F —— 契约与守卫收尾
 - `CHANGE-CONTRACT.md` 新增三个维度（**前台/后台分离**、**后台前缀隐身**、**每站点角色**）+ 交织矩阵补行；`AGENTS.md` DoD 同步；`_schema-scope` 新表两轴；注入器场景；`_residue-guard` 跑一遍确认无残留。
@@ -242,7 +258,5 @@ A 不碰任何鉴权代码，是最安全的第一步；B 与 C 都在 `index.ts
 | A | `multisite`（host 路由 ×3） | 三个域名各命中对应站 | hosts 工具：非提权/坏标记块/重复运行 |
 | B | `architecture`（键必声明 scope + 阶梯唯一）、`admin-contract`（平台键/站点键互不影响、403）、`_tenant-query-audit`（settings 直读写归零） | 设置屏两栏，平台栏无 `platform.manage` 不可改 | 注入：写未声明的键 |
 | C | `admin-contract`（路径、404、cookie、限流）、`admin-spa`（base） | 旧路径 404、新路径可用、限流触发、前台不带后台 cookie | 注入：硬编码 `/admin`、cookie `Path=/` |
-| B | `admin-contract`（路径、404、cookie、限流）、`admin-spa`（base） | 旧路径 404、新路径可用、限流触发、前台不带后台 cookie | 注入：硬编码 `/admin`、cookie `Path=/` |
-| C | `admin-contract`（member 401/403）、`_schema-scope`（新表）、`theme-default`（部件） | 前台登录/注册/登出、A 站 member ≠ B 站 | 注入：member 会话当 admin 用 |
-| D | `admin-contract`（跨站点 403）、`architecture`（siteId 接线守卫） | 切换器按角色过滤 | 注入：`requirePermission` 丢 siteId |
-| E | 全量 + `_residue-guard` | 两个既有浏览器脚本 | 全部新守卫 |
+| D | `admin-contract`（member 401/403）、`_schema-scope`（新表）、`theme-default`（部件） | 前台登录/注册/登出、A 站 member ≠ B 站 | 注入：member 会话当 admin 用 |
+| E | `admin-contract`（跨站点 403 + 站点列表按成员过滤）、`architecture`（规则 78 siteId 接线 + 规则 79 UI 读对字段）、`admin-spa`（本站角色列 + 切换器） | 切换器按角色过滤 | 注入：`requirePermission` 丢 siteId、屏改印安装级 `role`、切换器硬编码 |

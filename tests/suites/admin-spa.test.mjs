@@ -948,6 +948,104 @@ if (modules && !bootError) {
     themeHtml.includes("Ships with CFPress") && !/data-theme-del="default"/.test(themeHtml),
     themeHtml.match(/data-theme-del="[^"]*"/g)?.join(", ") ?? "no uninstall buttons at all"
   );
+
+  // -------------------------------------------------------------------------
+  section("The users screen shows the role on this site, not the install-wide column");
+  // -------------------------------------------------------------------------
+  //
+  // Batch E moved authority to `site_users_sites` — one row per (person, site).
+  // `site_users.role` still exists (it is the install-wide identity) but it is
+  // no longer the answer to "what may this person do *here*". The screen kept
+  // printing `x.role`, so an account whose install-wide role is `author` and
+  // who is the `admin` of the current site rendered as "author" — a stale
+  // answer, on the one screen an operator reads to decide who can do what.
+  //
+  // Both facts arrive in the same response: `role_here` (the role on the site
+  // being viewed, which the endpoint echoes as `site`) and `sites` (the full
+  // membership map). The assertions below make the screen read those two, and
+  // make the switcher offer exactly the sites the API returned — which is the
+  // same filtered set (batch E filters `GET sites` by membership).
+
+  state.user = { username: "owner", role: "superadmin" };
+  state.sites = [{ id: "default", name: "Default Site", is_default: 1 }, { id: "shop", name: "Shop" }];
+  state.site = "shop";
+  state.page = "users";
+  state.editing = null;
+
+  routeTable.set("/api/v1/users", {
+    site: "shop",
+    items: [
+      // Install-wide `author`, but the *admin of the site being viewed*. The
+      // table must say Admin, because that is the true answer for `shop`.
+      { id: "u1", username: "ann", email: "ann@example.com", role: "author", status: "active",
+        sites: { shop: "admin", default: "author" }, role_here: "admin" },
+      // Install-wide superadmin: not a site role at all, and reaches everything.
+      { id: "u2", username: "root", email: "", role: "superadmin", status: "active",
+        sites: {}, role_here: null },
+    ],
+  });
+
+  contentEl.innerHTML = "";
+  await render();
+  const usersHtml = contentEl.innerHTML;
+  check(
+    "the users screen rendered a row per account",
+    usersHtml.includes("ann") && usersHtml.includes("root"),
+    usersHtml.slice(0, 200)
+  );
+  check(
+    "the Role column shows the role on this site, not the install-wide one",
+    usersHtml.includes(">Admin<") && !/badge outline">author</.test(usersHtml),
+    `ann's install-wide role "author" leaked into the role column: ${usersHtml.match(/badge [a-z]*">[^<]*/g)?.join(", ")}`
+  );
+  check(
+    "a superadmin is marked as install-wide, not as a site role",
+    usersHtml.includes("Superadmin") && usersHtml.includes("All sites"),
+    "the superadmin row does not name its install-wide scope"
+  );
+  check(
+    "an account's other sites are named, so a cross-site grant is visible",
+    usersHtml.includes("default: Author"),
+    usersHtml.match(/Other sites[\s\S]{0,200}/)?.[0]?.slice(0, 160) ?? "no other-sites column rendered"
+  );
+  check(
+    "the screen names the site whose roles it is showing",
+    usersHtml.includes("shop"),
+    "the sub-heading does not name the viewed site"
+  );
+  check(
+    "the per-site role editor is offered on every row",
+    (usersHtml.match(/data-user-roles="/g) || []).length === 2,
+    `expected 2 edit buttons, found ${(usersHtml.match(/data-user-roles="/g) || []).length}`
+  );
+
+  // The switcher lists what the API returned, and nothing else. This is the
+  // client half of batch E's "a site you have no role on is not in your
+  // switcher" — the server filters `GET sites`, and the sidebar must not add
+  // anything back (e.g. from a stale cache or a hard-coded default).
+  state.site = "default";
+  await render();
+  const sidebarHtml = modules.state.app.innerHTML;
+  const offered = [...sidebarHtml.matchAll(/data-switch-site="([^"]+)"/g)].map((m) => m[1]).sort();
+  check(
+    "the site switcher offers exactly the sites the API returned",
+    JSON.stringify(offered) === JSON.stringify(["default", "shop"]),
+    `switcher offered ${JSON.stringify(offered)}`
+  );
+  // And with a filtered list (a scoped user), it offers only that list — the
+  // "default" site is present *because the API said so*, not because the SPA
+  // falls back to it.
+  state.sites = [{ id: "shop", name: "Shop" }];
+  state.site = "shop";
+  await render();
+  const scoped = [...modules.state.app.innerHTML.matchAll(/data-switch-site="([^"]+)"/g)].map((m) => m[1]);
+  check(
+    "a scoped user's switcher offers only their sites (no default fallback)",
+    JSON.stringify(scoped) === JSON.stringify(["shop"]),
+    `switcher offered ${JSON.stringify(scoped)}`
+  );
+  state.sites = [{ id: "default", name: "Default Site", is_default: 1 }];
+  state.site = "default";
 }
 
 // ---------------------------------------------------------------------------

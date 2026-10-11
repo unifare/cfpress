@@ -2689,6 +2689,103 @@ section("A permission answer names the site it is about (rule 78)");
 }
 
 // ---------------------------------------------------------------------------
+section("The admin UI answers the same question the API does (rule 79)");
+// ---------------------------------------------------------------------------
+
+/**
+ * Batch E2. Rule 78 fixed the *server* half of per-site authority; this is the
+ * client half, and it fails differently.
+ *
+ * A backend that stops reading `site_users.role` is invisible from a screen
+ * that still prints it. After E1 the users table kept rendering `x.role` — the
+ * install-wide identity — under a column headed "Role", so an account whose
+ * install-wide role is `author` and who is the **admin of the site being
+ * viewed** read as "author". Nothing threw, nothing 403'd: the screen answered
+ * a question the API had stopped asking, using a field that still has a value.
+ * That is the "declared but never consumed" family wearing a UI hat, and the
+ * only way to catch it is to pin which field the screen reads.
+ *
+ * Two statements, both about *which fact is read* rather than how it is drawn:
+ *
+ *   (a) the users screen reads the per-site facts (`role_here`, `sites`) and
+ *       does not render the install-wide `role` as a site's role;
+ *   (b) the switcher's site list comes from `state.sites` — which is `GET
+ *       sites`, filtered server-side by membership (rule 78) — and is not a
+ *       hard-coded list that would offer a site the API refused.
+ */
+{
+  const usersSrc = blankComments(read(join(ROOT, "public", "admin", "js", "screens", "users.js")));
+  const navSrc = blankComments(read(join(ROOT, "public", "admin", "js", "nav.js")));
+
+  // (a) The screen must *consume* what the endpoint added for it. Reading
+  // neither field means the endpoint's `role_here` / `sites` are provided and
+  // ignored — a payload nothing reads, which is how the stale column survived.
+  check(
+    "the users screen reads the per-site role the API provides (rule 79a)",
+    /role_here/.test(usersSrc)
+  );
+  // The membership map must be *rendered*, not merely mentioned: the screen
+  // legitimately reads `userRow.sites` to seed the editor dialog, so a loose
+  // "`.sites` appears" test stays green even after the column that shows other
+  // sites is deleted. The anchor is the call that renders it.
+  check(
+    "the users screen reads the membership map, so other sites are visible (rule 79a)",
+    /otherSitesText\(\s*x\.sites\s*,/.test(usersSrc)
+  );
+  // The defect shape, pinned: the column bound to the install-wide `role` field
+  // is what printed the wrong answer. A bare `x.role` may still appear (the
+  // screen legitimately compares it to `superadmin`), so the guard targets the
+  // *render* of it as a badge — `roleBadge(x.role)` / `esc(x.role)` in the row.
+  check(
+    "and never renders the install-wide role as a site's role (rule 79a)",
+    !/roleBadge\(\s*x\.role\s*\)/.test(usersSrc) && !/badge[^>]*>\$\{esc\(x\.role\)\}/.test(usersSrc)
+  );
+  // `superadmin` is install-wide: it is compared, never offered as a choice.
+  //
+  // Two mechanisms could leak it, so both are pinned. The visible one is an
+  // explicit option — but the *live* one is the role set the options are built
+  // from, and a guard that only looks for `value: "superadmin"` never fires,
+  // because no such literal exists: the options are `SITE_ROLE_VALUES.map(...)`.
+  // (That is exactly how the first draft of this guard went green on the
+  // injection — reverse validation caught it.) So: the set is closed and does
+  // not contain it, *and* the options are derived from the set.
+  check(
+    "superadmin is not offered as a per-site role in the UI (rule 79d)",
+    /SITE_ROLE_VALUES\s*=\s*\[[^\]]*\]/.test(usersSrc) &&
+      !/SITE_ROLE_VALUES\s*=\s*\[[^\]]*superadmin/.test(usersSrc) &&
+      !/value:\s*"superadmin"/.test(usersSrc),
+    usersSrc.match(/SITE_ROLE_VALUES\s*=\s*\[[^\]]*\]/)?.[0] ?? "no SITE_ROLE_VALUES set found"
+  );
+  check(
+    "the role options are derived from that one set, not re-listed (rule 79d)",
+    /SITE_ROLE_VALUES\.map\(\s*\(r\)\s*=>\s*\(\{\s*value:\s*r/.test(usersSrc)
+  );
+
+  // (b) The switcher is built from the API's (filtered) site list. A literal
+  // array here is the way a scoped user gets offered a site they cannot open.
+  //
+  // The anchor is the *binding*, not a loose "these two appear nearby": `state`
+  // also holds other `state.sites` reads (the header's own lookup) within any
+  // window wide enough to be useful, so a distance-based match stays green on
+  // a hard-coded list. `siteOptions` is the one list the dropdown renders, and
+  // it must be the sorted-free map over `state.sites` itself.
+  check(
+    "the site switcher offers state.sites, not a hard-coded list (rule 79b)",
+    /const siteOptions = state\.sites\s*\n?\s*\.map\(/.test(navSrc),
+    navSrc.match(/const siteOptions = [\s\S]{0,80}/)?.[0]?.replace(/\n/g, " ") ?? "no siteOptions binding found"
+  );
+  check(
+    "the switcher's rows always carry the site id the API returned (rule 79b)",
+    /data-switch-site="\$\{attr\(s\.id\)\}"/.test(navSrc)
+  );
+
+  check(
+    "the rule-79 sources were actually read (non-vacuity)",
+    usersSrc.length > 800 && navSrc.length > 2000
+  );
+}
+
+// ---------------------------------------------------------------------------
 section("This suite's own assertions can actually fail (meta-guard)");
 // ---------------------------------------------------------------------------
 

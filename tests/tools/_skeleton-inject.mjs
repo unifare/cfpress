@@ -130,6 +130,13 @@ const PERMISSIONS = join(ROOT, "src/platform/permissions.ts");
 // everyone, including the owner, and locks the install.
 const MIGRATION_0023 = join(ROOT, "content/migrations/0023_site_user_roles.sql");
 const SITES_SCREEN = join(ROOT, "public/admin/js/screens/sites.js");
+// Batch E2: the admin UI's half of per-site authority. A server that stopped
+// reading `site_users.role` is invisible from a screen that still prints it —
+// so the users screen must consume the per-site facts the API added
+// (`role_here`, `sites`), and the switcher must offer the filtered site list
+// rather than a hard-coded one.
+const USERS_SCREEN = join(ROOT, "public/admin/js/screens/users.js");
+const ADMIN_NAV = join(ROOT, "public/admin/js/nav.js");
 
 /**
  * The scenarios. Each names the suite to run and the assertion (a substring of
@@ -1256,6 +1263,51 @@ const SCENARIOS = [
     after: ['const ADMIN_ROLES: ReadonlySet<string> = new Set<string>(["admin", "editor", "author"]);'],
     runs: [["tests/suites/architecture.test.mjs", "the admin gate derives its roles, not a hardcoded list (rule 78a)"]],
   },
+  // --- the admin UI asks the same question the API does (batch E2, rule 79) --
+  {
+    // The historical shape, verbatim: the users table rendering the
+    // *install-wide* role column under the heading "Role". After batch E that
+    // column is no longer the answer for a site, so an `author` who is the
+    // admin of the site being viewed reads as "author" — and rule 79a is what
+    // must notice the screen stopped reading `role_here`.
+    label: "the users screen prints the install-wide role instead of the per-site one",
+    file: USERS_SCREEN,
+    before: ["      <td>${isSuper ? roleBadge(SUPERADMIN) : roleBadge(x.role_here)}</td>"],
+    after: ['      <td><span class="badge outline">${esc(x.role)}</span></td>'],
+    runs: [["tests/suites/architecture.test.mjs", "and never renders the install-wide role as a site's role (rule 79a)"]],
+  },
+  {
+    // The quieter half of the same defect: the screen reads `role_here` (so the
+    // site column is right) but stops reading the membership map — an account
+    // with a role on *other* sites then looks like it has none, and a
+    // cross-site grant becomes invisible, which is the one thing this column
+    // exists to expose.
+    label: "the users screen stops reading the membership map",
+    file: USERS_SCREEN,
+    before: ["      : `<span class=\"muted text-sm\">${esc(otherSitesText(x.sites, here))}</span>`;"],
+    after: ["      : `<span class=\"muted text-sm\">${esc(otherSitesText({}, here))}</span>`;"],
+    runs: [["tests/suites/architecture.test.mjs", "the users screen reads the membership map, so other sites are visible (rule 79a)"]],
+  },
+  {
+    // The switcher reverted to a hard-coded site list. A scoped user is then
+    // offered a site the API filtered out — the click 403s, which is exactly
+    // the "offered, then refused" shape batch E exists to remove.
+    label: "the site switcher hard-codes its site list",
+    file: ADMIN_NAV,
+    before: ["  const siteOptions = state.sites\n    .map((s) => `<button class=\"menu-item\" data-switch-site=\"${attr(s.id)}\">"],
+    after: ["  const siteOptions = [{ id: \"default\", name: \"Default Site\" }]\n    .map((s) => `<button class=\"menu-item\" data-switch-site=\"${attr(s.id)}\">"],
+    runs: [["tests/suites/architecture.test.mjs", "the site switcher offers state.sites, not a hard-coded list (rule 79b)"]],
+  },
+  {
+    // `superadmin` offered as a per-site choice in the role editor. The
+    // endpoint rejects it with 400, so the UI would offer a selection that can
+    // only fail — the same "declared, not honoured" shape one layer up.
+    label: "superadmin becomes an option in the per-site role editor",
+    file: USERS_SCREEN,
+    before: ['const SITE_ROLE_VALUES = ["admin", "editor", "author"];'],
+    after: ['const SITE_ROLE_VALUES = ["admin", "editor", "author", "superadmin"];'],
+    runs: [["tests/suites/architecture.test.mjs", "superadmin is not offered as a per-site role in the UI (rule 79d)"]],
+  },
 ];
 
 /** Every file any scenario may touch, hashed before and after. */
@@ -1283,7 +1335,7 @@ const WATCHED = [...new Set([SCHEMA, EVENTS, ARCH, SCOPE, MANIFEST, VALIDATION,
   ADMIN_I18N, LANGUAGES_SCREEN, THEMES_SCREEN,
   ADMIN_STATE, AUTH, SITES, SITES_SCREEN,
   BLOCKS, FRONTEND, BLOCK_FIELDS, MEDIA_PICKER, MEDIA_SCREEN, CORE_PACK, API, WRANGLER,
-  PERMISSIONS, MIGRATION_0023])];
+  PERMISSIONS, MIGRATION_0023, USERS_SCREEN, ADMIN_NAV])];
 
 function hashAll() {
   const out = {};

@@ -1,13 +1,17 @@
 # CFPress (CFCMS) 交接文档
 
-> 更新时间：2026-10-11 (GMT+8) ｜ 交接基线：**AUTH 批次 E1 —— staff 按站点（权限接线，规则 78）**
+> 更新时间：2026-10-11 (GMT+8) ｜ 交接基线：**AUTH 批次 E2 —— staff 按站点（UI 与切面，规则 79）**
 > （本仓库同时有两份活动计划：`docs/MENUS-WIDGETS-SITES-PLAN.md`（批次 26–28，**26/27/28 全部完成**）
-> 与 `docs/AUTH-ISOLATION-PLAN.md`（批次 A–F，**A/B/C/D/E1 已完成**，E2/F 待做）。两套编号**互相独立**，勿混。
-> 批次 E1 staff 按站点：新增 `site_users_sites(user_id, site_id, role)`（迁移 0023，**带平移**）+
-> `can(env,user,perm,siteId)` 站点感知（**`siteId` 必填**，无回退到全局 role）+ 全部 **31 个**
-> `requirePermission` 调用点补 `siteId` + 站点列表按成员过滤 + `users` 端点读写 `site_users_sites` +
-> 新增 `PUT users/:id/sites/:siteId` 授/撤站点角色；规则 78 钉住。
-> 顺带修掉 `requireAdmin` 硬编码角色列表漏掉 `superadmin` 的真实缺陷（升级即锁死 owner）。
+> 与 `docs/AUTH-ISOLATION-PLAN.md`（批次 A–F，**A/B/C/D/E 已完成**，F 待做）。两套编号**互相独立**，勿混。
+> 批次 E2：`users` 屏「角色」列改为**本站角色**（读端点新加的 `role_here`/`sites`/`site`，不再渲染
+> 安装级 `role`）+ superadmin 标为跨站 + 「其他站点」逐站点名 + **站点-角色编辑器**（只发变化的行，
+> `role:null` 撤权）+ 站点切换器按角色过滤**钉住**（E1 的 `GET sites` 已过滤）+ 中英词典 19 key
+> （并删掉过时的 `viewer` 角色词条）；规则 79 钉住。
+> 上一条交接基线：批次 E1 —— staff 按站点：`site_users_sites(user_id, site_id, role)`（迁移 0023，
+> **带平移**）+ `can(env,user,perm,siteId)` 站点感知（**`siteId` 必填**，无回退到全局 role）+ 全部
+> **31 个** `requirePermission` 调用点补 `siteId` + 站点列表按成员过滤 + 新增
+> `PUT users/:id/sites/:siteId`；规则 78 钉住；顺带修掉 `requireAdmin` 硬编码角色列表漏掉
+> `superadmin` 的真实缺陷（升级即锁死 owner）。
 > 上一条交接基线：批次 D —— 前台会员：`members`（**按站点**）+ `member_sessions` 两张新表 +
 > `/api/v1/front/{auth/*,me}` + `src/platform/members.ts`；主题 `login`/`register` 模板 +
 > `member` 作用域 + 中英词典；**两套身份的隔离是结构性的**（不同表/不同 cookie 名/不同端点族），
@@ -256,7 +260,53 @@ x-default）；`/{locale}/feed.xml`；`lang_nav` 切换器进 scope。规则 56�
 > 一路吞到后文 `catch{/* ignore */}` 的 `*/`，**把整段路由抹成空白**——media 守卫的两个锚点
 > 都变 `-1`，报「非空性」失败。代码是对的，是**注释里的字符**弄瞎了守卫。已记进 AGENTS.md。
 
-**批次 E1（staff 按站点：权限接线）—— ✅ 本轮完成**
+**批次 E2（staff 按站点：UI 与切面，规则 79）—— ✅ 本轮完成**
+
+E1 只修了**服务端**那半；E2 是**客户端**那半，它的失败方式不一样：**服务端不再读 `site_users.role`，
+而仍然在渲染它的屏不会报任何错**。
+
+1. **`users` 屏的「角色」列改为「本站角色」（`role_here`），安装级 `role` 从站点角色位挪开**。
+   这是本批的真实缺陷：E1 之后 `x.role`（安装级身份列）不再是"在这里能做什么"的答案，屏上却还印着
+   它——一个安装级角色是 `author`、却是**当前站点 `admin`** 的账号渲染成 "author"，而这是运维唯一
+   用来判断"谁能做什么"的屏。端点早把 `role_here` + `sites` 映射 + 回声的 `site` 都发过来了，屏没读。
+   - `superadmin` 单独一个徽标（`All sites`），**不当站点角色**：跨全站、排在所有成员行之上、
+     不可从本站屏授予（端点 400，规则 78d）。
+   - 「其他站点」列**逐个点名**（`default: Author · …`），没有其余站点时写「仅本站」——**空白格与
+     渲染失败外观上无从区分**。
+2. **站点-角色编辑器**（`data-user-roles`）：对话框列出**每个站点**及该人在其上的角色，选项含
+   「无角色（无法打开）」＝撤权（`role: null`）。**只发变化的行**：端点没有"整表覆盖"形态，重写一行
+   "本来就是那个值"的行在结果里看不见、在活动日志里却是真的。部分失败按部分失败报告（点名失败的
+   那个请求 + 重读表格显示**实际落库**的样子）。
+3. **站点切换器按角色过滤**——E1 的 `GET sites` 已按 `accessibleSiteIds` 过滤，所以 `state.sites`
+   天然只含该用户有成员行的站点，**切换器不用改**。E2 的任务是**把这个事实钉住**：改成硬编码列表，
+   被过滤掉的站点就会重新出现在切换器里、点下去 403（本批要消掉的"先给后拒"）。
+
+**中英词典**：新增 19 个 key（**两个包都加**，架构守卫双向查对等），并**删掉过时的
+`core.users.roleViewer` 与 `core.users.sub`**——`viewer` 这个角色在本产品的 `role_permissions` 里
+根本不存在（规范是 admin/editor/author），下拉里留着它等于让人建一个零权限账号。顺手修了计划的
+验证矩阵里**重复的 B/C 两行**（历史复制粘贴残留）。
+
+**一处与计划的偏差（记录）**：计划写"`users` 屏加'站点-角色'编辑"，未指明**谁**能编辑。E1 把
+`users.manage` 定为 install 级（只有 `superadmin`），所以定稿是**保持 superadmin-only**（受限的
+站点管理员管内容、不管账号），**不新增一条没人要求的授权规则**。`admin-contract` §18 已断言 scoped
+editor 打 `GET users` → 403，即这条约束在 UI 侧也成立。
+
+**验证**：`architecture` **203/0**（195→203，规则 79 节 8 条）；`admin-spa` **87/0**（79→87，
+"users 屏按站点显示角色" 8 条）；`i18n` **75/0**；`tsc --noEmit` src/ 0 错误；`_skeleton-inject`
+**98 场景 / 0 问题**（新增 4 个历史形状场景，其中 2 个第一版守卫**没变红**，见下）。
+
+**新基线**：**24 套件 / 1713 条 + `_schema-scope` 26 = 1739 条 / 0 失败**；`tsc` src/ 0 错误。
+
+> ⚠️ **两条新守卫第一版是摆设，反向验证抓住的**（本轮的"能渲染是最强的假绿"换了个位置）：
+> 1. `superadmin` 不在站点角色选项里——第一版写 `!/value:\s*"superadmin"/`，但源码里**根本没有这个
+>    字面量**：选项是 `SITE_ROLE_VALUES.map(r => ({ value: r, … }))`。把 `superadmin` 塞进那个
+>    数组（真正的泄漏路径）**它的守卫不会红**。修：钉住集合闭集 + 钉住"选项派生自该集合"。
+> 2. 「读成员映射」第一版写 `/x\.sites|\.sites\s*\|\|/`，而屏里**另有**一处合法的 `.sites`（编辑器
+>    对话框的初值），所以删掉渲染那一列**守卫仍绿**。修：锚到真正渲染它的调用
+>    `otherSitesText(x.sites, …)`。
+> **规律：守卫要锚在「消费」上，不在「出现」上**——同一条规律第三次出现（前两次在规则 69/78）。
+
+**批次 E1（staff 按站点：权限接线）—— ✅ 上轮完成**
 
 计划 `docs/AUTH-ISOLATION-PLAN.md` 批次 E 的一半（E1）。批次 D 分开了**身份**，这一批分开**权限**：
 旧的 `can(env, user, permission)` 读一列 `site_users.role`，于是店铺站的 `editor` 到处都是 `editor`，
@@ -377,7 +427,7 @@ admin cookie 打 `/front/me` → **401**；A 站 member 在 B 站登录失败（
 `tsc --noEmit` src/ 0 错误；`_skeleton-inject` 重跑（新增 4 个历史形状场景）。
 
 **当时基线**：**24 套件 / 1648 条 + `_schema-scope` 26 = 1674 条 / 0 失败**；`tsc` src/ 0 错误。
-（批次 E1 后已升至 **1696 + 26 = 1722**。）
+（批次 E1 后升至 **1696 + 26 = 1722**；批次 E2 后升至 **1713 + 26 = 1739**。）
 
 **批次 28（站点屏管理深度 + 还债）—— ✅ 已完成**
 
@@ -1360,7 +1410,7 @@ theme-api 站点与主题头可伪造、`?? "default"` 地雷、四处 `|| "en"`
   以证明 `null` 是"没行"而不是"过滤被丢掉"）。
 
 
-## 6. 测试与验证（当前全绿：24 套件 / 1696 条 / 0 失败，另有 `_schema-scope` 26 条 —— 合计 25 项 / 1722 条）
+## 6. 测试与验证（当前全绿：24 套件 / 1713 条 / 0 失败，另有 `_schema-scope` 26 条 —— 合计 25 项 / 1739 条）
 
 ```bash
 npx tsc --noEmit                 # src/ 0 错误（node_modules 里的 lib 冲突是既有的，忽略）

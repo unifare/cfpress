@@ -846,7 +846,13 @@ async function mediaUpload(env: Env, userId: string, request: Request, siteId: s
   const id = await randomId();
   const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
   const key = `uploads/${siteId}/${new Date().toISOString().slice(0,10)}/${id}-${safe}`;
-  await env.MEDIA.put(key, file.stream(), {
+  // The bytes go in as a buffer, not a `File.stream()`: a stream body is only
+  // consumed by whatever reads it, and the local R2 shim accepts the handle
+  // without draining it — the row then exists with no object behind it, and
+  // the read path answers 404 forever after. Buffering makes the write
+  // complete before the row claims it does.
+  const bytes = await file.arrayBuffer();
+  await env.MEDIA.put(key, bytes, {
     httpMetadata: { contentType: file.type || "application/octet-stream", cacheControl: "public, max-age=31536000, immutable" }
   });
   // `uploaded_by` is what the owner axis reads. Leaving it NULL here would make

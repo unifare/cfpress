@@ -95,13 +95,15 @@ export async function setSetting(env: Env, siteId: string, key: string, value: s
   if (!def) throw new Error(`undeclared setting key: ${key}`);
   if (def.scope !== "site") throw new Error(`setting ${key} is ${def.scope}-scoped, not site-scoped`);
 
-  const existing = await env.DB.prepare("SELECT id FROM settings WHERE site_id=? AND key=?").bind(siteId, key).first<any>();
-  if (existing) {
-    await env.DB.prepare("UPDATE settings SET value=? WHERE id=?").bind(value, existing.id).run();
-  } else {
-    await env.DB.prepare("INSERT INTO settings (id, site_id, key, value, autoload) VALUES (?, ?, ?, ?, 1)")
-      .bind(await newId(), siteId, key, value).run();
-  }
+  // Match on the **business key**, never on `id`: seeded rows can carry a NULL
+  // id (a migration's bare INSERT), and `UPDATE … WHERE id=NULL` affects zero
+  // rows without raising — so the write answers 200 and changes nothing. That
+  // is the worst shape a settings API can fail in: the caller sees success,
+  // the value is unchanged, and only a read-back notices.
+  const r = await env.DB.prepare("UPDATE settings SET value=? WHERE site_id=? AND key=?").bind(value, siteId, key).run();
+  if (Number(r?.meta?.changes ?? 0) > 0) return;
+  await env.DB.prepare("INSERT INTO settings (id, site_id, key, value, autoload) VALUES (?, ?, ?, ?, 1)")
+    .bind(await newId(), siteId, key, value).run();
 }
 
 /** Read one platform-scoped setting. */

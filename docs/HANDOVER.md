@@ -2069,6 +2069,7 @@ markup 用内联 `onclick="name(...)"`，浏览器解析在 `window` 上、不�
 | `tests/tools/_media-picker-browser.cjs` | 上者的**真浏览器**验收（25 条，自清理可重复）：登录 → 加图片块 → 对话框内上传 → 选中 → 落值 → **保存后确认写在 `url` 而非 `text`** → 会话/匿名两种读取 → 取消路径 |
 | `tests/tools/_sites-screen-browser.cjs` | **站点屏的真浏览器**验收（批次 28，自清理可重复）：经 API 建一个带前缀的夹具站点（**故意走 API**，因为语言行种子正是本批次修的，手写行会把它藏起来）→ 断言计数**只发一次**请求、每行是真三元组、预览链接来自**该站点自己**的 prefix/host、主题徽标点进主题屏 → 删站点并确认已消失。**它是唯一照出「前缀挂载丢 query」的地方** |
 | `docs/design/MEDIA-EDITOR-PLAN.md` | 批次 16 的四轨道拆分（**Track 0 / B1 / A3 已实现，A4 / B3 / B4 / B5 未实现**）——含已拍板的媒体语义与编辑器缺陷清单 |
+| `docs/design/MULTISITE-USER-ISOLATION-STORIES.md` | **多站点 × 用户归属 × 数据隔离的 user story 矩阵**（18 条，编号 `MS-x.y`，可直接被测试引用）：三轴（数据面 22+7 张表 / 入口面 6 档 / 主体面 4 种）× 三条约简原则；附录 A/B/C 是参数清单，附录 D 是 P0–P2 待办。**6 张站点级表 + 5 张派生表完全没有隔离断言**；MS-3.2 记录了一个**需要拍板的产品决策**（站点 admin 能否管本站点用户） |
 | `tests/tools/_i18n-browser.cjs` | 多语言后台的真实浏览器验收（**29 条**，自清理，可重复跑）：语言开关 / 编辑器语言版本条 / **§7 编辑器界面语言**（切 zh-CN 断言中文标签、无英文残留、**option 值仍是标识符**） |
 | `tests/tools/_admin-menus-browser.cjs` | 菜单 + 生成式屏幕的真实浏览器验收（31 条，自清理，可重复跑） |
 | `tests/suites/admin-spa.test.mjs` | 后台 SPA 的结构守门人（模块图 + `window.*` 契约 + 逐屏渲染） |

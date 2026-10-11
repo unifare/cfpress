@@ -1,7 +1,31 @@
 # CFPress (CFCMS) 交接文档
 
-> 更新时间：2026-10-11 (GMT+8) ｜ 交接基线：**阶段二 —— `my_posts` 接线（规则 82）+ prism 主题改名收尾**
-> **本轮新增**：`buildScope` 新增 `my_posts`（只在有 `member` 时建，**缺席而非空数组**）——按
+> 更新时间：2026-10-11 (GMT+8) ｜ 交接基线：**语言切换器改为下拉（规则 83）+ 注入器第 18 种假绿修复**
+> **本轮新增**：prism 与 default **两套**主题的 header 语言切换器，从"一排平铺的语言胶囊"改成原生
+> `<details>/<summary>` 下拉——**不需要 JS**，与"主题是数据、不执行代码"的红线一致。
+> 难点只有一个：**触发器要显示"当前语言的名字"，而模板语言查不了**（只有 `{{#each}}` 与九个 helper，
+> 没有"取 current 那一项"；在触发器里循环会把**其他**语言的名字一起打出来）。所以 `buildScope` 从
+> **同一个** `langNavRows` 派生 `lang_current`：**一个来源、两个视图**。规则 83 = a 按匹配挑（`find`，
+> **不是** `[0]`）/ b 同源 / c 与 `lang_nav` **同门槛**（单语言两者都不给）。
+> 守卫：`architecture` 规则 83 节 4 条 + `theme-bundled` §5b 5 条（**先过 `{{#if lang_nav}}` 筛文件**，
+> 否则删掉整个下拉也全绿）。
+> ⚠️ **两条守卫第一版都是死的**，都被反向验证抓出：① 断言写成**整页** `includes("简体中文")`——
+> 菜单本来就逐语言列名字，触发器改成 `{{lang_current.code}}` 后**菜单那一行仍然供出名字**，断言照样绿
+> （「锚在**提及**上而非**消费**上」的**第四次**，规则 69/78/79 之后）；修法：读 **`<summary>` 内部**文本。
+> ② fixture 里 `current: true` 排在**第 0 位**时 `find(current)` 与 `[0]` 同结果——**夹具的排序巧合**
+> 决定了成败；修法：三语言、当前语言**在中间**。
+> ⚠️ **顺带修了注入器自身的假绿（`ARCHITECTURE.md` §12 第 18 种）**：`theme-bundled` / `theme-default`
+> 的结尾是 `if (fail) { … process.exit(1); }`——**只在失败时退出**，而 harness 只把套件自己桩掉的
+> `process.exit` 当完成信号 → "注入后套件保持全绿"被报成 `no summary (aborted)`，**措辞把矛头指向工具**。
+> 这与第 13 种是同一枚硬币的两面（13：红被读成 abort；18：绿被读成 abort）。修法：harness 补
+> `process.on("beforeExit", () => done(0))`（**事件循环排空**才触发，不重现第 13 种的提前触发竞态）
+> + 两个套件改**无条件** `process.exit(fail ? 1 : 0)`。
+> 结果：`_skeleton-inject` **109 场景 / 0 问题**（三个 rule 83 场景**逐条红在正确那一条**）；
+> `architecture` **224/0**；`theme-bundled` **124/0**；`theme-default` **66/0**；tsc（src/）0 错误。
+> ⚠️ 实测提醒：`_skeleton-inject` 的 post-restore 会跑共享本地 D1 的套件，**会把 `theme.active`
+> 打回 `default`** —— 注入器跑完要重新激活主题再截图/验收，否则前台全是 default 主题（会误判成回归）。
+> 上一条交接基线：**阶段二 —— `my_posts` 接线（规则 82）**
+> `buildScope` 新增 `my_posts`（只在有 `member` 时建，**缺席而非空数组**）——按
 > `site_id` **AND** `author_member_id` 查（迁移 0024 的成对不变式），**不滤状态**（作者必须看见自己的
 > 草稿，否则模板上的 `{{post.status}}` 徽标是常量＝装饰），链接走**内置 permalink**
 > `/{locale}/blog/{slug}`（**不是** `/account` 路由 base，否则全 404）。顺带把列表派生三字段
@@ -9,8 +33,6 @@
 > 起因是 `_skeleton-inject` 报 `anchor appears 2x`，即重复正是守卫看得见的形状。
 > 新增**规则 82**（a 站点成对过滤 / b 不滤状态 / c 内置 permalink / d 无会员即缺席）+ 注入 4 场景，
 > **逐条确认 went red**；`_skeleton-inject` **106 场景 / 0 问题**；`architecture` **220/0**。
-> ⚠️ 实测提醒：`_skeleton-inject` 的 post-restore 会跑共享本地 D1 的套件，**会把 `theme.active`
-> 打回 `default`** —— 注入器跑完要重新激活主题再截图/验收，否则前台全是 default 主题（会误判成回归）。
 > 上一条交接基线：**AUTH 批次 F —— 契约与守卫收尾（规则 80）+ `user-delete` 行为套件**
 > （本仓库同时有两份活动计划：`docs/MENUS-WIDGETS-SITES-PLAN.md`（批次 26–28，**26/27/28 全部完成**）
 > 与 `docs/AUTH-ISOLATION-PLAN.md`（批次 A–F，**A/B/C/D/E/F 全部完成**）。两套编号**互相独立**，勿混。
@@ -406,7 +428,47 @@ editor 打 `GET users` → 403，即这条约束在 UI 侧也成立。
 
 **基线**：**24 套件 / 1718 条 + `_schema-scope` 26 = 1744 条 / 0 失败**；`tsc` src/ 0 错误。
 
-**规则 82（我的文章是读者的，且只是读者的）—— ✅ 本轮完成（2026-10-11，阶段二）**
+**规则 83（语言切换器是下拉）—— ✅ 本轮完成（2026-10-11）**
+
+prism 与 default **两套**主题的 header 切换器，从"一排平铺的语言胶囊"改成原生 `<details>/<summary>`
+下拉。**不需要 JS**——`<details>` 是浏览器自带的开合控件，与"主题是数据、不执行代码"的红线一致。
+
+难点只有一个，而它是**模板语言的能力边界**：触发器要显示"当前语言的名字"，但模板语言
+（`{{#each}}` + 九个 helper）**没有"取 current 那一项"**。在触发器里循环也不行——当前项在列表**中间**，
+`{{#if l.current}}` 会把**其他**语言的名字一起打出来。所以这个"挑"发生在 `buildScope`：
+
+- **a 按匹配挑，不按位置挑。** `langNavRows.find(l => l.current)`，**不是** `langNavRows[0]`。
+  后者在"站点默认语言恰好是渲染中的语言"时**看起来完全正确**，在其他每个语言上**静静报错**。
+- **b 与 `lang_nav` 同源。** 二者都来自同一个 `langNavRows`——一个来源、两个视图，
+  不可能对"哪门语言是当前"产生分歧。
+- **c 与 `lang_nav` 同门槛。** 单语言站点两者都不给：一个语言不构成切换器，而没门槛的
+  `lang_current` 会在一个**根本不渲染菜单**的 header 里留下一个孤立的名字。
+
+**验证**：`architecture` **220→224/0**（规则 83 节 4 条：非空性 + a/b/c，**切 `buildScope` 的
+`langCurrent` 构造**再匹配）；`theme-bundled` **112→124/0**（§5b 5 条，**先过 `{{#if lang_nav}}`
+筛文件**，否则一个删掉整个下拉的主题也全绿）；`theme-default` **66/0**（同步改，否则 4 条红）；
+`_skeleton-inject` **106→109 场景 / 0 问题**，3 个新场景**逐条红在正确那一条**。
+
+> ⚠️ **两条守卫第一版都是死的**，都被反向验证抓出（不是评审）：
+> ① `theme-bundled` 的断言写成**整页** `html.includes("简体中文")`——菜单本来就逐语言列出名字，
+> 所以触发器改成 `{{lang_current.code}}` 后**菜单那一行仍然供出"简体中文"**，断言照样绿。这是
+> 「锚在**提及**上而非**消费**上」的**第四次**（规则 69/78/79 之后）。修法：读 **`<summary>` 内部**的
+> 文本（剥掉标签——触发器里还有地球/箭头图标 SVG）。**手动复现确认：改完立刻 123p/1f。**
+> ② fixture 里 `current: true` 排在**第 0 位**时，`find(current)` 与 `[0]` 结果相同——**夹具的排序
+> 巧合**，不是代码，决定了成败。修法：`makeScope` 用**三语言、当前语言在中间**。两取值/两集合
+> 先问**凭什么相等**——别断言巧合。
+
+**顺带修（注入器自身的假绿，`ARCHITECTURE.md` §12 第 18 种）**：3 个场景首次跑时，两个报
+`no summary (aborted)` —— 措辞把矛头指向**运行器**。根因不是工具坏，而是**套件保持全绿**：
+`theme-bundled` / `theme-default` 的结尾是 `if (fail) { … process.exit(1); }`——**只在失败时退出**，
+而 harness 只把套件自己桩掉的 `process.exit` 当完成信号（第 13 种的修法）→ 套件自然退出 → worker
+排空 → 找不到摘要 → 报"没有摘要"。**这与第 13 种是同一枚硬币的两面**（13：红被读成 abort；
+18：绿被读成 abort），两者都指向工具自己。修法两条：① harness 补
+`process.on("beforeExit", () => done(0))`——它在**事件循环排空**时触发（所有 `await` 结算之后），
+**不会**重现第 13 种"模块体结束即提前触发"的竞态；② 两个套件改成**无条件**
+`process.exit(fail ? 1 : 0)`，回到 harness 假设的约定。
+
+**规则 82（我的文章是读者的，且只是读者的）—— ✅ 完成（2026-10-11，阶段二）**
 
 `account.html` 上的 `{{#each my_posts as post}}` 是唯一一个由**身份**（而非路由）决定的列表。
 三种"悄悄答错"的写法都能渲染出看起来合理的页面：
@@ -1538,7 +1600,7 @@ node tests/<name>.test.mjs       # 逐个跑（判据是 0 failures，别把断�
 
 | 套件 | 数量 | 守什么 |
 |---|---|---|
-| architecture | 161 | 分层红线、默认值零容忍、清单声明与文件对齐、语言包 key 前缀、屏幕集合钉住、菜单引用的表存在、已退役表不再被引用、规则 41 分类表四道结构守卫、**规则 49/51 闭集合双表对比**、**规则 52–55 功能开关**、**规则 56–59 多语言与 URL**、**规则 60 媒体读取路径必须晚于站点解析（结构判据）**、**规则 61 块 attrs 契约：解析渲染器每个 case 的 `a.<key>` 读取集合与声明比对 + 控件覆盖每种类型 + `media-list` 必须声明 `itemKeys`**、**规则 62 媒体控件与 `/media/` URL 各只许一处构造**、**规则 63 词典：SPA 的每个 `t("…")` 键都在每个语言包里 + 两包键集相同 + `core.editor.*` 每个键都有调用点**、**规则 64 自动保存定时器只有一处清理路径 + 导航确实调用它**、**规则 65 主题表的 i18n 侧表（记录说什么就让它成真）**、**规则 66 捆绑主题经 assets 分发：`BUNDLED_THEMES` ↔ `content/themes` 对齐、`public/themes` 逐文件逐字节同步、每个消费点都有兜底、上传/卸载守卫**、**规则 69 注册行不等于安装：boot 链先注册后安装 + 判据数行而非戳记 + 判据镜像清理面**、**规则 70 post_meta 读阶梯只许一处定义 + 读者全走阶梯 + 扫描非空**、**规则 71 语言切换是取数不是改名：版本条必须带语言重新取数 + 禁改名形状 + 列表钉站点默认语言**、**规则 72 拒绝必须带出口：卸载拒绝以 force 为条件 + 强制路径先把占用站点改回捆绑默认主题**、**规则 73 菜单位置确定性：查找 ORDER BY + 渲染读 manifest 位置 + 内置主题声明 menuLocations + SPA 走 scoped**、**规则 74 小工具站点隔离：渲染查询带 site_id + buildScope 喂 widgets 进作用域 + 后台列表同样 scoped + 契约 tenant=site + 内置主题声明 sidebars**、**规则 75 后台前缀是注入的：serveAdminIndex 注入 base + API 整套挂前缀 + 旧地址 404 + cookie Path 是前缀**、**规则 76 站点计数按 site_id 分组 + 主题读站点自己的 theme.active + createSite 播语言行**、**编辑器块面板来自 `CORE_BLOCKS`（SPA 禁块名字面量）**、**Dashboard 统计卡来自 API（禁 stat 硬编码）**、**声明式设置表单 13 类型逐个有渲染分支**、**元守卫：`check()` 条件非布尔即抛错 + 禁"集合当条件" + 禁"字面量当条件"** |
+| architecture | 224 | 分层红线、默认值零容忍、清单声明与文件对齐、语言包 key 前缀、屏幕集合钉住、菜单引用的表存在、已退役表不再被引用、规则 41 分类表四道结构守卫、**规则 49/51 闭集合双表对比**、**规则 52–55 功能开关**、**规则 56–59 多语言与 URL**、**规则 60 媒体读取路径必须晚于站点解析（结构判据）**、**规则 61 块 attrs 契约：解析渲染器每个 case 的 `a.<key>` 读取集合与声明比对 + 控件覆盖每种类型 + `media-list` 必须声明 `itemKeys`**、**规则 62 媒体控件与 `/media/` URL 各只许一处构造**、**规则 63 词典：SPA 的每个 `t("…")` 键都在每个语言包里 + 两包键集相同 + `core.editor.*` 每个键都有调用点**、**规则 64 自动保存定时器只有一处清理路径 + 导航确实调用它**、**规则 65 主题表的 i18n 侧表（记录说什么就让它成真）**、**规则 66 捆绑主题经 assets 分发：`BUNDLED_THEMES` ↔ `content/themes` 对齐、`public/themes` 逐文件逐字节同步、每个消费点都有兜底、上传/卸载守卫**、**规则 69 注册行不等于安装：boot 链先注册后安装 + 判据数行而非戳记 + 判据镜像清理面**、**规则 70 post_meta 读阶梯只许一处定义 + 读者全走阶梯 + 扫描非空**、**规则 71 语言切换是取数不是改名：版本条必须带语言重新取数 + 禁改名形状 + 列表钉站点默认语言**、**规则 72 拒绝必须带出口：卸载拒绝以 force 为条件 + 强制路径先把占用站点改回捆绑默认主题**、**规则 73 菜单位置确定性：查找 ORDER BY + 渲染读 manifest 位置 + 内置主题声明 menuLocations + SPA 走 scoped**、**规则 74 小工具站点隔离：渲染查询带 site_id + buildScope 喂 widgets 进作用域 + 后台列表同样 scoped + 契约 tenant=site + 内置主题声明 sidebars**、**规则 75 后台前缀是注入的：serveAdminIndex 注入 base + API 整套挂前缀 + 旧地址 404 + cookie Path 是前缀**、**规则 76 站点计数按 site_id 分组 + 主题读站点自己的 theme.active + createSite 播语言行**、**编辑器块面板来自 `CORE_BLOCKS`（SPA 禁块名字面量）**、**Dashboard 统计卡来自 API（禁 stat 硬编码）**、**声明式设置表单 13 类型逐个有渲染分支**、**元守卫：`check()` 条件非布尔即抛错 + 禁"集合当条件" + 禁"字面量当条件"**、**规则 77 两套身份结构性隔离（不同表/不同 cookie 名/不同端点族）**、**规则 78 权限答案必须带站点（`can(…,siteId)` 必填 + 不回退全局 role + 角色集派生）**、**规则 79 后台 UI 必须问和 API 同一个问题（读本站 `role_here`）**、**规则 80 身份和它的成员行一起死（两行一次 batch）**、**规则 81 模板看到的是投影不是行（`memberScope()` 一处）**、**规则 82 我的文章是读者的且只是读者的（站点成对过滤 / 不滤状态 / 内置 permalink / 无会员即缺席）**、**规则 83 语言切换器是下拉（按匹配挑当前语言 + 与 `lang_nav` 同源同门槛）** |
 | _schema-scope | 26 | 迁移流应用到临时 SQLite，逐表检验「声明 vs 真实列」一致（租户 + 语言维度） |
 | manifest-validation | 104 | 安装边界：每个用例注入单个缺陷，断言必须抛错（含内联语言包、菜单 args、**规则 48–51**、规则 41 双向） |
 | admin-menus | 43 | 注册表 schema / `menuRowId` 防碰撞 / 归属隔离 / 排序 / 能力过滤 / 主题与插件注册 / 停用插件只删自己的菜单 / 新站点可见 / 切主题切回 |
@@ -1549,7 +1611,7 @@ node tests/<name>.test.mjs       # 逐个跑（判据是 0 failures，别把断�
 | locale-url | 36 | 按语言 slug 的路由/404/唯一性、hreflang、按语言 feed、切换器（规则 56–59）、**§1b 自定义字段带语言（单页/列表按语言取值 + 阶梯第 2 层回退 + 列表 reading_time）** |
 | theme-fixture | 47 | fixture 主题的声明与模板自洽 |
 | theme-default | 66 | default 主题（墨白 MOBAI）：模板真渲染 + head 的 SEO 契约（canonical/og/hreflang/feed）+ 语言包键完整性 + **§8b member fixture 由真 `memberScope()` 生成（规则 81）** |
-| theme-bundled | 112 | **走真 `BUNDLED_THEMES` 逐主题渲染全部 templates 与 parts**（两种登录状态各一遍）+ 语言包双向完整 + 空/降级作用域 + 非空校验（规则 81） |
+| theme-bundled | 124 | **走真 `BUNDLED_THEMES` 逐主题渲染全部 templates 与 parts**（两种登录状态各一遍）+ 语言包双向完整 + 空/降级作用域 + 非空校验（规则 81）+ **§5b 语言切换器是 `<details>` 下拉（触发器读 `<summary>` 内部文本、列出全部语言、无平铺 nav——规则 83）** |
 
 > **第二套自带主题：`prism`（棱镜 PRISM）。** 它最初以 `sakura` 之名落地，随即**整体改名**为 `prism`：
 > 目录 `content/themes/sakura/` → `content/themes/prism/`、界面词典 key 前缀 `theme.sakura.*` → `theme.prism.*`、
@@ -1578,6 +1640,12 @@ node tests/<name>.test.mjs       # 逐个跑（判据是 0 failures，别把断�
 脚本判据统一是 `^[0-9]+ passed, [0-9]+ failed`，**匹配不到就当失败**（见「第六种假绿」）。
 本轮清掉了三处**多余的第二个摘要行**（`admin-spa` / `i18n` / `architecture` 各自打过一个
 `${X ? "1" : "0"} failure(s)`）——两个摘要两种拼法，正是 grep 抓错行、把崩溃读成通过的原因。
+
+⚠️ **退出必须无条件**（`process.exit(fail ? 1 : 0)`，**不是** `if (fail) process.exit(1)`）。
+`_skeleton-inject` 把套件自己桩掉的 `process.exit` 当完成信号，所以**只在失败时退出**的套件
+在"注入后保持全绿"时会自然退出 → 工具报 `no summary (aborted)`，**把"守卫没红"说成"运行器坏了"**
+（`ARCHITECTURE.md` §12 第 18 种）。`theme-bundled` 与 `theme-default` 本轮就是这么漂出去的，已修；
+harness 另补 `process.on("beforeExit", …)` 兜底，但**约定仍在套件这一侧**。
 
 另有一个**不在 `npm test` 链里**的反向验证工具（`_tenant-query-audit.mjs`，跑得可当普通 suite）：
 

@@ -567,6 +567,17 @@ export async function buildScope(
     codes: ((ls as any[]) ?? []).map((l) => String(l?.code ?? "")).filter(Boolean),
     defaultLocale: siteDefault,
   }).rest, (o.post as any)?.alternates);
+  // The entry the reader is already on, exposed on its own so a **dropdown** can
+  // label its trigger with the current language instead of the raw code.
+  //
+  // A theme cannot look an item up: the template language has `{{#each}}` and
+  // nine helpers, and "find the one whose `current` is true" is not among them.
+  // Looping the list to print the active name is not possible either — the
+  // active entry is in the middle of the list, so a `{{#if l.current}}` inside
+  // the trigger would print every *other* language's name too. So the pick is
+  // made here, from the **same array** `lang_nav` comes from: one source, two
+  // views of it, and they cannot disagree about which language is current.
+  const langCurrent = langNavRows.find((l) => l.current) ?? null;
   // One entry is not a switcher — a monolingual site gets no `lang_nav` at all
   // rather than a control that points at the page it is already on.
   // Plugins may contribute extra scope keys via the `beforeRender` action by
@@ -647,6 +658,10 @@ export async function buildScope(
     // pass in — a plugin must not be able to point "my posts" at someone else.
     ...(myPosts ? { my_posts: myPosts } : {}),
     lang_nav: langNavRows.length > 1 ? langNavRows : [],
+    // The current entry alone, for a dropdown's trigger label. Same condition as
+    // `lang_nav` — a monolingual site has no switcher, so it gets no current
+    // entry either rather than a control that lists one language.
+    lang_current: langNavRows.length > 1 ? langCurrent : null,
     theme: { name: theme.name, version: theme.version, title: theme.manifest.title, strings },
     ...extra,
   };

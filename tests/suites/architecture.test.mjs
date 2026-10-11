@@ -3021,6 +3021,74 @@ section("My posts is the reader's, and only the reader's (rule 82)");
 }
 
 // ---------------------------------------------------------------------------
+section("The language switcher is a dropdown (rule 83)");
+// ---------------------------------------------------------------------------
+
+/**
+ * The switcher used to be a row of pills — every language spelled out in the
+ * header, always visible. It is a `<details>` menu now, and the trigger has to
+ * label itself with the **current language's name**.
+ *
+ * The template language cannot do that on its own. It has `{{#each}}` and nine
+ * helpers and **no lookup**: there is no "read the item whose `current` is
+ * true". Looping inside the trigger is not a workaround either — the current
+ * entry sits in the middle of the list, so a `{{#if l.current}}` there would
+ * print every *other* language's name alongside it. So the pick happens in
+ * `buildScope`, and the guarantee to protect is that it is made from the
+ * **same array** `lang_nav` comes from, by **matching** rather than position.
+ *
+ * ⚠️ Two lessons from writing these, both of which cost a run:
+ *
+ *   1. **A whole-document `includes("简体中文")` pins nothing here.** The menu
+ *      lists every language by name, so a trigger switched to
+ *      `{{lang_current.code}}` still finds the name *somewhere on the page*.
+ *      That was this batch's first assertion, and it stayed green under the
+ *      defect — "anchor on the consumer, not the mention" (§12 #16, rules
+ *      69/78/79), a fourth instance. The template-side check now reads the
+ *      text **inside `<summary>`**; the check below reads the pick itself.
+ *   2. **A fixture whose `current: true` sits at index 0 cannot tell `find`
+ *      from `[0]`.** Both agree, so the scope could pick the wrong entry and
+ *      pass. `theme-bundled`'s `makeScope` puts the rendered language **in the
+ *      middle** of three for exactly this reason.
+ *
+ * The asserts below are lexical for the same reason rules 81/82 are: no suite
+ * here drives the real `buildScope`, so each is written against the **defect
+ * shape** — the point is to go red when the guarantee is dropped.
+ */
+{
+  const rdSrc = blankComments(read(join(ROOT, "src", "extensions", "theme", "runtime-declarative.ts")));
+
+  // The pick is made from `langNavRows`, matching on `current`. Anchor on the
+  // whole construction so a `find` swapped for `langNavRows[0]` (which renders
+  // a plausible and wrong trigger) is caught, as is a pick made from a
+  // *different* array — two arrays can disagree about which language is current.
+  const pick = rdSrc.match(/const langCurrent\s*=\s*([^;]+);/);
+  check("the current-language pick exists (rule 83, non-vacuity)", !!pick && pick[1].length > 10,
+    "`lang_current` must be derived in buildScope — a template cannot look it up");
+  const pickExpr = pick ? pick[1] : "";
+  check(
+    "the current language is picked by matching, not by position (rule 83a)",
+    /langNavRows\.find\(\s*\(?\w+\)?\s*=>\s*\w+\.current\s*\)/.test(pickExpr),
+    "`find(l => l.current)` — an index (`langNavRows[0]`) silently names the wrong language on every locale but one"
+  );
+  check(
+    "the pick comes from the same array as lang_nav (rule 83b)",
+    pickExpr.includes("langNavRows"),
+    "one source, two views: picking from a second array lets the trigger and the menu disagree"
+  );
+
+  // Same gate as `lang_nav`. A monolingual site gets neither: one entry is not
+  // a switcher, and an ungated `lang_current` would put a stray name in a
+  // header that renders no menu at all.
+  check(
+    "lang_current shares lang_nav's gate (rule 83c)",
+    /lang_nav:\s*langNavRows\.length\s*>\s*1\s*\?\s*langNavRows\s*:\s*\[\]/.test(rdSrc) &&
+      /lang_current:\s*langNavRows\.length\s*>\s*1\s*\?\s*langCurrent\s*:\s*null/.test(rdSrc),
+    "lang_current must be null under the same condition that empties lang_nav, or the two controls disagree"
+  );
+}
+
+// ---------------------------------------------------------------------------
 section("This suite's own assertions can actually fail (meta-guard)");
 // ---------------------------------------------------------------------------
 

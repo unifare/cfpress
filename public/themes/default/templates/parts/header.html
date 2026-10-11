@@ -10,8 +10,22 @@
         <input id="q" type="search" placeholder="{{default(theme.strings.search, "Search articles…")}}" aria-label="{{default(theme.strings.search, "Search articles…")}}">
       </label>
       {{! Language switcher — one entry per enabled site locale; empty on a
-          monolingual site (the platform omits it there). }}
-      {{#if lang_nav}}<nav class="lang-nav" aria-label="Language">{{#each lang_nav as l}}<a href="{{l.url}}"{{#if l.current}} class="on" aria-current="true"{{/if}}>{{l.code}}</a>{{/each}}</nav>{{/if}}
+          monolingual site (the platform omits it there). A native
+          <details>/<summary> dropdown rather than a row of links: the row grows
+          without bound as a site adds languages, and the trigger reads better
+          naming the current language than showing every code. `lang_current` is
+          that entry, picked in `buildScope` — a template cannot look it up. }}
+      {{#if lang_nav}}
+      <details class="lang-menu">
+        <summary aria-label="Language">
+          <span>{{lang_current.name}}</span>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </summary>
+        <div class="lang-list">
+          {{#each lang_nav as l}}<a href="{{l.url}}"{{#if l.current}} class="on" aria-current="true"{{/if}} hreflang="{{l.code}}">{{l.name}}</a>{{/each}}
+        </div>
+      </details>
+      {{/if}}
       <button class="icon-btn" id="themeBtn" type="button" title="{{default(theme.strings.themeToggle, "Toggle light and dark theme")}}" aria-label="{{default(theme.strings.themeToggle, "Toggle light and dark theme")}}">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"></path></svg>
       </button>

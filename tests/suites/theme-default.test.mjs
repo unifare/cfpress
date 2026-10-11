@@ -336,10 +336,11 @@ async function main() {
   check("zh-CN and en cover the same keys", zhFlat.slice().sort(), enFlat.slice().sort());
 
   console.log(`\n${pass} passed, ${fail} failed`);
-  if (fail) {
-    console.log("failures:\n  " + failures.join("\n  "));
-    process.exit(1);
-  }
+  if (fail) console.log("failures:\n  " + failures.join("\n  "));
+  // Unconditional exit — see the same note in `theme-bundled.test.mjs`. Exiting
+  // only on failure makes the injector harness read a green run as a broken
+  // runner (`no summary (aborted)`) rather than as "the guard did not go red".
+  process.exit(fail ? 1 : 0);
 }
 
 main().catch((e) => {

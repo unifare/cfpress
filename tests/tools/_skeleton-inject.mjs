@@ -1435,6 +1435,54 @@ const SCENARIOS = [
     after: ["  const myPosts = await memberPosts(env, siteId, memberRow?.id ?? \"\", o.locale);"],
     runs: [["tests/suites/architecture.test.mjs", "buildScope only builds my_posts for a signed-in member (rule 82d)"]],
   },
+  // --- the language switcher is a dropdown (rule 83) -----------------------
+  {
+    // The shape being replaced, restored verbatim: a flat row of links. It is
+    // the historical code, so it is what a revert produces — and it renders
+    // perfectly, which is why the guard has to look for the *control* rather
+    // than for a broken page.
+    label: "the switcher regresses to a flat row of language links",
+    file: THEME_FILE("prism", "templates/parts/header.html"),
+    before: ['      <details class="lang-menu">'],
+    after: ['      <nav class="lang-nav">'],
+    runs: [["tests/suites/theme-bundled.test.mjs", "prism: templates/parts/header.html opens the switcher as a <details> menu"]],
+  },
+  {
+    // The quiet one: the dropdown is still a dropdown, but its trigger labels
+    // itself with the raw code again. `zh-CN` is an identifier, and a reader
+    // choosing a language should not have to decode one — the whole point of
+    // publishing `lang_current` on its own. Only an assertion on the rendered
+    // *name* sees this.
+    label: "the switcher trigger labels itself with the language code",
+    file: THEME_FILE("prism", "templates/parts/header.html"),
+    before: ["          <span>{{lang_current.name}}</span>"],
+    after: ["          <span>{{lang_current.code}}</span>"],
+    runs: [["tests/suites/theme-bundled.test.mjs", "prism: templates/parts/header.html labels the trigger with the current language's name"]],
+  },
+  {
+    // The pick goes wrong without disappearing: `find(current)` becomes the
+    // first entry. On a site whose default language is the one being rendered,
+    // the trigger looks **correct** — on every other language it silently names
+    // the wrong one, and nothing else on the page disagrees.
+    //
+    // ⚠️ This must run against the **architecture** guard, not `theme-bundled`.
+    // `theme-bundled` renders with a **fixture** `lang_current`, so it never
+    // calls `buildScope` and cannot see this defect — pointing the scenario at
+    // it is what produced two `no summary` runs in a row: the injected suite
+    // stayed green, and a scenario whose target cannot go red reads as a broken
+    // runner rather than a broken guard. The guard that owns this guarantee is
+    // the lexical one over `buildScope`.
+    //
+    // Chosen over `lang_current: null` on purpose: dropping the key renders a
+    // literal `undefined` into the trigger, which the generic no-`undefined`
+    // invariant catches first — the scenario would then go red on a different
+    // line and report "went red" while pinning nothing about this code.
+    label: "the current language is picked as the first entry, not the matching one",
+    file: join(ROOT, "src/extensions/theme/runtime-declarative.ts"),
+    before: ["  const langCurrent = langNavRows.find((l) => l.current) ?? null;"],
+    after: ["  const langCurrent = langNavRows[0] ?? null;"],
+    runs: [["tests/suites/architecture.test.mjs", "the current language is picked by matching, not by position (rule 83a)"]],
+  },
 ];
 
 /** Every file any scenario may touch, hashed before and after. */
@@ -1527,6 +1575,25 @@ function runSuite(relPath) {
     // The fix is to make the suite's own `process.exit` the *only* trigger. If
     // the module itself throws before ever calling it, `esbuild`-style failures
     // still need reporting — so the catch reports, but a clean resolve does not.
+    //
+    // ⚠️ **Third false negative, found by a scenario that could not go red.**
+    // Relying on `process.exit` alone is an *implicit contract*, and two suites
+    // broke it: `theme-bundled` and `theme-default` end with
+    // `if (fail) { … process.exit(1); }` — they exit only on **failure**. So a
+    // scenario whose injection leaves such a suite **green** never reaches
+    // `done`, the worker drains and exits, and the `exit` handler reports
+    // `no summary (aborted)`. The message blames the *runner*; the truth is
+    // "the guard did not go red". It cost a run here (two rule-83 scenarios
+    // read as INVALID when the real fault was a weak assertion), and it is the
+    // same misdirection as the two above: a green suite wearing a broken-tool
+    // label.
+    //
+    // `beforeExit` closes the hole without reopening the race above. It fires
+    // when the **event loop drains** — after every `await` in `main()` has
+    // settled — not when the module body returns (which is what made
+    // `.then(() => done(0))` premature). A suite still awaiting esbuild keeps
+    // the loop alive, so this cannot fire early; a suite that hangs still hits
+    // the timeout below.
     const entry = `
       let out = "";
       process.stdout.write = (c) => { out += c; };
@@ -1538,6 +1605,7 @@ function runSuite(relPath) {
         parentPort.postMessage({ out, code: code == null ? 0 : code });
       };
       process.exit = done;
+      process.on("beforeExit", () => done(0));
       import(${JSON.stringify(pathToFileURL(join(ROOT, relPath)).href)})
         .catch((e) => { out += "\\n[suite threw before process.exit] " + ((e && e.stack) || e) + "\\n"; done(1); });
     `;

@@ -79,9 +79,25 @@ nav.nav a:hover{background:var(--surface);color:var(--accent)}
 .searchbox input{border:0;background:transparent;color:var(--fg);outline:0;width:9.5rem;font:inherit;font-size:.9rem}
 .icon-btn{width:2.2rem;height:2.2rem;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--fg);display:grid;place-items:center;cursor:pointer;transition:transform .18s,border-color .18s}
 .icon-btn:hover{transform:translateY(-1px);border-color:var(--accent)}
-.lang-nav{display:flex;gap:.25rem;font-size:.82rem}
-.lang-nav a{padding:.25rem .55rem;border-radius:999px;color:var(--muted);border:1px solid transparent}
-.lang-nav a.active{border-color:var(--accent);color:var(--accent);font-weight:700}
+{{! ---------- language dropdown ---------- }}
+{{! A native <details>/<summary>, not a scripted menu: the theme is data, and a
+    dropdown that needs JavaScript to open is a dropdown that does nothing
+    before hydration (and on a no-JS reader, nothing at all). <details> opens
+    on click, closes on outside click in every current browser, and keeps the
+    keyboard behaviour for free. }}
+.lang-menu{position:relative;font-size:.85rem}
+.lang-menu>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:.4rem;padding:.35rem .7rem;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--fg-soft);transition:border-color .18s,color .18s}
+.lang-menu>summary::-webkit-details-marker{display:none}
+.lang-menu>summary:hover{border-color:var(--accent);color:var(--accent)}
+.lang-menu[open]>summary{border-color:var(--accent);color:var(--accent)}
+.lang-menu .globe{width:.95rem;height:.95rem;flex:none}
+.lang-menu .caret{width:.62rem;height:.62rem;flex:none;transition:transform .2s}
+.lang-menu[open] .caret{transform:rotate(180deg)}
+.lang-menu .menu-list{position:absolute;right:0;top:calc(100% + .4rem);z-index:30;min-width:9rem;display:flex;flex-direction:column;padding:.3rem;border-radius:14px;border:1px solid var(--border);background:var(--bg-soft);box-shadow:var(--shadow-lg)}
+.lang-menu .menu-list a{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.45rem .7rem;border-radius:10px;color:var(--fg-soft);white-space:nowrap}
+.lang-menu .menu-list a:hover{background:var(--surface);color:var(--accent)}
+.lang-menu .menu-list a.active{color:var(--accent);font-weight:700}
+.lang-menu .menu-list .tick{width:.72rem;height:.72rem;flex:none}
 .btn{display:inline-flex;align-items:center;gap:.4rem;border:0;cursor:pointer;font:inherit;font-size:.92rem;font-weight:700;padding:.55rem 1.15rem;border-radius:999px;background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#fff;box-shadow:var(--shadow);transition:transform .18s,box-shadow .18s}
 .btn:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg)}
 .btn-ghost{background:var(--surface);color:var(--fg);border:1px solid var(--border);box-shadow:none}

@@ -31,12 +31,30 @@
       </form>
 
       {{! One entry per enabled site locale; the platform omits the whole key on a
-          monolingual site, so a one-entry switcher never renders. `current` marks
-          the entry the reader is already on. }}
+          monolingual site, so a one-entry switcher never renders. `lang_current`
+          is the entry the reader is already on, picked in `buildScope` from the
+          same array `lang_nav` comes from — a template cannot look an item up,
+          and looping to find `current` would print the other names too.
+
+          The trigger shows the language's *name* ("简体中文"), not its code:
+          `zh-CN` is an identifier, and a reader choosing a language should not
+          have to decode one. }}
       {{#if lang_nav}}
-      <nav class="lang-nav" aria-label="{{default(theme.strings.nav.language, "Language")}}">
-        {{#each lang_nav as l}}<a href="{{l.url}}"{{#if l.current}} class="active" aria-current="true"{{/if}} hreflang="{{l.code}}">{{l.code}}</a>{{/each}}
-      </nav>
+      <details class="lang-menu">
+        <summary aria-label="{{default(theme.strings.nav.language, "Language")}}">
+          <svg class="globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18"/></svg>
+          <span>{{lang_current.name}}</span>
+          <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </summary>
+        <div class="menu-list">
+          {{#each lang_nav as l}}
+            <a href="{{l.url}}"{{#if l.current}} class="active" aria-current="true"{{/if}} hreflang="{{l.code}}">
+              <span>{{l.name}}</span>
+              {{#if l.current}}<svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 4 4L19 7"/></svg>{{/if}}
+            </a>
+          {{/each}}
+        </div>
+      </details>
       {{/if}}
 
       <button class="icon-btn" id="themeToggle" type="button" aria-pressed="false" aria-label="{{default(theme.strings.a11y.theme, "Toggle colour scheme")}}"></button>

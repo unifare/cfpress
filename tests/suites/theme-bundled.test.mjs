@@ -136,9 +136,29 @@ function makePost() {
  * — so a theme that reads `scope.site.title` gets the site title, exactly as it
  * would in production. Keys a theme invents show up as a literal `undefined` in
  * the output and are caught by the invariant below.
+ *
+ * `lang_nav` / `lang_current` are populated with a **multilingual** site on
+ * purpose. Left empty they are the shape a monolingual site produces, and the
+ * language switcher is behind `{{#if lang_nav}}` — so an empty fixture renders
+ * the trigger never, and any assertion about the switcher passes by vacuously
+ * finding nothing. The dropdown is the one control whose whole absence is
+ * itself a valid render, which makes an empty fixture the wrong default.
+ *
+ * The current language is deliberately **not first**. A fixture whose
+ * `current: true` sits at index 0 makes `find(current)` and `[0]` agree, so a
+ * scope that picks the wrong entry passes every assertion about the trigger —
+ * the fixture's ordering coincidence, not the code, decides the outcome.
+ * Three languages with the rendered one in the middle removes the coincidence:
+ * `lang_current` must be the *matching* entry, and position cannot stand in
+ * for the match. (`over.lang_nav` still lets a caller force a layout.)
  */
 function makeScope(themeName, title, pack, over = {}) {
   const post = makePost();
+  const langNav = [
+    { code: "en", name: "English", current: false, url: "/en" },
+    { code: "zh-CN", name: "简体中文", current: true, url: "/zh-CN" },
+    { code: "ja", name: "日本語", current: false, url: "/ja" },
+  ];
   return {
     site: { title, description: "一份独立中文博客。", robots: "index,follow", locale: "zh-CN", url: "https://theme.example" },
     page: { title, description: "一份独立中文博客。", path: "/zh-CN", kind: "home", document_title: title },
@@ -151,6 +171,8 @@ function makeScope(themeName, title, pack, over = {}) {
     member: null,
     posts: [post],
     my_posts: [],
+    lang_nav: langNav,
+    lang_current: langNav.find((l) => l.current),
     ...over,
   };
 }
@@ -365,6 +387,67 @@ async function checkTheme(themeName, validateManifest, renderTemplateSource) {
     }
   }
 
+  // -- 5b. the language switcher renders as a dropdown ----------------------
+  // `{{#if lang_nav}}` guards the whole control, and a monolingual site has no
+  // `lang_nav` — so **deleting the dropdown leaves the suite green**. That is
+  // the vacuous-check shape (§12 #3: a check over an empty set checks nothing),
+  // and it is why `makeScope` seeds a bilingual `lang_nav` above: without it,
+  // every assertion below would pass by finding nothing.
+  //
+  // The switch from a row of flat links to a `<details>` menu is what these
+  // pin. Three things make it a *dropdown* rather than links again, and each is
+  // separately checkable:
+  //
+  //   - the trigger is `<summary>` and labels itself with the **current
+  //     language's name** (`{{lang_current.name}}`) — not a raw code. A reader
+  //     picking a language should not have to decode `zh-CN`, and a template
+  //     cannot look the current entry up, so a missing `lang_current` renders
+  //     an empty trigger, silently.
+  //
+  //     This must be read **inside the `<summary>`**, not from the page. The
+  //     menu below the trigger lists every language by name, so a
+  //     whole-document `includes("简体中文")` stays green when the trigger is
+  //     switched to `{{lang_current.code}}` — the menu's own row supplies the
+  //     name. That is the "anchor on the mention, not the consumer" shape
+  //     (§12 #16, rules 69/78/79), and it was this assertion's first version:
+  //     it reported `went red` on an unrelated line and would have pinned
+  //     nothing. `triggerText` below is the actual consumer.
+  //   - the entries are inside the menu, so they are NOT visible until opened.
+  //   - the control is not a flat `<nav class="lang-nav">` any more.
+  const langReaders = allFiles.filter((f) => /\{\{#if\s+lang_nav\b/.test(readFileSync(join(themeDir, f.rel), "utf8")));
+  checkTruthy(`${themeName}: at least one file renders the language switcher`, langReaders.length > 0,
+    `scanned ${allFiles.map((f) => f.rel).join(", ")}`);
+  // The trigger's own text: everything between `<summary …>` and `</summary>`,
+  // with tags (the globe / caret icons) stripped. Both templates put the label
+  // in a `<span>` next to an inline SVG, so "strip tags, then read" is what the
+  // reader sees; matching the raw `<summary>` substring would also accept
+  // markup that renders nothing.
+  const triggerText = (html) => {
+    const m = html.match(/<summary\b[^>]*>([\s\S]*?)<\/summary>/);
+    return m ? m[1].replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim() : "";
+  };
+  for (const f of langReaders) {
+    try {
+      const html = await renderStandalone(f, makeScope(themeName, title, zh));
+      check(`${themeName}: ${f.rel} renders clean with a switcher`, everyPageChecks(html, f.part), []);
+      checkTruthy(`${themeName}: ${f.rel} opens the switcher as a <details> menu`, html.includes("<details") && html.includes("<summary"),
+        "the switcher is not a <details>/<summary> dropdown");
+      const trig = triggerText(html);
+      checkTruthy(`${themeName}: ${f.rel} labels the trigger with the current language's name`,
+        trig.includes("简体中文") && !/\bzh-CN\b/.test(trig),
+        `the trigger reads "${trig}" — a {{lang_current.name}} read must resolve to the name, not a raw code`);
+      checkTruthy(`${themeName}: ${f.rel} lists every language, not just the current one`, html.includes("English"),
+        "the menu must offer the other languages as well as the current one");
+      // The old flat row is the shape being replaced; if it comes back, the
+      // "dropdown" is a row of pills wearing a menu's name.
+      checkTruthy(`${themeName}: ${f.rel} does not render the languages as a flat nav row`, !html.includes('class="lang-nav"'),
+        "the switcher regressed to a flat row of links");
+    } catch (e) {
+      fail++; failures.push(`${themeName}: ${f.rel} (switcher) threw`);
+      console.log(`  FAIL ${themeName}: ${f.rel} (switcher) threw\n       ${e.message}`);
+    }
+  }
+
   // -- 6. the packs cover what the markup asks for -------------------------
   // `{{default(theme.strings.x.y, "English literal")}}` degrades silently, so
   // this is the only place a missing key is noticed. Scan every file under
@@ -442,10 +525,15 @@ async function main() {
   }
 
   console.log(`\n${pass} passed, ${fail} failed`);
-  if (fail) {
-    console.log("failures:\n  " + failures.join("\n  "));
-    process.exit(1);
-  }
+  if (fail) console.log("failures:\n  " + failures.join("\n  "));
+  // Exit **unconditionally**. Exiting only on failure is an implicit contract
+  // with the injector harness: it reads this suite's own `process.exit` as the
+  // completion signal, so a green run that never calls it drains the worker and
+  // is reported as `no summary (aborted)` — "the runner is broken" instead of
+  // "the guard did not go red". `_skeleton-inject.mjs` now also reports on
+  // `beforeExit`, but the convention (every suite ends with `process.exit`) is
+  // what the harness was written against, and this file had drifted from it.
+  process.exit(fail ? 1 : 0);
 }
 
 main().catch((e) => {

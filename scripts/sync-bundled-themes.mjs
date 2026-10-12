@@ -113,11 +113,16 @@ export function copyPlan(sourceRoot, targetRoot, relPaths) {
 }
 
 /**
- * One full sync: wipe `public/themes`, copy **the bundled themes** over, return
- * what happened. Wipe-then-copy (rather than diffing) keeps the invariant
- * trivially true — no stale file can survive from a deleted template or a theme
- * that stopped being bundled — and the tree is small (a couple of themes), so
- * the cost is negligible next to a deploy.
+ * One full sync: copy **the bundled themes** over `public/themes` in place,
+ * then retire files the copy set no longer contains. NOT wipe-then-copy: a
+ * crash **between** the wipe and the copies once left `public/themes` EMPTY —
+ * and every page then falls back to the minimal shell with no error anywhere
+ * (seen live: a trash-shim timeout killed the rmSync and the next dev boot
+ * rendered 191-byte stubs for the whole site). Copying in place means every
+ * interrupted state is a valid tree — at worst a superset of the old one —
+ * and the stale-file retirement runs LAST, where a failure is cosmetic (an
+ * old file left behind, visible to git and to the architecture suite), never
+ * an outage.
  *
  * Every early exit throws rather than warning: shipping *nothing* renders
  * `__fallback__` in production, and shipping *too much* leaks a test fixture,
@@ -142,9 +147,15 @@ export function syncBundledThemes(sourceRoot = SOURCE_ROOT, targetRoot = TARGET_
     throw new Error(`no theme files found under ${sourceRoot} — refusing to wipe ${targetRoot} for nothing`);
   }
   const plan = copyPlan(sourceRoot, targetRoot, files);
-  rmSync(targetRoot, { recursive: true, force: true });
   for (const { from, to } of plan) {
     cpSync(from, to);
+  }
+  // Stale files are retired only after every replacement is already on disk.
+  // A stale leftover can only ever be a file that WAS bundled and stopped
+  // being — never the test fixture, which the copy set above never contained.
+  const keep = new Set(plan.map((p) => p.rel));
+  for (const rel of listThemeFiles(targetRoot)) {
+    if (!keep.has(rel)) rmSync(join(targetRoot, ...rel.split("/")), { force: true });
   }
   return { count: plan.length, files: plan.map((p) => p.rel), names: [...names] };
 }

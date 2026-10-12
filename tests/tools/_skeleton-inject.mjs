@@ -685,6 +685,17 @@ const SCENARIOS = [
     runs: [["tests/suites/architecture.test.mjs", "the sync does not enumerate the whole content/themes directory"]],
   },
   {
+    label: "the sync wipes public/themes before copying the themes over",
+    // The outage shape seen live: the wipe died mid-run (delete-shim timeout)
+    // and `public/themes` stayed EMPTY — every page fell back to the minimal
+    // shell with no error anywhere. The sync must copy in place and retire
+    // stale files last; this proves the pin against wipe-then-copy can fail.
+    file: SYNC_THEMES,
+    before: ["  for (const { from, to } of plan) {\n    cpSync(from, to);\n  }"],
+    after: ["  rmSync(targetRoot, { recursive: true, force: true });\n  for (const { from, to } of plan) {\n    cpSync(from, to);\n  }"],
+    runs: [["tests/suites/architecture.test.mjs", "the sync copies in place and retires stale files last (a mid-sync crash cannot empty public/themes)"]],
+  },
+  {
     label: "the bundled languages stop being offered for the site",
     // `core_locales` shipped for a long time with **no consumer at all**: the
     // payload carried the fact, nothing read it, and a fresh install therefore

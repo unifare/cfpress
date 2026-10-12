@@ -1915,6 +1915,19 @@ section("Bundled themes ship through Worker assets (rule 66)");
       ? ["sync-bundled-themes.mjs walks content/themes directly — the fixture would ship again"]
       : []
   );
+  // And it must never wipe `public/themes` before the copies: a crash between
+  // the wipe and the copies leaves the tree EMPTY, and every page then falls
+  // back to the minimal shell with no error anywhere (seen live 2026-10: a
+  // delete-shim timeout killed the rmSync and the next dev boot served
+  // 191-byte stubs for the whole site). Copy in place; retire stale files
+  // LAST, where a failure leaves an old file behind (visible to git and to
+  // the tree check above) instead of an outage.
+  check(
+    "the sync copies in place and retires stale files last (a mid-sync crash cannot empty public/themes)",
+    /for \(const \{ from, to \} of plan\) \{\s*cpSync\(from, to\);\s*\}/.test(syncSrc)
+      && /keep\.has\(rel\)/.test(syncSrc)
+      && !/rmSync\(targetRoot,/.test(syncSrc)
+  );
 
   // -- the runtime fallback is wired -----------------------------------------
   // The whole design rests on `bundledThemeFile` being reachable from **every**

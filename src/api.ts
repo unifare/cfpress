@@ -421,7 +421,9 @@ async function savePost(
     // which is the existence oracle MS-1.1 forbids (cross-site known-id → 404).
     return ok({ error: "not found" }, 404);
   }
-  const isCreate = !existingPost;
+  // `let`, not `const`: a lost INSERT race (below) turns the create into an
+  // update of the row the other writer won.
+  let isCreate = !existingPost;
   // An explicitly sent slug must be free *in this language*: two translations
   // of different posts may not share a URL, while different posts never see
   // each other's per-locale rows. The main-table check on top covers the
@@ -444,9 +446,24 @@ async function savePost(
     // A new post starts as its own group of one; a translation added later
     // adopts the existing group (see the i18n/translations endpoint).
     const langGroup = String(body.lang_group ?? "").trim() || entityId;
-    await env.DB.prepare("INSERT INTO posts (id, site_id, author_id, type, slug, status, lang_group, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .bind(entityId, siteId, userId, kind, tSlug || entityId, status, langGroup, now(), now()).run();
-  } else {
+    try {
+      await env.DB.prepare("INSERT INTO posts (id, site_id, author_id, type, slug, status, lang_group, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(entityId, siteId, userId, kind, tSlug || entityId, status, langGroup, now(), now()).run();
+    } catch (e: any) {
+      // Serial callers can never see this: the existence check above read no
+      // row. Concurrent ones can — two demo seeds racing (the boot hook and a
+      // restore button landing together) both pass the check and both INSERT.
+      // Losing the race to the *same site's* row is just "the serial second
+      // call": fall through to the update path below. Losing it to *another
+      // site's* row stays a hard error — swallowing it would write across
+      // tenants, the exact thing MS-1.1 forbids.
+      if (!/UNIQUE constraint failed: posts\.id/.test(String(e?.message ?? e))) throw e;
+      const racy = await env.DB.prepare("SELECT site_id FROM posts WHERE id=? LIMIT 1").bind(entityId).first<any>();
+      if (!racy || racy.site_id !== siteId) throw e;
+      isCreate = false;
+    }
+  }
+  if (!isCreate) {
     const old = await env.DB.prepare("SELECT * FROM post_translations WHERE post_id=? AND locale=? LIMIT 1").bind(entityId,locale).first<any>();
     if(old) await createRevision(env,entityId,userId,locale,String(old.title||""),String(old.excerpt||""),String(old.content||""));
     // Who owns the main-table slug? Two storage shapes exist and both are

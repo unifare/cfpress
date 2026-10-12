@@ -228,11 +228,29 @@ h5{font-size:1rem;font-weight:800}
 .kv dt{color:var(--muted)}
 .kv dd{margin:0;font-weight:600;text-align:right;word-break:break-all}
 .myposts{display:flex;flex-direction:column;gap:.7rem}
-.mypost{display:grid;grid-template-columns:1fr auto;gap:1rem;align-items:center;padding:.95rem 1.1rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);transition:border-color .18s,transform .18s}
+.mypost{display:grid;grid-template-columns:1fr auto auto;gap:1rem;align-items:center;padding:.95rem 1.1rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);transition:border-color .18s,transform .18s}
 .mypost:hover{border-color:var(--accent);transform:translateX(3px)}
 .mypost h4{margin:0 0 .2rem;font-size:1rem;font-weight:700}
 .mypost .sub{color:var(--muted);font-size:.82rem}
+{{! the row's title is the link; the actions beside it are not a second one }}
+.mypost-main{color:inherit;text-decoration:none}
+.mypost-actions{display:flex;align-items:center;gap:.35rem}
+.inline-form{margin:0;display:inline-flex}
+.icon-btn{display:inline-flex;align-items:center;justify-content:center;width:2rem;height:2rem;border-radius:11px;border:1px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;text-decoration:none;transition:color .18s,border-color .18s,transform .18s}
+.icon-btn:hover{color:var(--accent);border-color:var(--accent);transform:translateY(-1px)}
+.icon-btn.danger:hover{color:#e5484d;border-color:#e5484d}
 .badge{display:inline-block;font-size:.72rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:.22rem .6rem;border-radius:999px;background:color-mix(in oklab,var(--accent-2) 20%,transparent);color:var(--accent-2)}
+
+{{! ---------- compose ---------- }}
+.compose{padding:2.6rem 0;max-width:52rem;margin:0 auto}
+.compose .panel{display:flex;flex-direction:column;gap:.4rem}
+.compose .byline{color:var(--muted);font-size:.88rem;margin:.2rem 0 1.2rem}
+.compose .byline b{color:var(--fg)}
+.compose-form{display:flex;flex-direction:column;gap:1.1rem;margin-top:.6rem}
+.compose-form .field small{color:var(--muted);font-size:.78rem}
+.compose-form textarea{min-height:16rem}
+.compose-actions{display:flex;align-items:center;gap:.7rem;margin-top:.4rem}
+.form-error{margin:.6rem 0 0;padding:.75rem 1rem;border-radius:var(--radius);border:1px solid color-mix(in oklab,#e5484d 45%,var(--border));background:color-mix(in oklab,#e5484d 12%,transparent);color:#e5484d;font-size:.9rem;font-weight:600}
 
 {{! ---------- 404 / empty ---------- }}
 .notfound{text-align:center;padding:5rem 1.35rem}

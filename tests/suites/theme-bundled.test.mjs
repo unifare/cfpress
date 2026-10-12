@@ -171,6 +171,14 @@ function makeScope(themeName, title, pack, over = {}) {
     member: null,
     posts: [post],
     my_posts: [],
+    // The request's query, flattened — what a form reads back to show why a
+    // submission failed (`?error=`). Present-but-empty is the production shape
+    // for a GET; a fixture that omitted it would let a template print a literal
+    // `undefined` and still pass `everyPageChecks` only by luck of the guard.
+    query: {},
+    // The member's own post being edited, or null. `buildScope` derives it from
+    // `my_posts` (one reader, two views); the fixture keeps them consistent.
+    edit_post: null,
     lang_nav: langNav,
     lang_current: langNav.find((l) => l.current),
     ...over,
@@ -446,6 +454,68 @@ async function checkTheme(themeName, validateManifest, renderTemplateSource) {
       fail++; failures.push(`${themeName}: ${f.rel} (switcher) threw`);
       console.log(`  FAIL ${themeName}: ${f.rel} (switcher) threw\n       ${e.message}`);
     }
+  }
+
+  // -- 5c. the member's write surface is plain forms -----------------------
+  // The member surface is the one part of a theme that **writes**, and it is
+  // rendered as HTML a browser submits with no script at all. Three things
+  // about that are load-bearing, and every one of them fails quietly:
+  //
+  //   - the form posts to the front API and carries a `redirect`, or a reader
+  //     who just saved a story is shown a raw JSON body;
+  //   - the language is a `<select name="locale">`, or a multilingual site can
+  //     only ever write its default language;
+  //   - a rejection comes back as `?error=<code>` and the template **reads**
+  //     it, or a failed save re-renders the form with no explanation.
+  //
+  // The last one is why `query` is in the scope at all, and it is asserted on
+  // the rendered message — never on `html.includes("form-error")`, which the
+  // stylesheet satisfies on its own (`.form-error{…}` is a CSS rule). That is
+  // the "anchor on the mention, not the consumer" shape (§12 #16, 铁律 3b).
+  const withPosts = { ...signedInScope(), my_posts: [{ ...post, status: "draft" }] };
+  const composeFile = { rel: "templates/compose.html", name: "compose", part: false };
+  if (existsSync(join(themeDir, "templates", "compose.html"))) {
+    const create = await renderStandalone(composeFile, signedInScope());
+    checkTruthy(`${themeName}: compose.html posts to the front API`,
+      create.includes('action="/api/v1/front/posts"'),
+      "the editor must submit to /api/v1/front/posts");
+    checkTruthy(`${themeName}: compose.html carries a redirect field`,
+      /name="redirect"/.test(create),
+      "without a redirect the reader lands on a JSON body after saving");
+    checkTruthy(`${themeName}: compose.html chooses the language with a <select>`,
+      /<select name="locale">/.test(create),
+      "a multilingual site needs a way to say which language it is writing");
+    // Assert against the **pack's own wording**, not the template's English
+    // fallback: the pack wins in production, so a literal assertion would only
+    // be testing the fixture. The generic line must NOT appear for a code the
+    // theme knows — otherwise every failure reads the same and the specific
+    // message is decoration.
+    const slugMsg = lookup(zh, "compose.errSlug");
+    const genericMsg = lookup(zh, "compose.errGeneric");
+    const failed = await renderStandalone(composeFile, { ...signedInScope(), query: { error: "slug already used in this language" } });
+    checkTruthy(`${themeName}: compose.html shows the failure the server sent back`,
+      Boolean(slugMsg) && failed.includes(slugMsg) && !failed.includes(genericMsg),
+      `?error= must be read and rendered — looked for ${JSON.stringify(slugMsg)}`);
+    const unknown = await renderStandalone(composeFile, { ...signedInScope(), query: { error: "not found" } });
+    checkTruthy(`${themeName}: compose.html falls back for a code it does not know`,
+      Boolean(genericMsg) && unknown.includes(genericMsg) && !unknown.includes(slugMsg),
+      `an unmapped code must still say something — looked for ${JSON.stringify(genericMsg)}`);
+    const editing = await renderStandalone(composeFile, { ...signedInScope(), query: { id: "post_1" }, edit_post: post });
+    checkTruthy(`${themeName}: compose.html turns into an edit form for ?id=`,
+      editing.includes('action="/api/v1/front/posts/post_1"'),
+      "?id= must switch the form from create to edit");
+  }
+  if (existsSync(join(themeDir, "templates", "account.html"))) {
+    const account = await renderStandalone({ rel: "templates/account.html", name: "account", part: false }, withPosts);
+    checkTruthy(`${themeName}: account.html deletes through a POST form`,
+      /<form[^>]*action="\/api\/v1\/front\/posts\/[^"]*\/delete"/.test(account),
+      "a destructive action must be a POST form; a GET link deletes on prefetch");
+    checkTruthy(`${themeName}: account.html offers no plain link that deletes`,
+      !/href="[^"]*delete/.test(account),
+      "a delete must never be reachable by an ordinary link");
+    checkTruthy(`${themeName}: account.html links each row to the editor`,
+      /href="\/zh-CN\/compose\?id=[^"]+"/.test(account),
+      "managing a story needs a way back into the editor for that post");
   }
 
   // -- 6. the packs cover what the markup asks for -------------------------

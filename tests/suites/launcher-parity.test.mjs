@@ -415,6 +415,64 @@ function normName(s) {
       `${suitesOnDisk.length} suites scanned`
     );
   }
+
+  // 5d. a suite's database reads are null-safe.
+  //
+  // The sibling of 5c, and the reason 5c is not enough. A suite that reads a
+  // row which is **not there** and immediately takes a property off it does not
+  // fail — it throws: `sqlite.prepare(...).get(...).title` is `TypeError:
+  // Cannot read properties of undefined (reading 'title')`. 5c then makes it
+  // print `(aborted)`, which is honest and still useless to the
+  // reverse-validation tool: the tool looks for the **named assertion** among
+  // the failures, and an abort has no failures at all, so a caught defect is
+  // reported as `no summary while injected` — a broken tool, not a caught
+  // defect. That is exactly what happened twice in one batch, both times in a
+  // fixture whose setup the injected defect itself had broken, so the row the
+  // assertion wanted never existed.
+  //
+  // The fix is `?.` on the result, and `String(x ?? "")` on a *bind* — binding
+  // `undefined` throws `Provided value cannot be bound to SQLite parameter 1`.
+  // The rule is stated as "a database read is never dereferenced without `?.`"
+  // rather than "…unless the query is a COUNT", because the coarse rule is one
+  // line and the fine one wants a SQL parser; `.get()?.n` on a COUNT is exactly
+  // as correct, and uniform code is code a reader can check at a glance.
+  //
+  // Scoped to `sqlite.prepare(…)`: a `Map.get(k).push(…)` is a different method
+  // on a different object, and flagging it would be a guard that fails correct
+  // code — which is a guard that gets switched off.
+  {
+    // Read *code*, not prose. This block's own explanation names the defect
+    // shape (`` `sqlite.prepare(...).get(...).title` ``) as an example, and the
+    // first run of this guard fired on exactly those two comment lines — the
+    // same self-reference 5c documents. Blanking comments keeps every line
+    // number in place (the newlines survive), which matters: an offender list
+    // that points at the wrong line is a list people learn to ignore.
+    const blankComments = (s) =>
+      s
+        .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+        .replace(/^([ \t]*)\/\/.*$/gm, (m, indent) => indent);
+    // One level of nested parens, which is what a `String(x ?? "")` bind needs.
+    const GET = /\.get\((?:[^()]|\([^()]*\))*\)\s*\.(?!\?)/g;
+    const offenders = [];
+    for (const rel of suitesOnDisk) {
+      const src = blankComments(readFileSync(join(ROOT, rel), "utf8"));
+      let m;
+      GET.lastIndex = 0;
+      while ((m = GET.exec(src)) !== null) {
+        // Only a *database* read: the enclosing statement (back to the last
+        // `;`) must contain `.prepare(`. The window bounds the backward look.
+        const stmt = src.slice(Math.max(0, m.index - 600), m.index).split(";").pop();
+        if (!/\.prepare\(/.test(stmt)) continue;
+        offenders.push(`${rel}:${src.slice(0, m.index).split("\n").length}`);
+      }
+    }
+    checkEmpty("every suite's database read is null-safe (?. on the result)", offenders);
+    check(
+      "the null-safe scan saw the reads (the check is not vacuous)",
+      suitesOnDisk.some((f) => /\.prepare\(/.test(readFileSync(join(ROOT, f), "utf8"))),
+      "no suite contains a `.prepare(` call"
+    );
+  }
 }
 
 // 6. the table covers package.json's `test` chain — otherwise the launcher and

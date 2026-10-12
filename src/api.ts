@@ -1094,8 +1094,105 @@ export async function handleFrontApi(env: Env, request: Request, siteId: string,
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error("front api error:", message);
+    // A browser that submitted a form must not be shown a JSON body — not even
+    // on a crash. The content type is still readable here (only the *body* is
+    // consumed), so the shape of the answer is still the caller's.
+    if (isFormRequest(request)) {
+      return new Response(null, { status: 303, headers: { Location: "/?error=server_error" } });
+    }
     return ok({ error: message }, 500);
   }
+}
+
+/**
+ * Did this request come from a plain HTML form rather than a JSON caller?
+ *
+ * **Positive identification, not "anything that is not JSON".** A browser form
+ * always sends one of these two types, so anything else — including a request
+ * with no `Content-Type` at all — keeps the JSON path it had before, and no
+ * existing caller changes shape. (`logout` is the one that would have: it takes
+ * no body, so a script posts it with no content type.)
+ */
+function isFormRequest(request: Request): boolean {
+  const type = (request.headers.get("content-type") || "").toLowerCase();
+  return type.includes("application/x-www-form-urlencoded") || type.includes("multipart/form-data");
+}
+
+/**
+ * Read a front-end request's parameters, whichever shape the caller sent.
+ *
+ * The theme renders its member surface as plain HTML forms — the templates say
+ * "no JavaScript", and they mean it — so the API has to accept what a browser
+ * actually sends: `application/x-www-form-urlencoded`. It keeps accepting JSON
+ * too, because the tests and any script drive the same endpoints that way.
+ *
+ * **One reader for the whole surface.** A per-endpoint `request.json()` is how
+ * the two shapes drift apart, and the drift is silent: the form path answers
+ * `invalid_username` to a username the caller *did* send, because the JSON
+ * parse failed and the `.catch` turned it into `{}`. That is exactly what the
+ * login and register forms did before this existed.
+ *
+ * A form body is flat, so a custom field is spelled `meta_<key>`; the JSON path
+ * sends `meta` whole, and is passed through untouched.
+ */
+async function readFrontParams(request: Request): Promise<{ body: Record<string, any>; form: boolean }> {
+  if (!isFormRequest(request)) {
+    const j = await request.json().catch(() => ({}));
+    return { body: j && typeof j === "object" ? (j as Record<string, any>) : {}, form: false };
+  }
+  const fd = await request.formData().catch(() => null);
+  const body: Record<string, any> = {};
+  const meta: Record<string, string> = {};
+  if (fd) {
+    for (const [k, v] of fd.entries()) {
+      if (typeof v !== "string") continue;
+      if (k.startsWith("meta_")) meta[k.slice(5)] = v;
+      else body[k] = v;
+    }
+  }
+  if (Object.keys(meta).length) body.meta = meta;
+  return { body, form: true };
+}
+
+/**
+ * Where a form submission is allowed to be sent after it finishes.
+ *
+ * **Same-site absolute paths only.** The `redirect` field is caller-supplied in
+ * the strongest sense — anyone can build a link to our form with any value in
+ * it — so echoing it into `Location:` is an open redirect: a phishing page that
+ * reads as ours. `//host` is protocol-relative (a *different* origin), and
+ * `/\host` is a path to some browsers and an authority to others, so both are
+ * refused along with anything absolute. A refused value falls back.
+ */
+function safeRedirect(value: unknown, fallback: string): string {
+  const s = String(value ?? "").replace(/[\r\n]/g, "");
+  if (/^\/(?!\/)/.test(s) && !s.startsWith("/\\")) return s;
+  return fallback;
+}
+
+/**
+ * Answer a front-end request in the shape the caller used.
+ *
+ * A JSON caller is untouched: same body, same status — that is the contract the
+ * tests pin. A **form** caller gets `303 See Other` back to its own `redirect`
+ * field, because a browser cannot read a JSON body: without this, "no
+ * JavaScript" sign-in ends on a page showing the reader `{"ok":true}`. The
+ * cookie the endpoint set rides on both. A failure redirects too, with
+ * `?error=<code>` — the alternative is showing a reader a JSON error page for a
+ * typo in their password.
+ */
+async function frontAnswer(form: boolean, res: Response, opts: { redirect?: unknown; fallback: string }): Promise<Response> {
+  if (!form) return res;
+  let to = safeRedirect(opts.redirect, opts.fallback);
+  if (res.status >= 400) {
+    const body: any = await res.json().catch(() => ({}));
+    const code = typeof body?.error === "string" ? body.error : "failed";
+    to += (to.includes("?") ? "&" : "?") + "error=" + encodeURIComponent(code);
+  }
+  const headers: Record<string, string> = { Location: to };
+  const cookie = res.headers.get("set-cookie");
+  if (cookie) headers["Set-Cookie"] = cookie;
+  return new Response(null, { status: 303, headers });
 }
 
 /**
@@ -1282,35 +1379,41 @@ async function routeFrontApi(env: Env, request: Request, siteId: string, resolve
   const method = request.method;
 
   if (path === "auth/register" && method === "POST") {
-    const b = (await request.json().catch(() => ({}))) as any;
-    const r = await registerMember(env, siteId, String(b.username ?? ""), String(b.password ?? ""), b.email ? String(b.email) : null);
-    if ("error" in r) {
-      // `closed` is a policy refusal (403); the rest are input errors (400).
-      // The codes are stable so the theme can translate them.
-      return ok({ error: r.error }, r.error === "closed" ? 403 : 400);
-    }
-    return new Response(JSON.stringify({ ok: true, member: r.member }), {
-      status: 201,
-      headers: { "Content-Type": "application/json", "Set-Cookie": r.cookie },
-    });
+    const { body, form } = await readFrontParams(request);
+    const r = await registerMember(env, siteId, String(body.username ?? ""), String(body.password ?? ""), body.email ? String(body.email) : null);
+    // `closed` is a policy refusal (403); the rest are input errors (400).
+    // The codes are stable so the theme can translate them.
+    const res =
+      "error" in r
+        ? ok({ error: r.error }, r.error === "closed" ? 403 : 400)
+        : new Response(JSON.stringify({ ok: true, member: r.member }), {
+            status: 201,
+            headers: { "Content-Type": "application/json", "Set-Cookie": r.cookie },
+          });
+    return frontAnswer(form, res, { redirect: body.redirect, fallback: "/" });
   }
 
   if (path === "auth/login" && method === "POST") {
-    const b = (await request.json().catch(() => ({}))) as any;
-    const r = await loginMember(env, siteId, String(b.username ?? ""), String(b.password ?? ""));
-    if ("error" in r) return ok({ error: r.error }, 401);
-    return new Response(JSON.stringify({ ok: true, member: r.member }), {
-      status: 200,
-      headers: { "Content-Type": "application/json", "Set-Cookie": r.cookie },
-    });
+    const { body, form } = await readFrontParams(request);
+    const r = await loginMember(env, siteId, String(body.username ?? ""), String(body.password ?? ""));
+    const res =
+      "error" in r
+        ? ok({ error: r.error }, 401)
+        : new Response(JSON.stringify({ ok: true, member: r.member }), {
+            status: 200,
+            headers: { "Content-Type": "application/json", "Set-Cookie": r.cookie },
+          });
+    return frontAnswer(form, res, { redirect: body.redirect, fallback: "/" });
   }
 
   if (path === "auth/logout" && method === "POST") {
+    const { body, form } = await readFrontParams(request);
     const r = await logoutMember(env, request);
-    return new Response(JSON.stringify({ ok: true }), {
+    const res = new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { "Content-Type": "application/json", "Set-Cookie": r.cookie },
     });
+    return frontAnswer(form, res, { redirect: body.redirect, fallback: "/" });
   }
 
   if (path === "me" && method === "GET") {
@@ -1332,18 +1435,40 @@ async function routeFrontApi(env: Env, request: Request, siteId: string, resolve
   // posts" is the account page's `my_posts` scope (rule 82), defined once in
   // `buildScope`; a second reader with its own SQL would be a second definition
   // of "mine", and the two would be free to disagree.
+  // A form cannot send `PUT` or `DELETE`, so each write has a POST twin. They
+  // are **routes**, not second implementations: every one calls the same
+  // `saveMemberPost` / `deleteMemberPost`, so the ownership filter, the author
+  // and the status rule live in exactly one place (rule 84). The JSON verbs
+  // stay for scripts; `POST /posts/:id/delete` is how a browser deletes.
   if (path === "posts" && method === "POST") {
     const m = await requireMember(env, request, siteId);
     if (m instanceof Response) return m;
-    return saveMemberPost(env, siteId, m.id, null, await request.json().catch(() => ({})));
+    const { body, form } = await readFrontParams(request);
+    return frontAnswer(form, await saveMemberPost(env, siteId, m.id, null, body), {
+      redirect: body.redirect,
+      fallback: "/",
+    });
   }
-  const ownPost = path.match(/^posts\/([^/]+)$/);
-  if (ownPost && (method === "PUT" || method === "DELETE")) {
+  const ownDelete = path.match(/^posts\/([^/]+)\/delete$/);
+  if (ownDelete && method === "POST") {
     const m = await requireMember(env, request, siteId);
     if (m instanceof Response) return m;
-    const id = decodeURIComponent(ownPost[1]);
-    if (method === "DELETE") return deleteMemberPost(env, siteId, m.id, id);
-    return saveMemberPost(env, siteId, m.id, id, await request.json().catch(() => ({})));
+    const { body, form } = await readFrontParams(request);
+    const res = await deleteMemberPost(env, siteId, m.id, decodeURIComponent(ownDelete[1]));
+    return frontAnswer(form, res, { redirect: body.redirect, fallback: "/" });
+  }
+  const ownPost = path.match(/^posts\/([^/]+)$/);
+  if (ownPost && (method === "PUT" || method === "POST")) {
+    const m = await requireMember(env, request, siteId);
+    if (m instanceof Response) return m;
+    const { body, form } = await readFrontParams(request);
+    const res = await saveMemberPost(env, siteId, m.id, decodeURIComponent(ownPost[1]), body);
+    return frontAnswer(form, res, { redirect: body.redirect, fallback: "/" });
+  }
+  if (ownPost && method === "DELETE") {
+    const m = await requireMember(env, request, siteId);
+    if (m instanceof Response) return m;
+    return deleteMemberPost(env, siteId, m.id, decodeURIComponent(ownPost[1]));
   }
 
   return ok({ error: "Not found" }, 404);

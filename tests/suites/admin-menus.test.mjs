@@ -242,7 +242,7 @@ async function main() {
     .map((r) => r.name);
   check("admin_menu_registry exists", tableNames.includes("admin_menu_registry"), true);
   check("theme_admin_menus is gone", tableNames.includes("theme_admin_menus"), false);
-  const ddl = sqlite.prepare("SELECT sql FROM sqlite_master WHERE name='admin_menu_registry'").get().sql;
+  const ddl = sqlite.prepare("SELECT sql FROM sqlite_master WHERE name='admin_menu_registry'").get()?.sql;
   checkTruthy(
     "the UNIQUE constraint includes the owner (otherwise two themes collide)",
     ddl.includes("UNIQUE(site_id, owner_type, owner_name, menu_id)")

@@ -3203,6 +3203,123 @@ section("Front-end publishing belongs to the member, and to the session (rule 84
 }
 
 // ---------------------------------------------------------------------------
+section("The front-end member surface works with no JavaScript (rule 85)");
+// ---------------------------------------------------------------------------
+
+/**
+ * The member surface — register, sign in, write, delete — is rendered as plain
+ * HTML forms, and the templates have always said so in comments ("no
+ * JavaScript: the form POSTs straight to the front-end API and the server
+ * redirects back"). Until this rule that promise was **false**: the API only
+ * parsed JSON, so a real form answered `invalid_username` about a username the
+ * reader *had* typed (the parse threw, the `.catch` turned it into `{}`), and
+ * the redirect the comment promised never happened at all. A reader with
+ * scripts disabled could not sign in.
+ *
+ * The mechanism that closes it is small, and every part of it fails quietly:
+ *
+ *   - **one body reader.** A per-endpoint `request.json()` is how the two
+ *     shapes drift apart, and the drift is invisible — the endpoint answers
+ *     about a field the caller did send.
+ *   - **positive form identification.** "Anything that is not JSON" looks
+ *     equivalent and is not: `logout` takes no body, so a script posts it with
+ *     no `Content-Type` at all, and that rule would silently change its answer
+ *     from a JSON body to a redirect.
+ *   - **same-site redirects only.** The `redirect` field is caller-supplied in
+ *     the strongest sense — anyone can link to our form with any value in it —
+ *     so echoing it into `Location:` is an open redirect: a phishing page that
+ *     reads as ours.
+ *   - **a failure redirects too.** A browser cannot read a JSON error body, so
+ *     a rejected submission has to come back as `?error=<code>`; without that
+ *     the reader sees the same form again, no wiser than before.
+ *
+ * These are lexical for the same reason rules 81–84 are: no suite here drives
+ * the real worker. Each is written against the **defect shape**, so it goes red
+ * when the guarantee is dropped, not merely when a line moves.
+ */
+{
+  const src = blankComments(read(join(ROOT, "src", "api.ts")));
+
+  // Slice the functions: `request.json()` and `status: 303` appear elsewhere in
+  // `api.ts` (every admin endpoint parses JSON), so a whole-file scan would
+  // agree with code that never carried the front-end contract.
+  const routeStart = src.indexOf("async function routeFrontApi");
+  const routeEnd = src.indexOf("async function routeApi", routeStart);
+  const routeFn = routeStart >= 0 ? src.slice(routeStart, routeEnd > 0 ? routeEnd : routeStart + 8000) : "";
+  const readerStart = src.indexOf("async function readFrontParams");
+  const readerFn = readerStart >= 0 ? src.slice(readerStart, readerStart + 2500) : "";
+  const formStart = src.indexOf("function isFormRequest");
+  const formFn = formStart >= 0 ? src.slice(formStart, formStart + 900) : "";
+  const safeStart = src.indexOf("function safeRedirect");
+  const safeFn = safeStart >= 0 ? src.slice(safeStart, safeStart + 900) : "";
+  const answerStart = src.indexOf("async function frontAnswer");
+  const answerFn = answerStart >= 0 ? src.slice(answerStart, answerStart + 2000) : "";
+  const handlerStart = src.indexOf("export async function handleFrontApi");
+  const handlerFn = handlerStart >= 0 ? src.slice(handlerStart, handlerStart + 5000) : "";
+
+  check("the front body reader exists (rule 85, non-vacuity)", readerFn.length > 400);
+  check("the form detector exists (rule 85, non-vacuity)", formFn.length > 100);
+  check("the redirect guard exists (rule 85, non-vacuity)", safeFn.length > 100);
+  check("the form answer adapter exists (rule 85, non-vacuity)", answerFn.length > 400);
+
+  // 85a — one reader. No front endpoint may reach for `request.json()` itself:
+  // that is precisely the line that made every form fail, because a form body
+  // throws on `.json()` and the `.catch` swallows it into `{}`.
+  check(
+    "the front routes never parse the body themselves (rule 85a)",
+    !/request\.json\(\)/.test(routeFn) && /readFrontParams\(request\)/.test(routeFn),
+    "every front endpoint must read through `readFrontParams`; a local `request.json()` is the shape that broke the forms"
+  );
+  check(
+    "the body reader parses what a browser sends (rule 85a)",
+    /request\.formData\(\)/.test(readerFn) && formFn.includes("application/x-www-form-urlencoded"),
+    "the reader must accept `application/x-www-form-urlencoded`, not only JSON"
+  );
+
+  // 85b — the shape of the answer belongs to the caller. Every read is paired
+  // with an answer, so the counts must agree; a new endpoint that reads a form
+  // but returns JSON is exactly the regression this pins.
+  const reads = (routeFn.match(/readFrontParams\(request\)/g) || []).length;
+  const answers = (routeFn.match(/frontAnswer\(/g) || []).length;
+  check(
+    "every form read is answered through the same adapter (rule 85b)",
+    reads > 0 && answers >= reads,
+    `found ${reads} read(s) and ${answers} answer(s) — a form request must not fall out as JSON`
+  );
+  check(
+    "a form answer is a 303 (rule 85b)",
+    answerFn.includes("status: 303"),
+    "a browser that submitted a form must be sent somewhere, not handed a body to render"
+  );
+
+  // 85c — positive identification, never "not JSON". `logout` carries no body,
+  // so a script posts it with no content type; a `!/json/` test would flip its
+  // answer from JSON to a redirect and break every existing caller silently.
+  check(
+    "form detection is positive, never 'anything but JSON' (rule 85c)",
+    formFn.includes("application/x-www-form-urlencoded") && !formFn.includes("/json/i"),
+    "`!isJson` would change the answer for a caller that sent no Content-Type (logout)"
+  );
+
+  // 85d — the redirect stays on this site. `//host` is protocol-relative (a
+  // different origin) and `/\host` is a path to some browsers and an authority
+  // to others, so both must be refused.
+  check(
+    "the redirect refuses protocol-relative and backslash targets (rule 85d)",
+    safeFn.includes("/^\\/(?!\\/)/") && safeFn.includes('startsWith("/\\\\")'),
+    "`//host` is another origin and `/\\host` is an authority to some browsers — that is an open redirect"
+  );
+
+  // 85e — a crash answers in the caller's shape too. A form that hits a 500
+  // must not be shown a JSON error page either.
+  check(
+    "the front handler's crash path also answers a form (rule 85e)",
+    /catch/.test(handlerFn) && /isFormRequest\(request\)/.test(handlerFn),
+    "a 500 must not show a reader a JSON body"
+  );
+}
+
+// ---------------------------------------------------------------------------
 section("This suite's own assertions can actually fail (meta-guard)");
 // ---------------------------------------------------------------------------
 

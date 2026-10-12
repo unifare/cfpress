@@ -716,7 +716,7 @@ async function main() {
   const ownKeys = env.MEDIA._dump().filter((k) => k.includes("extensions/themes/uninstallme/"));
   checkTruthy("its files are in R2", ownKeys.length >= 5, ownKeys.length);
 
-  const countFor = (sql) => sqlite.prepare(sql).get().n;
+  const countFor = (sql) => sqlite.prepare(sql).get()?.n;
 
   const act2 = await req(worker, env, "/api/v1/extensions/themes/uninstallme/activate", { method: "POST", headers: authHeaders });
   const act2Body = await act2.json();
@@ -758,7 +758,7 @@ async function main() {
   const forced = await req(worker, env, "/api/v1/extensions/themes/uninstallme?force=1", { method: "DELETE", headers: authHeaders });
   check("a forced uninstall is accepted while the theme is in use", forced.status, 200);
   check("and the occupying site falls back to the bundled default",
-    sqlite.prepare("SELECT value FROM settings WHERE site_id='default' AND key='theme.active'").get().value, "default");
+    sqlite.prepare("SELECT value FROM settings WHERE site_id='default' AND key='theme.active'").get()?.value, "default");
   check("and the theme is really gone",
     (await (await req(worker, env, "/api/v1/extensions/themes", { headers: authHeaders })).json()).items.some((x) => x.name === "uninstallme"), false);
 
@@ -857,7 +857,7 @@ async function main() {
   // The refused uninstall must not have removed the install row either —
   // a 400 that still mutated state would be worse than a 500.
   check("the bundled theme is still installed",
-    sqlite.prepare("SELECT COUNT(*) AS n FROM theme_installs WHERE name='default'").get().n, 1);
+    sqlite.prepare("SELECT COUNT(*) AS n FROM theme_installs WHERE name='default'").get()?.n, 1);
 
   console.log("\n11. Menu locations resolve deterministically (rule 73)");
   // Two header menus on one site used to be a coin flip: `LIMIT 1` without

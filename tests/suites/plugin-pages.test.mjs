@@ -532,7 +532,7 @@ async function main() {
     const otherBody = await otherCount.json();
     check("the other site counts its own (empty) table", otherBody.value, 0);
     checkTruthy("the physical table name is shared by name only, separated by site",
-      sqlite.prepare("SELECT COUNT(*) AS n FROM theme_table_defs WHERE owner_type='plugin' AND owner_name=? AND logical_name='entry'").get(PLUGIN).n >= 2);
+      sqlite.prepare("SELECT COUNT(*) AS n FROM theme_table_defs WHERE owner_type='plugin' AND owner_name=? AND logical_name='entry'").get(PLUGIN)?.n >= 2);
     void otherPhysical;
 
     // -------------------------------------------------------------------

@@ -148,7 +148,7 @@ async function main() {
   sqlite.prepare("INSERT INTO site_users_sites(user_id,site_id,role,created_at) VALUES(?,?,?,?)").run(u1Id, SITE_B, "author", now);
   sqlite.prepare("INSERT INTO site_users_sites(user_id,site_id,role,created_at) VALUES(?,?,?,?)").run(u2Id, SITE_A, "editor", now);
 
-  check("the identity rows exist", sqlite.prepare("SELECT COUNT(*) AS n FROM site_users WHERE username LIKE 'fdl\\_%' ESCAPE '\\'").get().n, 2);
+  check("the identity rows exist", sqlite.prepare("SELECT COUNT(*) AS n FROM site_users WHERE username LIKE 'fdl\\_%' ESCAPE '\\'").get()?.n, 2);
   check("the person on two sites has two membership rows",
     sqlite.prepare("SELECT site_id, role FROM site_users_sites WHERE user_id=? ORDER BY site_id").all(u1Id).map((r) => [r.site_id, r.role]),
     [[SITE_A, "editor"], [SITE_B, "author"]]);
@@ -158,21 +158,21 @@ async function main() {
   // re-derives the delete instead of calling `deleteUser`. If this assertion
   // ever stops holding, the positive test below proves nothing.
   sqlite.prepare("DELETE FROM site_users WHERE id=?").run(u2Id);
-  check("the identity is gone", sqlite.prepare("SELECT COUNT(*) AS n FROM site_users WHERE id=?").get(u2Id).n, 0);
+  check("the identity is gone", sqlite.prepare("SELECT COUNT(*) AS n FROM site_users WHERE id=?").get(u2Id)?.n, 0);
   check("but its membership row is orphaned (this is the defect rule 80 prevents)",
-    sqlite.prepare("SELECT COUNT(*) AS n FROM site_users_sites WHERE user_id=?").get(u2Id).n, 1);
+    sqlite.prepare("SELECT COUNT(*) AS n FROM site_users_sites WHERE user_id=?").get(u2Id)?.n, 1);
   // Clean the orphan so it cannot be mistaken for `deleteUser`'s doing.
   sqlite.prepare("DELETE FROM site_users_sites WHERE user_id=?").run(u2Id);
 
   console.log("\n3. deleteUser() removes the identity AND every membership");
-  const before = sqlite.prepare("SELECT COUNT(*) AS n FROM site_users_sites WHERE user_id=?").get(u1Id).n;
+  const before = sqlite.prepare("SELECT COUNT(*) AS n FROM site_users_sites WHERE user_id=?").get(u1Id)?.n;
   check("the person has memberships before the delete (non-vacuity)", before, 2);
 
   const res = await deleteUser(env, u1Id);
   check("deleteUser reports success", res, { ok: true });
-  check("the identity row is gone", sqlite.prepare("SELECT COUNT(*) AS n FROM site_users WHERE id=?").get(u1Id).n, 0);
+  check("the identity row is gone", sqlite.prepare("SELECT COUNT(*) AS n FROM site_users WHERE id=?").get(u1Id)?.n, 0);
   check("and so is every membership row",
-    sqlite.prepare("SELECT COUNT(*) AS n FROM site_users_sites WHERE user_id=?").get(u1Id).n, 0);
+    sqlite.prepare("SELECT COUNT(*) AS n FROM site_users_sites WHERE user_id=?").get(u1Id)?.n, 0);
 
   console.log("\n4. the delete does not reach across people");
   // `deleteUser` must be addressed by the identity it is given — a stray
@@ -187,13 +187,13 @@ async function main() {
   sqlite.prepare("INSERT INTO site_users_sites(user_id,site_id,role,created_at) VALUES(?,?,?,?)").run(u2Id, SITE_B, "editor", now);
   await deleteUser(env, "user_fdl_absent");   // a person who does not exist
   check("deleting a non-existent id removes nothing",
-    sqlite.prepare("SELECT COUNT(*) AS n FROM site_users WHERE username LIKE 'fdl\\_%' ESCAPE '\\'").get().n, 1);
+    sqlite.prepare("SELECT COUNT(*) AS n FROM site_users WHERE username LIKE 'fdl\\_%' ESCAPE '\\'").get()?.n, 1);
   check("and leaves the surviving person's membership intact",
     sqlite.prepare("SELECT site_id FROM site_users_sites WHERE user_id=? ORDER BY site_id").all(u2Id).map((r) => r.site_id),
     [SITE_B]);
   await deleteUser(env, u2Id);
   check("deleting them removes their membership too",
-    sqlite.prepare("SELECT COUNT(*) AS n FROM site_users_sites WHERE user_id=?").get(u2Id).n, 0);
+    sqlite.prepare("SELECT COUNT(*) AS n FROM site_users_sites WHERE user_id=?").get(u2Id)?.n, 0);
 
   console.log("\n5. the two statements are one atomic unit (a real batch, not two awaits)");
   // `deleteUser` builds one `DB.batch([...])`. Drive it with a batch recording
@@ -238,16 +238,16 @@ async function main() {
   check("the batch carries both statements", batchSize, 2);
   check("and nothing was executed outside it", topLevelRuns, 0);
   check("the person is fully gone after that one call",
-    [sqlite.prepare("SELECT COUNT(*) AS n FROM site_users WHERE id=?").get(u1Id).n,
-     sqlite.prepare("SELECT COUNT(*) AS n FROM site_users_sites WHERE user_id=?").get(u1Id).n],
+    [sqlite.prepare("SELECT COUNT(*) AS n FROM site_users WHERE id=?").get(u1Id)?.n,
+     sqlite.prepare("SELECT COUNT(*) AS n FROM site_users_sites WHERE user_id=?").get(u1Id)?.n],
     [0, 0]);
 
   console.log("\ncleanup");
   sweep();
   check("the suite's own fixtures are gone",
-    [sqlite.prepare("SELECT COUNT(*) AS n FROM site_users WHERE username LIKE 'fdl\\_%' ESCAPE '\\'").get().n,
-     sqlite.prepare("SELECT COUNT(*) AS n FROM site_users_sites WHERE user_id LIKE 'user_fdl%'").get().n,
-     sqlite.prepare("SELECT COUNT(*) AS n FROM sites WHERE id IN (?1,?2)").get(SITE_A, SITE_B).n],
+    [sqlite.prepare("SELECT COUNT(*) AS n FROM site_users WHERE username LIKE 'fdl\\_%' ESCAPE '\\'").get()?.n,
+     sqlite.prepare("SELECT COUNT(*) AS n FROM site_users_sites WHERE user_id LIKE 'user_fdl%'").get()?.n,
+     sqlite.prepare("SELECT COUNT(*) AS n FROM sites WHERE id IN (?1,?2)").get(SITE_A, SITE_B)?.n],
     [0, 0, 0]);
 
   summary();

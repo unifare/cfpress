@@ -430,7 +430,7 @@ async function main() {
   await section("9. deleting removes the object before the row", async () => {
     const f = await upload(adminCookie, SITE_A, "doomed.png");
     const id = f.body.id;
-    const key = sqlite.prepare("SELECT object_key FROM media_files WHERE id=?").get(id).object_key;
+    const key = sqlite.prepare("SELECT object_key FROM media_files WHERE id=?").get(id)?.object_key;
     checkTruthy("the object is in R2", env.MEDIA.has(key));
 
     const notOwner = await req(`/api/v1/media/${id}?site=${SITE_A}`, { method: "DELETE", headers: { Cookie: editorCookie } });
@@ -439,7 +439,7 @@ async function main() {
 
     const del = await req(`/api/v1/media/${id}?site=${SITE_A}`, { method: "DELETE", headers: { Cookie: adminCookie } });
     check("the owner can", del.status, 200);
-    check("the row is gone", sqlite.prepare("SELECT COUNT(*) AS n FROM media_files WHERE id=?").get(id).n, 0);
+    check("the row is gone", sqlite.prepare("SELECT COUNT(*) AS n FROM media_files WHERE id=?").get(id)?.n, 0);
     checkTruthy("and so is the object", !env.MEDIA.has(key));
     // Order matters: the row is the only thing that names the object, so
     // deleting it first would strand the bytes with nothing left to find them.

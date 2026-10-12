@@ -291,11 +291,11 @@ async function main() {
   check("MS-1.2: restoring site B's post with site A's revision id is a 404", restoreB.status, 404);
 
   console.log("\n3. MS-1.4: deleting a site purges its registries, retains its content");
-  const beforeRows = sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE site_id=?").get(C).n;
+  const beforeRows = sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE site_id=?").get(C)?.n;
   const del = await req(worker, env, `/api/v1/sites/${C}`, { method: "DELETE", headers: auth });
   check("MS-1.4: the site delete goes through", del.status, 200);
   check("MS-1.4 (retain): the deleted site's posts rows survive", beforeRows > 0, true);
-  check("MS-1.4 (retain): ...", sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE site_id=?").get(C).n, beforeRows);
+  check("MS-1.4 (retain): ...", sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE site_id=?").get(C)?.n, beforeRows);
   for (const [t, label] of [
     ["settings", "purge: settings"], ["site_locales", "purge: site_locales"],
     ["redirects", "purge: redirects"], ["rewrites", "purge: rewrites"],
@@ -304,11 +304,11 @@ async function main() {
     // version counter (id='default'), not a tenant table — there is no
     // per-site row to purge (MS-4.3 covers the bump itself).
   ]) {
-    const n = sqlite.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE site_id=?`).get(C).n;
+    const n = sqlite.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE site_id=?`).get(C)?.n;
     check(`MS-1.4 (${label}) rows are gone with the site`, n, 0);
   }
   check("MS-1.4: the site row itself is gone",
-    sqlite.prepare("SELECT COUNT(*) AS n FROM sites WHERE id=?").get(C).n, 0);
+    sqlite.prepare("SELECT COUNT(*) AS n FROM sites WHERE id=?").get(C)?.n, 0);
 
   console.log("\n4. MS-1.5: the identity outlives the site, with no access left");
   // A FRESH site (C is already gone), so the delete-purge path really runs:
@@ -325,8 +325,8 @@ async function main() {
   const del2 = await req(worker, env, `/api/v1/sites/${D}`, { method: "DELETE", headers: auth });
   check("MS-1.5: the membership-bearing site delete goes through", del2.status, 200);
   check("MS-1.5: the identity survives the site delete",
-    sqlite.prepare("SELECT COUNT(*) AS n FROM site_users WHERE id='user_iso_solo_c'").get().n, 1);
-  check("MS-1.5: the membership did not survive", sqlite.prepare("SELECT COUNT(*) AS n FROM site_users_sites WHERE user_id='user_iso_solo_c'").get().n, 0);
+    sqlite.prepare("SELECT COUNT(*) AS n FROM site_users WHERE id='user_iso_solo_c'").get()?.n, 1);
+  check("MS-1.5: the membership did not survive", sqlite.prepare("SELECT COUNT(*) AS n FROM site_users_sites WHERE user_id='user_iso_solo_c'").get()?.n, 0);
   // The identity still exists, so a session for it is mintable — but with no
   // membership rows `can()` has nothing to answer yes with (no fallback).
   sqlite.prepare("INSERT INTO admin_sessions(id,user_id,expires_at,created_at) VALUES(?,?,?,?)")
@@ -370,7 +370,7 @@ async function main() {
   check("MS-3.4: on the A mount the member session is live", meAp.status, 200);
   const meBh = await req(worker, env, "/api/v1/front/me", { headers: memberCookieA }, "b.example");
   check("MS-3.4: the same member cookie on site B's host is not a session", meBh.status, 401);
-  const twoAlice = sqlite.prepare("SELECT COUNT(DISTINCT site_id) AS n FROM members WHERE username='iso_alice'").get().n;
+  const twoAlice = sqlite.prepare("SELECT COUNT(DISTINCT site_id) AS n FROM members WHERE username='iso_alice'").get()?.n;
   check("MS-3.4: the same username exists as two per-site members", twoAlice, 2);
   const memberOnAdmin = await req(worker, env, "/api/v1/auth/me", { headers: memberCookieA });
   check("MS-3.4 (rule 77 red line): a member cookie on the admin API is 401", memberOnAdmin.status, 401);
@@ -397,7 +397,7 @@ async function main() {
     check(`MS-4.3: site ${s}'s cache version moved`, cacheV(s) > beforeV[s], true);
   }
   check("MS-4.3: no queue rows were left unprocessed",
-    sqlite.prepare("SELECT COUNT(*) AS n FROM scheduled_posts WHERE post_id LIKE 'iso\\_sched%' ESCAPE '\\' AND processed_at IS NULL").get().n, 0);
+    sqlite.prepare("SELECT COUNT(*) AS n FROM scheduled_posts WHERE post_id LIKE 'iso\\_sched%' ESCAPE '\\' AND processed_at IS NULL").get()?.n, 0);
 
   console.log("\n8. MS-4.4: the same slug on three sites resolves three ways");
   // Front rendering needs an active theme; `default` is the local install.
@@ -436,9 +436,9 @@ async function main() {
   });
   check("MS-1.2: autosave POST on another site's post is a 404", autoX.status, 404);
   check("MS-1.2: ...and no revision row was minted for it",
-    sqlite.prepare("SELECT COUNT(*) AS n FROM post_revisions WHERE post_id='iso_post_b' AND title='xeno-rev'").get().n, 0);
+    sqlite.prepare("SELECT COUNT(*) AS n FROM post_revisions WHERE post_id='iso_post_b' AND title='xeno-rev'").get()?.n, 0);
   check("MS-1.2: ...and no autosave row was minted for it",
-    sqlite.prepare("SELECT COUNT(*) AS n FROM post_autosaves WHERE post_id='iso_post_b' AND title='xeno-auto'").get().n, 0);
+    sqlite.prepare("SELECT COUNT(*) AS n FROM post_autosaves WHERE post_id='iso_post_b' AND title='xeno-auto'").get()?.n, 0);
   // MS-3.1: reads filtered by site_id but never asked can() — the switcher hid
   // B while `?site=B` still opened it for an editor with no B membership.
   const eListB = await req(worker, env, `/api/v1/posts?site=${B}`, { headers: aCookie });
@@ -468,11 +468,11 @@ async function main() {
   console.log("\ncleanup");
   sweep();
   check("the suite's fixtures are gone (identities)",
-    sqlite.prepare("SELECT COUNT(*) AS n FROM site_users WHERE username LIKE 'iso\\_%' ESCAPE '\\'").get().n, 0);
+    sqlite.prepare("SELECT COUNT(*) AS n FROM site_users WHERE username LIKE 'iso\\_%' ESCAPE '\\'").get()?.n, 0);
   check("the suite's fixtures are gone (members)",
-    sqlite.prepare("SELECT COUNT(*) AS n FROM members WHERE username LIKE 'iso\\_%' ESCAPE '\\'").get().n, 0);
+    sqlite.prepare("SELECT COUNT(*) AS n FROM members WHERE username LIKE 'iso\\_%' ESCAPE '\\'").get()?.n, 0);
   check("the suite's fixtures are gone (sites)",
-    sqlite.prepare("SELECT COUNT(*) AS n FROM sites WHERE id LIKE 'iso\\_%' ESCAPE '\\'").get().n, 0);
+    sqlite.prepare("SELECT COUNT(*) AS n FROM sites WHERE id LIKE 'iso\\_%' ESCAPE '\\'").get()?.n, 0);
 
   summary();
   process.exit(fail ? 1 : 0);

@@ -29,21 +29,40 @@
       <h2>{{default(theme.strings.account.myPosts, "My posts")}}</h2>
       <div class="line"></div>
       {{#if my_posts}}<span class="more">{{len(my_posts)}} {{default(theme.strings.articles.unit, "articles")}}</span>{{/if}}
+      <a class="btn btn-ghost" href="/{{locale}}/compose">{{default(theme.strings.account.newPost, "Write a story")}}</a>
     </div>
 
     {{#if my_posts}}
       <div class="myposts">
         {{#each my_posts as post}}
-          <a class="mypost" href="{{post.url}}">
-            <div>
+          <div class="mypost">
+            <a class="mypost-main" href="{{post.url}}">
               <h4>{{post.title}}</h4>
               <div class="sub">
                 {{#if post.date_display}}{{post.date_display}}{{/if}}
                 {{#if post.reading_time}} · {{post.reading_time}}{{/if}}
               </div>
-            </div>
+            </a>
             {{#if post.status}}<span class="badge">{{post.status}}</span>{{/if}}
-          </a>
+            {{! Managing a story is two more forms: an edit link that reopens the
+                editor on this post, and a delete that is a form because a plain
+                link can only GET — and a GET must never destroy a row. Both go
+                through the same front API as everything else, so ownership is
+                checked in one place (rule 84). }}
+            <div class="mypost-actions">
+              <a class="icon-btn" href="/{{locale}}/compose?id={{post.id}}"
+                 title="{{default(theme.strings.account.edit, "Edit")}}" aria-label="{{default(theme.strings.account.edit, "Edit")}}">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+              </a>
+              <form method="post" action="/api/v1/front/posts/{{post.id}}/delete" class="inline-form">
+                <input type="hidden" name="redirect" value="/{{locale}}/account">
+                <button class="icon-btn danger" type="submit"
+                        title="{{default(theme.strings.account.delete, "Delete")}}" aria-label="{{default(theme.strings.account.delete, "Delete")}}">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+                </button>
+              </form>
+            </div>
+          </div>
         {{/each}}
       </div>
     {{else}}

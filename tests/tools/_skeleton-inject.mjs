@@ -1553,6 +1553,97 @@ const SCENARIOS = [
     after: ["main().catch((e) => { console.error(e); process.exit(1); });"],
     runs: [["tests/suites/launcher-parity.test.mjs", "every suite's crash path prints a summary (AGENTS.md type 6)"]],
   },
+  // ---- rule 85: the front-end member surface, as a browser drives it --------
+  {
+    // "A form is just a caller that is not JSON." It reads as a simplification
+    // and it is a different rule: `logout` takes no body, so a script posts it
+    // with no `Content-Type` at all, and under this test its answer flips from
+    // a JSON body to a redirect. No front-end *form* test notices, because every
+    // one of them sends a content type — which is why the guard is anchored on
+    // positive identification and the regression is pinned on the JSON caller.
+    label: "form detection becomes 'anything that is not JSON'",
+    file: join(ROOT, "src/api.ts"),
+    before: [
+      '  return type.includes("application/x-www-form-urlencoded") || type.includes("multipart/form-data");',
+    ],
+    after: [
+      "  return !/json/i.test(type);",
+    ],
+    runs: [
+      ["tests/suites/architecture.test.mjs", "form detection is positive, never 'anything but JSON' (rule 85c)"],
+      ["tests/suites/admin-contract.test.mjs", "a JSON sign-out with no content type is still 200"],
+    ],
+  },
+  {
+    // "It is only a path, why the ceremony." Dropping the two refusals turns our
+    // own sign-in form into an open redirect: a link to our form carrying
+    // `//evil.example` reads as ours and lands on theirs. Nothing about the
+    // happy path changes, so only the refusal is load-bearing.
+    label: "the redirect guard stops refusing protocol-relative targets",
+    file: join(ROOT, "src/api.ts"),
+    before: [
+      '  if (/^\\/(?!\\/)/.test(s) && !s.startsWith("/\\\\")) return s;',
+    ],
+    after: [
+      '  if (s.startsWith("/")) return s;',
+    ],
+    runs: [
+      ["tests/suites/architecture.test.mjs", "the redirect refuses protocol-relative and backslash targets (rule 85d)"],
+      ["tests/suites/admin-contract.test.mjs", 'a redirect to "//evil.example/x" is refused (rule 85d)'],
+    ],
+  },
+  {
+    // "Why hand back an empty 303, just return the response." It reads as a
+    // cleanup. Every form caller then receives the JSON body the endpoint
+    // already built — which a browser renders as raw text, i.e. exactly the
+    // symptom that made the no-JavaScript surface unusable.
+    label: "the form answer adapter returns the JSON body instead of a redirect",
+    file: join(ROOT, "src/api.ts"),
+    before: [
+      "  return new Response(null, { status: 303, headers });",
+    ],
+    after: [
+      "  return res;",
+    ],
+    runs: [
+      ["tests/suites/architecture.test.mjs", "a form answer is a 303 (rule 85b)"],
+      ["tests/suites/admin-contract.test.mjs", "a form registration answers 303"],
+    ],
+  },
+  {
+    // The historical shape, verbatim — the line that made every form fail. A
+    // script cannot tell the difference (its body *is* JSON), so only a browser
+    // form breaks, and it breaks by answering about a field the reader did send.
+    label: "a front endpoint parses the body itself again",
+    file: join(ROOT, "src/api.ts"),
+    before: [
+      '    const { body, form } = await readFrontParams(request);\n    const r = await registerMember(env, siteId, String(body.username ?? ""), String(body.password ?? ""), body.email ? String(body.email) : null);',
+    ],
+    after: [
+      '    const body = (await request.json().catch(() => ({}))) as any;\n    const form = false;\n    const r = await registerMember(env, siteId, String(body.username ?? ""), String(body.password ?? ""), body.email ? String(body.email) : null);',
+    ],
+    runs: [
+      ["tests/suites/architecture.test.mjs", "the front routes never parse the body themselves (rule 85a)"],
+      ["tests/suites/admin-contract.test.mjs", "a form registration answers 303"],
+    ],
+  },
+
+  {
+    // The companion to AGENTS.md type 6. A suite that reads a row which is not
+    // there and immediately takes a property off it does not fail, it *throws*;
+    // the crash-path rule then makes it print `(aborted)`, and the
+    // reverse-validation tool can only read that as "the tool broke" — it looks
+    // for the **named** assertion among the failures, and an abort has none.
+    // Twice in one batch a fixture's setup was broken by the very defect under
+    // test, so the row the assertion wanted never existed and a caught defect
+    // was reported as `no summary while injected`.
+    label: "a suite dereferences a database row it may not have",
+    file: join(ROOT, "tests/suites/i18n.test.mjs"),
+    before: [".get()?.id);"],
+    after: [".get().id);"],
+    runs: [["tests/suites/launcher-parity.test.mjs", "every suite's database read is null-safe (?. on the result)"]],
+  },
+
 ];
 
 /** Every file any scenario may touch, hashed before and after. */

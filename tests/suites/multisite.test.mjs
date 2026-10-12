@@ -676,11 +676,11 @@ async function main() {
   const after = await (await req(worker, env, "/api/v1/sites", { headers: auth })).json();
   check("tmp site gone", after.items.some((s) => s.id === "tmp"), false);
   check("deleting a site purges its admin-menu rows",
-    sqlite.prepare("SELECT COUNT(*) AS n FROM admin_menu_registry WHERE site_id='tmp'").get().n, 0);
+    sqlite.prepare("SELECT COUNT(*) AS n FROM admin_menu_registry WHERE site_id='tmp'").get()?.n, 0);
   check("deleting a site purges its generated-table mappings",
-    sqlite.prepare("SELECT COUNT(*) AS n FROM theme_table_defs WHERE site_id='tmp'").get().n, 0);
+    sqlite.prepare("SELECT COUNT(*) AS n FROM theme_table_defs WHERE site_id='tmp'").get()?.n, 0);
   check("deleting a site purges its settings",
-    sqlite.prepare("SELECT COUNT(*) AS n FROM settings WHERE site_id='tmp'").get().n, 0);
+    sqlite.prepare("SELECT COUNT(*) AS n FROM settings WHERE site_id='tmp'").get()?.n, 0);
 
   const upd = await req(worker, env, "/api/v1/sites/shop", {
     method: "PUT", headers: { ...auth, "Content-Type": "application/json" },

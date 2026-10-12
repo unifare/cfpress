@@ -1,6 +1,30 @@
 # CFPress (CFCMS) 交接文档
 
-> 更新时间：2026-10-11 (GMT+8) ｜ 交接基线：**前台会员投稿 API（规则 84）+ 套件崩溃摘要机制**
+> 更新时间：2026-10-12 (GMT+8) ｜ 交接基线：**无 JS 前台表单面（规则 85）+ 空安全 DB 读取机制**
+> **本轮新增**：会员面（注册 / 登录 / 投稿 / 编辑 / 删除）真的能**无 JS** 用了。模板里一直是纯
+> HTML 表单、注释也一直那么写，但**在那之前那句话是假的**：前台 API 只解析 JSON，真实表单拿到
+> `400 invalid_username`——而那个用户名是读者**确实填了**的（`request.json()` 对表单体抛错，
+> `.catch(() => ({}))` 把它变成 `{}`）；注释承诺的重定向**从未发生**。
+> 规则 85 = a **一个 body 读取器**（`readFrontParams`，`routeFrontApi` 里不许有 `request.json()`）/
+> b 回什么形状由调用方定（表单答 **303** 回自己的 `redirect`，JSON 原样；**读答成对**）/
+> c 表单是**正向识别**（只认 `x-www-form-urlencoded` / `multipart`，不是「非 JSON」——`logout`
+> **不带 body 也就不带 Content-Type**）/ d **重定向只许站内**（`//host` 与 `/\host` 都拒，防开放重定向）/
+> e 失败也回重定向（`?error=<code>`，崩溃路径同理）/ f 模板侧**写操作是 POST 表单**（删除绝不能是链接）。
+> scope 新增 `query`（读回 `?error=`）与 `edit_post`（`?id=` 指名的**自己的**文章，**派生自 `my_posts`**，
+> 规则 83 的一源两视图，不是第二次查询）。
+> 守卫：`architecture` 规则 85 节 11 条（切函数体）+ `theme-bundled` §5c 6 条（按**渲染出的消息**断言，
+> 不按 CSS 里的 `.form-error`）+ `admin-contract` §20 33 条（**真 D1**）+ 注入 4 场景。
+> ⚠️ **顺带把「测试的 DB 读取必须空安全」降级为机制**：注入的缺陷让套件**崩溃**（不是断言失败）时，
+> `catch` 会忠实报 `(aborted)`，但反向验证工具要找的是**失败列表里的具名断言**——abort 的列表是**空的**，
+> 于是工具报 `no summary while injected`，读起来像「工具坏了」，真相是「**这条守卫没被证明会红**」。
+> 一批里撞了两次，根因相同：**fixture 的 setup 被正在被测的那个缺陷弄坏了**，断言想要的那行从未存在。
+> 修法：全库 **63 处** DB 读取加 `?.`（**绑定**用 `String(x ?? "")`：绑定 `undefined` 会抛
+> `Provided value cannot be bound to SQLite parameter`）+ `launcher-parity` §5d 断言它
+> （扫描前先清空注释，否则守卫会命中自己解释缺陷形状的那两行注释）。
+> 结果：`_skeleton-inject` **118 场景 / 0 问题**；27 套件全绿（**2057 条**）；`architecture` **247/0**；
+> `admin-contract` **261/0**；`theme-bundled` **139/0**；`launcher-parity` **66/0**；tsc（src/）0 错误；
+> `_tenant-query-audit` 0 NEW（`api.ts` 的裁决行号随插入重对齐）；`_residue-guard` 14 套件全 `DB unchanged`。
+> 上一条交接基线：**前台会员投稿 API（规则 84）+ 套件崩溃摘要机制**
 > **本轮新增**：前台会员可以写**自己的**文章——`POST /api/v1/front/posts` 创建、`PUT /posts/:id` 编辑、
 > `DELETE /posts/:id` 删除。它**不是** `savePost` 换个调用方：`savePost` 答的是 **staff** 会话
 > （作者取后台 cookie、写 `posts.author_id`、信任调用方给的 `status`）；会员是另一种身份（规则 77）。
@@ -1655,18 +1679,18 @@ node tests/<name>.test.mjs       # 逐个跑（判据是 0 failures，别把断�
 
 | 套件 | 数量 | 守什么 |
 |---|---|---|
-| architecture | 224 | 分层红线、默认值零容忍、清单声明与文件对齐、语言包 key 前缀、屏幕集合钉住、菜单引用的表存在、已退役表不再被引用、规则 41 分类表四道结构守卫、**规则 49/51 闭集合双表对比**、**规则 52–55 功能开关**、**规则 56–59 多语言与 URL**、**规则 60 媒体读取路径必须晚于站点解析（结构判据）**、**规则 61 块 attrs 契约：解析渲染器每个 case 的 `a.<key>` 读取集合与声明比对 + 控件覆盖每种类型 + `media-list` 必须声明 `itemKeys`**、**规则 62 媒体控件与 `/media/` URL 各只许一处构造**、**规则 63 词典：SPA 的每个 `t("…")` 键都在每个语言包里 + 两包键集相同 + `core.editor.*` 每个键都有调用点**、**规则 64 自动保存定时器只有一处清理路径 + 导航确实调用它**、**规则 65 主题表的 i18n 侧表（记录说什么就让它成真）**、**规则 66 捆绑主题经 assets 分发：`BUNDLED_THEMES` ↔ `content/themes` 对齐、`public/themes` 逐文件逐字节同步、每个消费点都有兜底、上传/卸载守卫**、**规则 69 注册行不等于安装：boot 链先注册后安装 + 判据数行而非戳记 + 判据镜像清理面**、**规则 70 post_meta 读阶梯只许一处定义 + 读者全走阶梯 + 扫描非空**、**规则 71 语言切换是取数不是改名：版本条必须带语言重新取数 + 禁改名形状 + 列表钉站点默认语言**、**规则 72 拒绝必须带出口：卸载拒绝以 force 为条件 + 强制路径先把占用站点改回捆绑默认主题**、**规则 73 菜单位置确定性：查找 ORDER BY + 渲染读 manifest 位置 + 内置主题声明 menuLocations + SPA 走 scoped**、**规则 74 小工具站点隔离：渲染查询带 site_id + buildScope 喂 widgets 进作用域 + 后台列表同样 scoped + 契约 tenant=site + 内置主题声明 sidebars**、**规则 75 后台前缀是注入的：serveAdminIndex 注入 base + API 整套挂前缀 + 旧地址 404 + cookie Path 是前缀**、**规则 76 站点计数按 site_id 分组 + 主题读站点自己的 theme.active + createSite 播语言行**、**编辑器块面板来自 `CORE_BLOCKS`（SPA 禁块名字面量）**、**Dashboard 统计卡来自 API（禁 stat 硬编码）**、**声明式设置表单 13 类型逐个有渲染分支**、**元守卫：`check()` 条件非布尔即抛错 + 禁"集合当条件" + 禁"字面量当条件"**、**规则 77 两套身份结构性隔离（不同表/不同 cookie 名/不同端点族）**、**规则 78 权限答案必须带站点（`can(…,siteId)` 必填 + 不回退全局 role + 角色集派生）**、**规则 79 后台 UI 必须问和 API 同一个问题（读本站 `role_here`）**、**规则 80 身份和它的成员行一起死（两行一次 batch）**、**规则 81 模板看到的是投影不是行（`memberScope()` 一处）**、**规则 82 我的文章是读者的且只是读者的（站点成对过滤 / 不滤状态 / 内置 permalink / 无会员即缺席）**、**规则 83 语言切换器是下拉（按匹配挑当前语言 + 与 `lang_nav` 同源同门槛）** |
+| architecture | 247 | 分层红线、默认值零容忍、清单声明与文件对齐、语言包 key 前缀、屏幕集合钉住、菜单引用的表存在、已退役表不再被引用、规则 41 分类表四道结构守卫、**规则 49/51 闭集合双表对比**、**规则 52–55 功能开关**、**规则 56–59 多语言与 URL**、**规则 60 媒体读取路径必须晚于站点解析（结构判据）**、**规则 61 块 attrs 契约：解析渲染器每个 case 的 `a.<key>` 读取集合与声明比对 + 控件覆盖每种类型 + `media-list` 必须声明 `itemKeys`**、**规则 62 媒体控件与 `/media/` URL 各只许一处构造**、**规则 63 词典：SPA 的每个 `t("…")` 键都在每个语言包里 + 两包键集相同 + `core.editor.*` 每个键都有调用点**、**规则 64 自动保存定时器只有一处清理路径 + 导航确实调用它**、**规则 65 主题表的 i18n 侧表（记录说什么就让它成真）**、**规则 66 捆绑主题经 assets 分发：`BUNDLED_THEMES` ↔ `content/themes` 对齐、`public/themes` 逐文件逐字节同步、每个消费点都有兜底、上传/卸载守卫**、**规则 69 注册行不等于安装：boot 链先注册后安装 + 判据数行而非戳记 + 判据镜像清理面**、**规则 70 post_meta 读阶梯只许一处定义 + 读者全走阶梯 + 扫描非空**、**规则 71 语言切换是取数不是改名：版本条必须带语言重新取数 + 禁改名形状 + 列表钉站点默认语言**、**规则 72 拒绝必须带出口：卸载拒绝以 force 为条件 + 强制路径先把占用站点改回捆绑默认主题**、**规则 73 菜单位置确定性：查找 ORDER BY + 渲染读 manifest 位置 + 内置主题声明 menuLocations + SPA 走 scoped**、**规则 74 小工具站点隔离：渲染查询带 site_id + buildScope 喂 widgets 进作用域 + 后台列表同样 scoped + 契约 tenant=site + 内置主题声明 sidebars**、**规则 75 后台前缀是注入的：serveAdminIndex 注入 base + API 整套挂前缀 + 旧地址 404 + cookie Path 是前缀**、**规则 76 站点计数按 site_id 分组 + 主题读站点自己的 theme.active + createSite 播语言行**、**编辑器块面板来自 `CORE_BLOCKS`（SPA 禁块名字面量）**、**Dashboard 统计卡来自 API（禁 stat 硬编码）**、**声明式设置表单 13 类型逐个有渲染分支**、**元守卫：`check()` 条件非布尔即抛错 + 禁"集合当条件" + 禁"字面量当条件"**、**规则 77 两套身份结构性隔离（不同表/不同 cookie 名/不同端点族）**、**规则 78 权限答案必须带站点（`can(…,siteId)` 必填 + 不回退全局 role + 角色集派生）**、**规则 79 后台 UI 必须问和 API 同一个问题（读本站 `role_here`）**、**规则 80 身份和它的成员行一起死（两行一次 batch）**、**规则 81 模板看到的是投影不是行（`memberScope()` 一处）**、**规则 82 我的文章是读者的且只是读者的（站点成对过滤 / 不滤状态 / 内置 permalink / 无会员即缺席）**、**规则 83 语言切换器是下拉（按匹配挑当前语言 + 与 `lang_nav` 同源同门槛）**、**规则 84 前台投稿属于会员且只属于会话（作者只来自会话 / 所有权谓词成对 / 404 而非 403 / `author_id` 写 `''` / 创建落 draft 且编辑不碰 status / 不写 activity / 无第二个「我的文章」读者）**、**规则 85 无 JS 前台表单面（路由不自己解析 body / 读取器解析表单体 / 读答成对 / 答 303 / 正向识别 / 站内重定向 / 崩溃路径也答表单）** |
 | _schema-scope | 26 | 迁移流应用到临时 SQLite，逐表检验「声明 vs 真实列」一致（租户 + 语言维度） |
 | manifest-validation | 104 | 安装边界：每个用例注入单个缺陷，断言必须抛错（含内联语言包、菜单 args、**规则 48–51**、规则 41 双向） |
 | admin-menus | 43 | 注册表 schema / `menuRowId` 防碰撞 / 归属隔离 / 排序 / 能力过滤 / 主题与插件注册 / 停用插件只删自己的菜单 / 新站点可见 / 切主题切回 |
-| admin-spa | 79 | 后台模块图无环/无孤儿、`window.*` 契约、每个屏幕真渲染一次、**内容编辑器真渲染（新条目 / 已存在条目）：排期往返 + `#locale` 只读 + 自动保存定时器起停 + **规则 71 版本条切换后标题/块/徽标来自目标语言的行 + 列表版本徽标与语言过滤**、**媒体屏：查询串形状与编码 + 分页算术（空 payload 不产出 NaN）+ 瓦片走共享 URL + 垃圾行不产出瓦片 + 工具栏/投放区/上传控件**、**规则 67 界面语言偏好：单写者扫描（只有 `js/i18n.js` 能写）+ 写者自己重载字典 + 运行时"保存后顶部勾选跟着走、不需要刷新" + "被拒绝时不改语言"** |
+| admin-spa | 87 | 后台模块图无环/无孤儿、`window.*` 契约、每个屏幕真渲染一次、**内容编辑器真渲染（新条目 / 已存在条目）：排期往返 + `#locale` 只读 + 自动保存定时器起停 + **规则 71 版本条切换后标题/块/徽标来自目标语言的行 + 列表版本徽标与语言过滤**、**媒体屏：查询串形状与编码 + 分页算术（空 payload 不产出 NaN）+ 瓦片走共享 URL + 垃圾行不产出瓦片 + 工具栏/投放区/上传控件**、**规则 67 界面语言偏好：单写者扫描（只有 `js/i18n.js` 能写）+ 写者自己重载字典 + 运行时"保存后顶部勾选跟着走、不需要刷新" + "被拒绝时不改语言"** |
 | template-engine | 49 | 模板解释器单元（含子模板未闭合 section 抛错、三层继承最派生者胜） |
 | scaffold | 71 | 生成的 theme/plugin/table 过**真实**校验器 + **真实**模板引擎 + **真实**架构规则 |
 | theme-integration | 134 | 上传→激活→CPT→渲染→切主题保数据，端到端（含表驱动路由）、**§9 卸载全清理 + 占用拒绝 + `?force=1` 强制卸载（占用站点回落捆绑默认）**、**§11 菜单位置确定性（独立站点双 header 菜单稳定获胜 + footer 位置渲染 + 二次渲染一致）**、**§12 小工具端到端（四类型渲染 + 禁用/异语言/跨站均不出现）** |
 | locale-url | 36 | 按语言 slug 的路由/404/唯一性、hreflang、按语言 feed、切换器（规则 56–59）、**§1b 自定义字段带语言（单页/列表按语言取值 + 阶梯第 2 层回退 + 列表 reading_time）** |
 | theme-fixture | 47 | fixture 主题的声明与模板自洽 |
 | theme-default | 66 | default 主题（墨白 MOBAI）：模板真渲染 + head 的 SEO 契约（canonical/og/hreflang/feed）+ 语言包键完整性 + **§8b member fixture 由真 `memberScope()` 生成（规则 81）** |
-| theme-bundled | 124 | **走真 `BUNDLED_THEMES` 逐主题渲染全部 templates 与 parts**（两种登录状态各一遍）+ 语言包双向完整 + 空/降级作用域 + 非空校验（规则 81）+ **§5b 语言切换器是 `<details>` 下拉（触发器读 `<summary>` 内部文本、列出全部语言、无平铺 nav——规则 83）** |
+| theme-bundled | 139 | **走真 `BUNDLED_THEMES` 逐主题渲染全部 templates 与 parts**（两种登录状态各一遍）+ 语言包双向完整 + 空/降级作用域 + 非空校验（规则 81）+ **§5b 语言切换器是 `<details>` 下拉（触发器读 `<summary>` 内部文本、列出全部语言、无平铺 nav——规则 83）** + **§5c 会员写作面是纯表单（投稿表单带 `redirect`、语言是 `<select name="locale">`、`?error=` 被读出来渲染、`?id=` 变编辑表单；账户页删除是 POST 表单、无 GET 删除链接——规则 85）** |
 
 > **第二套自带主题：`prism`（棱镜 PRISM）。** 它最初以 `sakura` 之名落地，随即**整体改名**为 `prism`：
 > 目录 `content/themes/sakura/` → `content/themes/prism/`、界面词典 key 前缀 `theme.sakura.*` → `theme.prism.*`、
@@ -1678,10 +1702,10 @@ node tests/<name>.test.mjs       # 逐个跑（判据是 0 failures，别把断�
 > 基线数字不变（26 套件 / 1940 条 / 0 失败）。
 | multisite | 100 | 多站点隔离（含 SEO 端点按站点、**§9 断言关掉 KV 镜像后确实没有 KV 写入**、**feed 按站点 + RSS 断言**） |
 | i18n | 75 | 多语言四层契约（§5.4① 八条）+ 翻译组 + 主题自有表 |
-| admin-contract | 133 | 后台 API 契约（含块面板形状/无漂移/en+zh 标签、**调色板下发的 attrs 契约（类型/必填/翻译标签/`itemKeys`/容器标记）**、dashboard cards 数组、设置 options 往返、**§12 列表按站点默认语言取代表行 + `locales` 集合 + `?locale=` 过滤 + 未翻译行不被吞**、**§13 菜单契约：CRUD + 批量重排先验归属 + 嵌套一层 + 删父升级子 + 跨站点 404**、**§14 小工具契约：scoped CRUD + config 校验 400 + 跨站 404**、**§15b 前缀挂载带全量请求：经前缀的 `?site=` 真的改变答案 + `?withCounts=1` 真的改变 payload 形状 + 分页参数到达**、**§16 站点计数契约：行级语言种子 + 每站计数含草稿 + 邻站计数是它自己的 + 空站报 0 + 主题读选择/未选报空 + 不带 withCounts 无新字段 + 非当前站点的默认语言可钉**） |
+| admin-contract | 261 | 后台 API 契约（含块面板形状/无漂移/en+zh 标签、**调色板下发的 attrs 契约（类型/必填/翻译标签/`itemKeys`/容器标记）**、dashboard cards 数组、设置 options 往返、**§12 列表按站点默认语言取代表行 + `locales` 集合 + `?locale=` 过滤 + 未翻译行不被吞**、**§13 菜单契约：CRUD + 批量重排先验归属 + 嵌套一层 + 删父升级子 + 跨站点 404**、**§14 小工具契约：scoped CRUD + config 校验 400 + 跨站 404**、**§15b 前缀挂载带全量请求：经前缀的 `?site=` 真的改变答案 + `?withCounts=1` 真的改变 payload 形状 + 分页参数到达**、**§16 站点计数契约：行级语言种子 + 每站计数含草稿 + 邻站计数是它自己的 + 空站报 0 + 主题读选择/未选报空 + 不带 withCounts 无新字段 + 非当前站点的默认语言可钉**、**§19 会员投稿契约（真 D1：跨会员/跨站 404、body 冒充作者被忽略、请求发布仍答 draft、编辑不打回草稿、每语言 slug 冲突 409、meta 按语言写、删除连带清干净）**、**§20 无 JS 表单面（真 D1：表单注册/登录/登出/投稿/编辑/删除 → 303 + Location + cookie、开放重定向被拒而普通路径被尊重、`?error=` 带回原因、表单路径对「不是你的 id」与「不存在的 id」答同一个、JSON 路径不变尤其**不带 Content-Type 的 logout 仍 200**）**） |
 | **media-picker** | **31** | **统一媒体控件（批次 16 Track A3 新增）**：`mediaUrl()` 的形状与**能被读取路径解回同一个 key** / `mediaItem()` 归一化（`media_files` 行与已存值两种输入、垃圾输入拒绝）/ 坏 payload 不炸对话框 / 控件的单值与多值两种形态 + 调用方寻址透传 + 转义 / **闭环：选择器给的 URL，真实渲染器画得出图片与画廊** / 三个消费点都走共享控件 |
 | **editor-blocks** | **40** | **块 attrs 契约的往返（批次 16 Track B1 新增）**：契约良构（类型闭集合/标签/`itemKeys`）+ **契约 → 控件 → 写入的属性键 → 真实渲染器 markup** 的往返 + `required` 的语义（无 url 的图片渲染空）+ 嵌套寻址（子块按路径写入、父块不被穿透）+ **§8 反向对照**（按旧编辑器形状构造的图片/画廊/HTML 块必须渲染为空） |
-| **media** | **69** | **媒体访问（批次 16 Track 0 新增）**：租户闸门（跨站 key → 404）/ 会话闸门 / **owner 硬隔离（含管理员）** / legacy `uploaded_by IS NULL` 的祖父条款 / 上传写归属 + 站点必须真实存在 / 列表按 owner 收窄 + `q`/`type`/分页/`total` / dashboard 媒体卡与列表 total 一致 / PATCH alt·title（非 owner 403、无 `media.write` 403、别站 id 404）/ **DELETE 先删 R2 对象再删行** / 脏策略行 fail-closed / **站点列表 memo 的 per-request 复位**（§1：先发前台请求 → 再建站点 → 再请求它） |
+| **media** | **71** | **媒体访问（批次 16 Track 0 新增）**：租户闸门（跨站 key → 404）/ 会话闸门 / **owner 硬隔离（含管理员）** / legacy `uploaded_by IS NULL` 的祖父条款 / 上传写归属 + 站点必须真实存在 / 列表按 owner 收窄 + `q`/`type`/分页/`total` / dashboard 媒体卡与列表 total 一致 / PATCH alt·title（非 owner 403、无 `media.write` 403、别站 id 404）/ **DELETE 先删 R2 对象再删行** / 脏策略行 fail-closed / **站点列表 memo 的 per-request 复位**（§1：先发前台请求 → 再建站点 → 再请求它） |
 | account | 27 | 账户自助：改密/改名的当前密码闸门、稳定错误码、menu_prefs 隔离、label_key 翻译端到端 |
 | menu-custom | 40 | 站点菜单编辑器三端点契约、权限分层、10 种结构违规 400、`applyMenuCustom` 纯函数语义 |
 | plugin-hooks | 32 | 插件 hook 生命周期 |
@@ -1689,7 +1713,9 @@ node tests/<name>.test.mjs       # 逐个跑（判据是 0 failures，别把断�
 | plugin-channels | 55 | 通知渠道运行时：webhook fetch 计数、claim-before-send 去重（含跨站双向）、`readChannelConfig` 只读声明过的 key |
 | **features** | **56** | **平台功能开关（批次 11 新增）**：列表与来源标注（site/var/default）/ **两层鉴权**（匿名被拒 + 非管理员 `author` 写 → 403，读只需会话）/ 保存往返 + 只落一行 + INSERT 分支 / **三层优先级逐层单独验**（站点行 > `env` var > 默认）/ 脏行降级 / 未知 key → 400 且不落库 / 屏幕接线 / UPDATE 分支（两次保存仍一行） |
 | theme-worker | 37 | L3 沙箱（含 WorkerStub 不可跨请求）+ **§10 功能开关反向验证：`theme_runtime_worker` 关/删/显式 false/拼错时都不加载沙箱，站点设置关能压过 var 开** |
-| launcher-parity | 62 | `cfpress.sh` ↔ `cfpress.ps1` 动作/菜单编号/套件表/退出码逐项对齐（解析结构，非 grep）+ BOM + 磁盘套件全集对齐 |
+| launcher-parity | 66 | `cfpress.sh` ↔ `cfpress.ps1` 动作/菜单编号/套件表/退出码逐项对齐（解析结构，非 grep）+ BOM + 磁盘套件全集对齐 + **§5c 每个套件「最后一个崩溃构造之后」必须有摘要（AGENTS 第六种假绿）** + **§5d 每个套件的数据库读取都空安全（`?.`；第六种的孪生）** |
+| multisite-isolation-matrix | 71 | MS-1.1… 隔离矩阵：跨站读/写/删除/列举逐条不可达 + 删除站点时 purge/retain 两策略各自生效 |
+| user-delete | 16 | `deleteUser()` 行为验证（esbuild 单独 bundle `platform/auth.ts` 打真 D1）：负对照（裸删身份确实留下孤儿成员行）+ 身份与全部成员行一起没 + 不越界 + 原子性 spy（1 batch / 2 语句 / 0 顶层 run） |
 
 ⚠️ **一跑必须有摘要行**：所有套件遵循「catch 里也打印摘要、崩溃标注 `(aborted)`」——
 脚本判据统一是 `^[0-9]+ passed, [0-9]+ failed`，**匹配不到就当失败**（见「第六种假绿」）。

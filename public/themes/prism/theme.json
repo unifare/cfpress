@@ -10,12 +10,24 @@
     "widgets"
   ],
   "menuLocations": [
-    { "id": "header", "label": "Header" },
-    { "id": "footer", "label": "Footer" }
+    {
+      "id": "header",
+      "label": "Header"
+    },
+    {
+      "id": "footer",
+      "label": "Footer"
+    }
   ],
   "sidebars": [
-    { "id": "sidebar", "label": "Sidebar" },
-    { "id": "footer", "label": "Footer" }
+    {
+      "id": "sidebar",
+      "label": "Sidebar"
+    },
+    {
+      "id": "footer",
+      "label": "Footer"
+    }
   ],
   "templates": [
     "index",
@@ -26,7 +38,8 @@
     "404",
     "login",
     "register",
-    "account"
+    "account",
+    "compose"
   ],
   "parts": [
     "layout",
@@ -63,6 +76,11 @@
       "path": "/account",
       "template": "account",
       "title": "Account"
+    },
+    {
+      "path": "/compose",
+      "template": "compose",
+      "title": "Write a story"
     }
   ],
   "fields": [

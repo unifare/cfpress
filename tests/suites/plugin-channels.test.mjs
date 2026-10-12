@@ -419,7 +419,7 @@ async function main() {
     check("a repeated key does not add a ledger row on the same site", keyRows.n, 1);
     check("the other site did claim the same key", sqlite.prepare(
       "SELECT COUNT(*) AS n FROM notification_log WHERE plugin_name=? AND site_id=? AND dedup_key=?"
-    ).get(name, "othersite", key).n, 1);
+    ).get(name, "othersite", key)?.n, 1);
 
     // ---------------------------------------------------------------------
     console.log("\n6. the channel config read is scoped to its plugin");

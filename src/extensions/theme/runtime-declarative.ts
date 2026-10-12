@@ -609,6 +609,34 @@ export async function buildScope(
   // guard falls through its `{{else}}` branch instead of rendering a "0
   // articles" header over an empty list.
   const myPosts = memberRow ? await memberPosts(env, siteId, memberRow.id, o.locale) : null;
+  // The request's own search parameters, as a flat string map.
+  //
+  // A plain form cannot carry state from the POST back to the page it redirects
+  // to. When a submission fails, the only place left to put the reason is the
+  // URL — `?error=<code>`, written by `frontAnswer` in `api.ts` — so a template
+  // needs to be able to read it back, or "no JavaScript" sign-in ends with a
+  // reader staring at the same form, no wiser than before.
+  //
+  // This is the request's **own** data, the same class as `page.path`, not a row
+  // the platform resolved; it carries no identity and no row, so it is not the
+  // kind of value rules 77/81 keep out of a theme's reach.
+  const query: Record<string, string> = o.request
+    ? Object.fromEntries(new URL(o.request.url).searchParams)
+    : {};
+  // The member's **own** post named by `?id=`, for the editor to pre-fill.
+  //
+  // Derived from `myPosts` rather than fetched again: `myPosts` is the one
+  // reader of "mine" (rule 82), and this is a second **view** of that same
+  // result — the shape rule 83 used for `lang_current`. A second query would be
+  // a second definition of ownership, free to disagree with the list the reader
+  // is looking at. An id this member does not own simply does not match, so the
+  // editor cannot be turned into a way to read a neighbour's draft.
+  //
+  // `null` (not absent) because "the post being edited" is legitimately nothing:
+  // a new submission, a signed-out visitor, or an id that is not this member's
+  // all mean the same thing to the template.
+  const editId = String(query.id ?? "");
+  const editPost = editId && myPosts ? ((myPosts as any[]).find((p) => String(p.id) === editId) ?? null) : null;
   await hooks.boot(env);
   try {
     await hooks.doAction("beforeRender", { env, siteId }, { siteId, locale: o.locale, path: o.path, kind: o.kind, scope: extra });
@@ -657,6 +685,12 @@ export async function buildScope(
     // from an identity the platform resolved, not from anything a caller may
     // pass in — a plugin must not be able to point "my posts" at someone else.
     ...(myPosts ? { my_posts: myPosts } : {}),
+    // The request's query string, flattened to `{{query.<name>}}`. See the note
+    // where it is built — it is how a form reports a failure back to itself.
+    query,
+    // The member's own post named by `?id=`, or `null`. Derived from `my_posts`
+    // above, never a second query (rule 82 / rule 83's one-source-two-views).
+    edit_post: editPost,
     lang_nav: langNavRows.length > 1 ? langNavRows : [],
     // The current entry alone, for a dropdown's trigger label. Same condition as
     // `lang_nav` — a monolingual site has no switcher, so it gets no current

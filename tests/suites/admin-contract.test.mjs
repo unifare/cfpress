@@ -677,7 +677,7 @@ async function main() {
   post("cnt2_p1", "cnt2", "post");
   // And the same ids on the default site, so a missing `site_id` filter counts
   // *something* rather than nothing — a no-op bug would otherwise pass.
-  const defBefore = sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE site_id='default' AND type='post'").get().n;
+  const defBefore = sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE site_id='default' AND type='post'").get()?.n;
   for (let i = 0; i < 3; i++) post(`def_p${i}`, "default", "post");
   sqlite.exec("INSERT INTO media_files(id,site_id,object_key,filename,mime_type,size,created_at,uploaded_by) VALUES ('cnt_m1','cnt','uploads/cnt/1/a.png','a.png','image/png',10,1,NULL)");
   sqlite.exec("INSERT INTO media_files(id,site_id,object_key,filename,mime_type,size,created_at,uploaded_by) VALUES ('cnt_m2','cnt','uploads/cnt/1/b.png','b.png','image/png',10,1,NULL)");
@@ -894,8 +894,8 @@ async function main() {
       });
       wipeMembers();
     }
-    check("the member fixtures are gone", sqlite.prepare("SELECT COUNT(*) AS n FROM members WHERE username LIKE 'adm_mem%' OR site_id='fb'").get().n, 0);
-    check("no member sessions survive", sqlite.prepare("SELECT COUNT(*) AS n FROM member_sessions WHERE member_id IN (SELECT id FROM members WHERE username LIKE 'adm_mem%')").get().n, 0);
+    check("the member fixtures are gone", sqlite.prepare("SELECT COUNT(*) AS n FROM members WHERE username LIKE 'adm_mem%' OR site_id='fb'").get()?.n, 0);
+    check("no member sessions survive", sqlite.prepare("SELECT COUNT(*) AS n FROM member_sessions WHERE member_id IN (SELECT id FROM members WHERE username LIKE 'adm_mem%')").get()?.n, 0);
   }
 
   console.log("\n18. A permission answer names the site it is about");
@@ -956,7 +956,7 @@ async function main() {
       body: JSON.stringify({ username: uname, password: "scoped-pass-1", role: "editor" }),
     });
     check("a scoped editor can be created on site A", mk.status, 201);
-    const editorId = sqlite.prepare("SELECT id FROM site_users WHERE username=?").get(uname).id;
+    const editorId = sqlite.prepare("SELECT id FROM site_users WHERE username=?").get(uname)?.id;
 
     // The membership is exactly one row: (editor, scopeda). Not scopeda's
     // sibling.
@@ -1053,7 +1053,7 @@ async function main() {
     });
     check("a null role revokes the membership", revoke.status, 200);
     check("no membership row survives the revoke",
-      sqlite.prepare("SELECT COUNT(*) AS n FROM site_users_sites WHERE user_id=? AND site_id=?").get(editorId, SITE_B).n, 0);
+      sqlite.prepare("SELECT COUNT(*) AS n FROM site_users_sites WHERE user_id=? AND site_id=?").get(editorId, SITE_B)?.n, 0);
     // The absence is a denial: the write that succeeded after the grant is
     // refused again, with no fallback to the install-wide role column.
     const wAfterRevoke = await req(worker, env, `/api/v1/content/widget?site=${SITE_B}`, {
@@ -1068,7 +1068,7 @@ async function main() {
     });
     check("a site screen cannot hand out superadmin (400)", escalate.status, 400);
     check("and the editor's role is unchanged",
-      sqlite.prepare("SELECT role FROM site_users_sites WHERE user_id=? AND site_id=?").get(editorId, SITE_A).role, "editor");
+      sqlite.prepare("SELECT role FROM site_users_sites WHERE user_id=? AND site_id=?").get(editorId, SITE_A)?.role, "editor");
 
     // The users list carries the two facts the role editor needs: the role on
     // the site being viewed, and the full membership map.
@@ -1079,7 +1079,7 @@ async function main() {
     check("the users list names the site it was asked about", users.site, SITE_A);
 
     wipeScoped();
-    check("the scoped fixtures are gone", sqlite.prepare("SELECT COUNT(*) AS n FROM site_users WHERE username LIKE 'adm_scoped%'").get().n, 0);
+    check("the scoped fixtures are gone", sqlite.prepare("SELECT COUNT(*) AS n FROM site_users WHERE username LIKE 'adm_scoped%'").get()?.n, 0);
     // The wipe took the memberships with it. This asserts what *this section*
     // removed — not a global "no orphans exist", because the shared local D1
     // accumulates orphan rows from other suites' own teardowns (they delete
@@ -1087,7 +1087,7 @@ async function main() {
     // orphan risk is real and is recorded in HANDOVER as a batch-F item; here
     // the claim is the narrow one: the rows this section created are gone.
     check("and this section's memberships went with it",
-      sqlite.prepare("SELECT COUNT(*) AS n FROM site_users_sites WHERE user_id = ?").get(editorId).n, 0);
+      sqlite.prepare("SELECT COUNT(*) AS n FROM site_users_sites WHERE user_id = ?").get(editorId)?.n, 0);
   }
 
   // Clean up: this section wrote directly, so it removes directly.
@@ -1098,7 +1098,7 @@ async function main() {
     "DELETE FROM site_locales WHERE site_id IN ('cnt','cnt2','cnt3')",
     "DELETE FROM sites WHERE id IN ('cnt','cnt2','cnt3')",
   ]) { try { sqlite.exec(sql); } catch { /* ok */ } }
-  check("the count fixtures are gone", sqlite.prepare("SELECT COUNT(*) AS n FROM sites WHERE id IN ('cnt','cnt2','cnt3')").get().n, 0);
+  check("the count fixtures are gone", sqlite.prepare("SELECT COUNT(*) AS n FROM sites WHERE id IN ('cnt','cnt2','cnt3')").get()?.n, 0);
   void defBefore;
 
   console.log("\n19. Front-end publishing: a member's post is their own, and the session's");
@@ -1150,8 +1150,8 @@ async function main() {
       const aliceCookie = await register("adm_mp_alice");
       const bobCookie = await register("adm_mp_bob");
       checkTruthy("both member fixtures signed in", aliceCookie.startsWith("cfpress_member=") && bobCookie.startsWith("cfpress_member="));
-      const aliceId = sqlite.prepare("SELECT id FROM members WHERE username='adm_mp_alice'").get().id;
-      const bobId = sqlite.prepare("SELECT id FROM members WHERE username='adm_mp_bob'").get().id;
+      const aliceId = sqlite.prepare("SELECT id FROM members WHERE username='adm_mp_alice'").get()?.id;
+      const bobId = sqlite.prepare("SELECT id FROM members WHERE username='adm_mp_bob'").get()?.id;
 
       // ── The gate: no session, no write ──
       const anon = await ftReq("/api/v1/front/posts", {
@@ -1207,7 +1207,7 @@ async function main() {
 
       const stolenDelete = await ftReq(`/api/v1/front/posts/${postId}`, { method: "DELETE", headers: { Cookie: bobCookie } });
       check("deleting another member's post is 404", stolenDelete.status, 404);
-      check("and it is still there", sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE id=?").get(postId).n, 1);
+      check("and it is still there", sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE id=?").get(postId)?.n, 1);
 
       // ── The owner may edit, and an edit is not a publish ──
       const edited = await ftReq(`/api/v1/front/posts/${postId}`, {
@@ -1240,7 +1240,7 @@ async function main() {
       });
       const undeclaredBody = await undeclared.json();
       check("an undeclared meta key is not written",
-        sqlite.prepare("SELECT COUNT(*) AS n FROM post_meta WHERE post_id=?").get(undeclaredBody.post.id).n, 0);
+        sqlite.prepare("SELECT COUNT(*) AS n FROM post_meta WHERE post_id=?").get(String(undeclaredBody.post?.id ?? ""))?.n, 0);
 
       sqlite.prepare(
         "INSERT INTO field_defs (id, site_id, meta_key, label, field_type, post_types, required, sort_order, declared_by_theme, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
@@ -1277,9 +1277,9 @@ async function main() {
       // ── The owner deletes, and everything hanging off the post goes too ──
       const del = await ftReq(`/api/v1/front/posts/${postId}`, { method: "DELETE", headers: { Cookie: aliceCookie } });
       check("the owner can delete their own post", del.status, 200);
-      check("and the post row is gone", sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE id=?").get(postId).n, 0);
-      check("and its translations went with it", sqlite.prepare("SELECT COUNT(*) AS n FROM post_translations WHERE post_id=?").get(postId).n, 0);
-      check("and its custom fields went with it", sqlite.prepare("SELECT COUNT(*) AS n FROM post_meta WHERE post_id=?").get(postId).n, 0);
+      check("and the post row is gone", sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE id=?").get(postId)?.n, 0);
+      check("and its translations went with it", sqlite.prepare("SELECT COUNT(*) AS n FROM post_translations WHERE post_id=?").get(postId)?.n, 0);
+      check("and its custom fields went with it", sqlite.prepare("SELECT COUNT(*) AS n FROM post_meta WHERE post_id=?").get(postId)?.n, 0);
     } finally {
       // Restore the registration flag the way §17 does — leaving it open would
       // change what the next suite (and the operator's install) observes.
@@ -1298,9 +1298,153 @@ async function main() {
     // residue a prefix-based sweep misses, and it stays true no matter what ids
     // the endpoint mints.
     check("no member-post fixtures were left behind",
-      sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE author_member_id IS NOT NULL AND author_member_id NOT IN (SELECT id FROM members)").get().n, 0);
-    check("and the member accounts are gone", sqlite.prepare("SELECT COUNT(*) AS n FROM members WHERE username LIKE 'adm_mp%'").get().n, 0);
-    check("and the probe field declaration", sqlite.prepare("SELECT COUNT(*) AS n FROM field_defs WHERE declared_by_theme='adm_mp'").get().n, 0);
+      sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE author_member_id IS NOT NULL AND author_member_id NOT IN (SELECT id FROM members)").get()?.n, 0);
+    check("and the member accounts are gone", sqlite.prepare("SELECT COUNT(*) AS n FROM members WHERE username LIKE 'adm_mp%'").get()?.n, 0);
+    check("and the probe field declaration", sqlite.prepare("SELECT COUNT(*) AS n FROM field_defs WHERE declared_by_theme='adm_mp'").get()?.n, 0);
+  }
+
+  // ---------------------------------------------------------------------------
+  console.log("\n20. The member surface answers a browser form, not just a script (rule 85)");
+
+  // The member surface — sign up, sign in, write, delete — is rendered as plain
+  // HTML forms, and the templates have always said so in comments. Until rule 85
+  // that was **false**: the API parsed only JSON, so a form body produced `{}`
+  // and the endpoint answered `invalid_username` about a username the reader
+  // had in fact typed, while the redirect the comment promised never happened.
+  //
+  // This section drives the real endpoints with a real form-encoded body and
+  // pins the three things a browser needs — a 303, a same-site `Location`, and
+  // `?error=` on the way back — and then pins the other direction just as
+  // hard: a **script** must still get exactly the JSON it got before, including
+  // the `logout` call that carries no body and therefore no content type.
+  //
+  // Fixtures use the `adm_fm_` prefix and are swept by **username**, the one
+  // identifier this suite controls (see §17/§19 for why an id prefix is the
+  // wrong key).
+  {
+    const frontJson = { "Content-Type": "application/json" };
+    const form = { "Content-Type": "application/x-www-form-urlencoded" };
+    const ftReq = (path, init = {}) => req(worker, env, path, init);
+    // Exactly what a browser sends: a percent-encoded, flat body.
+    const enc = (o) => new URLSearchParams(o).toString();
+    const wipe = () => {
+      const mine = "SELECT id FROM posts WHERE author_member_id IN (SELECT id FROM members WHERE username LIKE 'adm_fm%')";
+      for (const sql of [
+        `DELETE FROM post_meta WHERE post_id IN (${mine})`,
+        `DELETE FROM post_translations WHERE post_id IN (${mine})`,
+        "DELETE FROM posts WHERE author_member_id IN (SELECT id FROM members WHERE username LIKE 'adm_fm%')",
+        "DELETE FROM member_sessions WHERE member_id IN (SELECT id FROM members WHERE username LIKE 'adm_fm%')",
+        "DELETE FROM members WHERE username LIKE 'adm_fm%'",
+        "DELETE FROM settings WHERE site_id='default' AND key='members.registration'",
+      ]) { try { sqlite.exec(sql); } catch { /* ok */ } }
+    };
+    wipe();
+    await req(worker, env, "/api/v1/settings", {
+      method: "POST", headers: json, body: JSON.stringify({ key: "members.registration", value: "1" }),
+    });
+    try {
+      const post = (path, o, cookie) =>
+        ftReq(path, { method: "POST", headers: cookie ? { ...form, Cookie: cookie } : form, body: enc(o) });
+      const cookieOf = (r) => (r.headers.get("set-cookie") ?? "").split(";")[0];
+
+      // ── A form can sign up, and the reader really is signed in ──
+      const reg = await post("/api/v1/front/auth/register",
+        { username: "adm_fm_reader", password: "longenough1", redirect: "/en/account" });
+      check("a form registration answers 303", reg.status, 303);
+      check("and sends the reader where the form asked", reg.headers.get("location"), "/en/account");
+      const cookie = cookieOf(reg);
+      checkTruthy("and sets the member cookie", cookie.startsWith("cfpress_member="));
+      const me = await ftReq("/api/v1/front/me", { headers: { Cookie: cookie } });
+      check("the form-registered member is signed in", (await me.json()).member?.username, "adm_fm_reader");
+      const memberId = sqlite.prepare("SELECT id FROM members WHERE username='adm_fm_reader'").get()?.id;
+
+      // ── The redirect stays on this site ──
+      // `//host` is protocol-relative (a different origin) and `/\host` is an
+      // authority to some browsers. Either one echoed into `Location:` turns
+      // our own form into a phishing page, so both must fall back.
+      for (const target of ["//evil.example/x", "/\\evil.example"]) {
+        const r = await post("/api/v1/front/auth/login",
+          { username: "adm_fm_reader", password: "longenough1", redirect: target });
+        check(`a redirect to ${JSON.stringify(target)} is refused (rule 85d)`, r.headers.get("location"), "/");
+      }
+      // An ordinary path is honoured, so the refusal above is a *rule* and not
+      // "the field is ignored".
+      const ok = await post("/api/v1/front/auth/login",
+        { username: "adm_fm_reader", password: "longenough1", redirect: "/en/account" });
+      check("an ordinary redirect is honoured", ok.headers.get("location"), "/en/account");
+
+      // ── A failure comes back as a reason, not as a JSON body ──
+      const dup = await post("/api/v1/front/auth/register",
+        { username: "adm_fm_reader", password: "longenough1", redirect: "/en/register" });
+      check("a taken username answers a redirect", dup.status, 303);
+      check("with the reason in the URL", dup.headers.get("location"), "/en/register?error=taken");
+      checkTruthy("and no cookie is handed out", !dup.headers.get("set-cookie"));
+      const badPw = await post("/api/v1/front/auth/login",
+        { username: "adm_fm_reader", password: "not-the-password", redirect: "/en/login" });
+      check("a wrong password answers a redirect", badPw.status, 303);
+      check("with the reason in the URL", badPw.headers.get("location"), "/en/login?error=invalid_credentials");
+
+      // ── A form writes and edits a post ──
+      const created = await post("/api/v1/front/posts",
+        { title: "表单投稿", slug: "biao-dan-tou-gao", content: "<p>正文</p>", redirect: "/en/account" }, cookie);
+      check("a form submission answers 303", created.status, 303);
+      check("back to the account page", created.headers.get("location"), "/en/account");
+      const row = sqlite.prepare("SELECT id, status, author_id, author_member_id FROM posts WHERE slug=?").get("biao-dan-tou-gao");
+      check("the row is a draft", row?.status, "draft");
+      check("authored by the session member, with no staff author", [row?.author_id, row?.author_member_id], ["", memberId]);
+      const edited = await post(`/api/v1/front/posts/${row?.id ?? ""}`,
+        { title: "改过的标题", slug: "biao-dan-tou-gao", content: "<p>改过</p>", redirect: "/en/account" }, cookie);
+      check("a form edit answers 303", edited.status, 303);
+      check("and the title changed", sqlite.prepare("SELECT title FROM post_translations WHERE post_id=?").get(String(row?.id ?? ""))?.title, "改过的标题");
+      check("and an edit does not publish", sqlite.prepare("SELECT status FROM posts WHERE id=?").get(String(row?.id ?? ""))?.status, "draft");
+
+      // ── A form delete, and the same answer for every way an id is not yours ──
+      const other = await post("/api/v1/front/auth/register",
+        { username: "adm_fm_other", password: "longenough1", redirect: "/" });
+      const otherCookie = cookieOf(other);
+      const stolen = await post(`/api/v1/front/posts/${row?.id ?? ""}/delete`, { redirect: "/en/account" }, otherCookie);
+      check("deleting another member's post answers a redirect", stolen.status, 303);
+      check("with the reason in the URL", stolen.headers.get("location"), "/en/account?error=not%20found");
+      const ghost = await post("/api/v1/front/posts/post_fm_never_existed/delete", { redirect: "/en/account" }, cookie);
+      check("an id that never existed answers identically (no oracle)", ghost.headers.get("location"), stolen.headers.get("location"));
+      check("and the post is still there", sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE id=?").get(String(row?.id ?? ""))?.n, 1);
+      const del = await post(`/api/v1/front/posts/${row?.id ?? ""}/delete`, { redirect: "/en/account" }, cookie);
+      check("the owner's form delete answers 303", del.status, 303);
+      check("and the row is gone", sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE id=?").get(String(row?.id ?? ""))?.n, 0);
+
+      // ── A form signs out ──
+      const out = await post("/api/v1/front/auth/logout", { redirect: "/en" }, cookie);
+      check("a form sign-out answers 303", out.status, 303);
+      check("to the front page", out.headers.get("location"), "/en");
+
+      // ── The JSON contract is untouched ──
+      // This is what every other section of this suite and every script relies
+      // on. The `logout` case is the load-bearing one: it carries **no body**,
+      // so a script posts it with no content type at all — and a detector that
+      // said "anything that is not JSON is a form" would flip its answer from a
+      // JSON body to a redirect, silently (rule 85c).
+      const jsonReg = await ftReq("/api/v1/front/auth/register", {
+        method: "POST", headers: frontJson, body: JSON.stringify({ username: "adm_fm_json", password: "longenough1" }),
+      });
+      check("a JSON registration is still 201", jsonReg.status, 201);
+      const jsonLogin = await ftReq("/api/v1/front/auth/login", {
+        method: "POST", headers: frontJson, body: JSON.stringify({ username: "adm_fm_json", password: "longenough1" }),
+      });
+      check("a JSON sign-in is still 200", jsonLogin.status, 200);
+      const jsonOut = await ftReq("/api/v1/front/auth/logout", {
+        method: "POST", headers: { Cookie: cookieOf(jsonLogin) },
+      });
+      check("a JSON sign-out with no content type is still 200", jsonOut.status, 200);
+      check("and it answers JSON, not a redirect", jsonOut.headers.get("location"), null);
+    } finally {
+      await req(worker, env, "/api/v1/settings", {
+        method: "POST", headers: json, body: JSON.stringify({ key: "members.registration", value: "0" }),
+      });
+      wipe();
+    }
+    check("no form-surface fixtures were left behind",
+      sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE author_member_id IS NOT NULL AND author_member_id NOT IN (SELECT id FROM members)").get()?.n, 0);
+    check("and the member accounts are gone", sqlite.prepare("SELECT COUNT(*) AS n FROM members WHERE username LIKE 'adm_fm%'").get()?.n, 0);
   }
 
   // End-of-suite sweep, **here** rather than mid-file. It tears down this
@@ -1310,7 +1454,7 @@ async function main() {
   // middle of the file, which silently deleted `adm` out from under the
   // sections below it (they were written to not notice). Keep it last.
   sweep();
-  check("the admin fixtures are gone", sqlite.prepare("SELECT COUNT(*) AS n FROM sites WHERE id='adm'").get().n, 0);
+  check("the admin fixtures are gone", sqlite.prepare("SELECT COUNT(*) AS n FROM sites WHERE id='adm'").get()?.n, 0);
 
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail) console.log("Failed: " + failures.join(", "));

@@ -559,7 +559,7 @@ async function main() {
   await req(worker, env, "/api/v1/i18n/locales", {
     method: "POST", headers: auth, body: JSON.stringify({ code: "zh-CN", name: "Simplified Chinese", native_name: "简体中文" }),
   });
-  const srcId = String(sqlite.prepare("SELECT id FROM posts WHERE slug='i18n-zh-only' AND site_id='default'").get().id);
+  const srcId = String(sqlite.prepare("SELECT id FROM posts WHERE slug='i18n-zh-only' AND site_id='default'").get()?.id);
   const group0 = await (await req(worker, env, "/api/v1/i18n/translations?id=" + encodeURIComponent(srcId), { headers: auth })).json();
   // One entry per *enabled locale*, not per existing row: the editor's language
   // bar has to offer the versions that do not exist yet — that is the `＋`.

@@ -25,7 +25,9 @@
     "archive",
     "404",
     "login",
-    "register"
+    "register",
+    "account",
+    "compose"
   ],
   "parts": [
     "layout",
@@ -57,6 +59,16 @@
       "path": "/register",
       "template": "register",
       "title": "Create an account"
+    },
+    {
+      "path": "/account",
+      "template": "account",
+      "title": "Account"
+    },
+    {
+      "path": "/compose",
+      "template": "compose",
+      "title": "Write a story"
     }
   ],
   "fields": [

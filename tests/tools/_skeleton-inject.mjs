@@ -1643,6 +1643,43 @@ const SCENARIOS = [
     after: [".get().id);"],
     runs: [["tests/suites/launcher-parity.test.mjs", "every suite's database read is null-safe (?. on the result)"]],
   },
+  // ---- rule 85, template side: the forms a browser submits ------------------
+  //
+  // The five scenarios above all inject into `src/api.ts` — the *mechanism*.
+  // Nothing pinned the **markup** half, which is where a theme can quietly stop
+  // being usable without JavaScript. Each of these three is the historical
+  // shape, not a synthetic one:
+  //
+  //   - a delete that was an ordinary link (a GET deletes on prefetch);
+  //   - every failure rendering the same sentence (so the specific message
+  //     `api.ts` sends back is decoration — the exact thing §5c's comment warns
+  //     about);
+  //   - an editor whose action never picked up `?id=`, so "edit" opened a blank
+  //     *create* form that saved a second copy.
+  //
+  // Two different suites on purpose: `theme-bundled` §5c is theme-agnostic and
+  // `theme-default` §8b is this theme's own, and both had new named assertions.
+  {
+    label: "the account page deletes through an ordinary link",
+    file: THEME_FILE("default", "templates/account.html"),
+    before: ['<form method="post" action="/api/v1/front/posts/{{post.id}}/delete" class="inline-form">'],
+    after: ['<a href="/api/v1/front/posts/{{post.id}}/delete" class="inline-form">'],
+    runs: [["tests/suites/theme-default.test.mjs", "the account page deletes through a POST form"]],
+  },
+  {
+    label: "the editor answers every failure with the same sentence",
+    file: THEME_FILE("default", "templates/compose.html"),
+    before: ['{{default(theme.strings.compose.errSlug, "That URL is already taken in this language. Pick another.")}}'],
+    after: ['{{default(theme.strings.compose.errGeneric, "Your story could not be saved. Please try again.")}}'],
+    runs: [["tests/suites/theme-bundled.test.mjs", "default: compose.html shows the failure the server sent back"]],
+  },
+  {
+    label: "the editor's action no longer carries the id it is editing",
+    file: THEME_FILE("default", "templates/compose.html"),
+    before: ['action="/api/v1/front/posts{{#if query.id}}/{{query.id}}{{/if}}"'],
+    after: ['action="/api/v1/front/posts"'],
+    runs: [["tests/suites/theme-default.test.mjs", "the editor switches to an edit form for ?id="]],
+  },
 
 ];
 
@@ -1682,6 +1719,10 @@ const WATCHED = [...new Set([SCHEMA, EVENTS, ARCH, SCOPE, MANIFEST, VALIDATION,
   // scenarios below inject into `content/`, which the injector restores.
   MEMBERS,
   THEME_FILE("prism", "templates/parts/header.html"),
+  // The default theme's member pages: three rule-85 template scenarios edit
+  // them, and an unwatched template would leave the injection in place.
+  THEME_FILE("default", "templates/account.html"),
+  THEME_FILE("default", "templates/compose.html"),
   join(ROOT, "tests/suites/theme-bundled.test.mjs"),
   join(ROOT, "tests/suites/theme-default.test.mjs"),
   // The crash-summary scenario patches a *suite*, so that suite must be watched:

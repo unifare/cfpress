@@ -1,6 +1,32 @@
 # CFPress (CFCMS) 交接文档
 
-> 更新时间：2026-10-12 (GMT+8) ｜ 交接基线：**无 JS 前台表单面（规则 85）+ 空安全 DB 读取机制**
+> 更新时间：2026-10-12 (GMT+8) ｜ 交接基线：**default 主题也拥有会员面（账户 / 投稿）**
+> **本轮新增**：会员面（账户页 + 投稿编辑器）此前**只存在于 prism**。机制（`buildScope` 的
+> `my_posts` / `query` / `edit_post`，`api.ts` 的前台表单端点）两套主题共享，但 UI 只有一套——
+> 于是 default 主题（`BUNDLED_THEMES` 的第一个，**全新安装未激活任何主题时渲染的就是它**）
+> 的会员既看不到账户页，也无法投稿。本轮把这两页补齐：
+> - `content/themes/default/templates/account.html`：资料面板（用户名 / 邮箱 / 角色）+「我的文章」
+>   列表（草稿与已发布都显示、带状态徽标）+ 每行的**编辑链接**（`/compose?id=`）与 **POST 删除表单**；
+> - `content/themes/default/templates/compose.html`：无 JS 投稿/编辑表单（`<select name="locale">`、
+>   `redirect` 隐藏字段、`?error=` 渲染成 `role="alert"` 红框、`?id=` 切成编辑态并预填）；
+> - `theme.json` 声明 `account` / `compose` 两个模板与 `/account`、`/compose` 两条路由；
+> - 双语包各补 **29 键**（account 13 + compose 16），两包**键集逐字节一致**；`styles.html` 补
+>   `.account/.panel/.kv/.mypost*/.compose*/.form-error` 等规则（沿用墨白的直角 + 1px 边框 + mono 标签）；
+> - 头部登录态入口从 `/login` 改为 `/account`——注释一直写的是「linking to the account page」，
+>   此前**那句话是假的**，与规则 85 同属「有文字无机制」。
+> ⚠️ **表现重复是特性，不是欠债**：主题是**数据**，不能跨主题继承、不能 eval，`loadTemplate` 只在
+> **自己**的 `templates/` 里找文件，引擎又把每个模板**内联**进各自响应——所以「一份 markup 供所有主题」
+> 在这个架构里不存在。两套主题共享的是**机制**（模板引擎 / `buildScope` / 前台表单 API），不是 markup。
+> 守卫：`theme-bundled` §5c 是**主题无关**的（`if (existsSync(...))`），default 一落文件就自动被覆盖
+> ——**13 条 default 断言**（compose 6 + account 3 + 渲染 4）；`theme-default` 套件把新模板加进
+> `tplFiles`（否则新键被判 **unused**，§9 有反向断言）+ §8b 新增 4 态渲染与 8 条断言。
+> 结果：27 套件全绿（**2091 条**）；`theme-bundled` **160/0**；`theme-default` **79/0**；
+> `architecture` **247/0**；`manifest-validation` **104/0**；`_schema-scope` **26/0**；tsc（src/）0 错误。
+> 外观验收：静态渲染 8 张（账户 明/暗/英/登出 + 投稿 新建明/暗/编辑/失败），产物在 gitignored 的
+> `docs/theme-preview/`。⚠️ **已知外观瑕疵**：`truncate(name, 1)` 拿来取头像首字母时会**补省略号**，
+> 渲染成「林…」——prism 同样如此（既有行为，本轮照抄）。helper 的截断语义本身没错（正文摘要需要
+> 省略号），要修得另加一个「取首字」helper 或给 `truncate` 加开关，属独立改动，**本轮未做**。
+> 上一条交接基线：**无 JS 前台表单面（规则 85）+ 空安全 DB 读取机制**
 > **本轮新增**：会员面（注册 / 登录 / 投稿 / 编辑 / 删除）真的能**无 JS** 用了。模板里一直是纯
 > HTML 表单、注释也一直那么写，但**在那之前那句话是假的**：前台 API 只解析 JSON，真实表单拿到
 > `400 invalid_username`——而那个用户名是读者**确实填了**的（`request.json()` 对表单体抛错，
@@ -549,7 +575,8 @@ prism 与 default **两套**主题的 header 切换器，从"一排平铺的语�
 
 **规则 82（我的文章是读者的，且只是读者的）—— ✅ 完成（2026-10-11，阶段二）**
 
-`account.html` 上的 `{{#each my_posts as post}}` 是唯一一个由**身份**（而非路由）决定的列表。
+`account.html` 上的 `{{#each my_posts as post}}` 是全库唯一**一种**由**身份**（而非路由）决定的列表
+（两套主题各有一份，但来源同一个 `memberPosts()`）。
 三种"悄悄答错"的写法都能渲染出看起来合理的页面：
 
 - **a 站点盲**：member id 今天按站点唯一，所以 `WHERE author_member_id=?` 读起来**够用**——
@@ -1689,8 +1716,8 @@ node tests/<name>.test.mjs       # 逐个跑（判据是 0 failures，别把断�
 | theme-integration | 134 | 上传→激活→CPT→渲染→切主题保数据，端到端（含表驱动路由）、**§9 卸载全清理 + 占用拒绝 + `?force=1` 强制卸载（占用站点回落捆绑默认）**、**§11 菜单位置确定性（独立站点双 header 菜单稳定获胜 + footer 位置渲染 + 二次渲染一致）**、**§12 小工具端到端（四类型渲染 + 禁用/异语言/跨站均不出现）** |
 | locale-url | 36 | 按语言 slug 的路由/404/唯一性、hreflang、按语言 feed、切换器（规则 56–59）、**§1b 自定义字段带语言（单页/列表按语言取值 + 阶梯第 2 层回退 + 列表 reading_time）** |
 | theme-fixture | 47 | fixture 主题的声明与模板自洽 |
-| theme-default | 66 | default 主题（墨白 MOBAI）：模板真渲染 + head 的 SEO 契约（canonical/og/hreflang/feed）+ 语言包键完整性 + **§8b member fixture 由真 `memberScope()` 生成（规则 81）** |
-| theme-bundled | 139 | **走真 `BUNDLED_THEMES` 逐主题渲染全部 templates 与 parts**（两种登录状态各一遍）+ 语言包双向完整 + 空/降级作用域 + 非空校验（规则 81）+ **§5b 语言切换器是 `<details>` 下拉（触发器读 `<summary>` 内部文本、列出全部语言、无平铺 nav——规则 83）** + **§5c 会员写作面是纯表单（投稿表单带 `redirect`、语言是 `<select name="locale">`、`?error=` 被读出来渲染、`?id=` 变编辑表单；账户页删除是 POST 表单、无 GET 删除链接——规则 85）** |
+| theme-default | 79 | default 主题（墨白 MOBAI）：模板真渲染 + head 的 SEO 契约（canonical/og/hreflang/feed）+ 语言包键完整性（含 **no-unused-keys 反向断言**）+ **§8b member fixture 由真 `memberScope()` 生成（规则 81）**、账户/投稿两页四态渲染 + POST 删除 + 编辑链接 + `redirect`/语言 `<select>`/`?error=`（规则 85） |
+| theme-bundled | 160 | **走真 `BUNDLED_THEMES` 逐主题渲染全部 templates 与 parts**（两种登录状态各一遍）+ 语言包双向完整 + 空/降级作用域 + 非空校验（规则 81）+ **§5b 语言切换器是 `<details>` 下拉（触发器读 `<summary>` 内部文本、列出全部语言、无平铺 nav——规则 83）** + **§5c 会员写作面是纯表单（投稿表单带 `redirect`、语言是 `<select name="locale">`、`?error=` 被读出来渲染、`?id=` 变编辑表单；账户页删除是 POST 表单、无 GET 删除链接——规则 85；**主题无关**，两套捆绑主题各跑一遍）** |
 
 > **第二套自带主题：`prism`（棱镜 PRISM）。** 它最初以 `sakura` 之名落地，随即**整体改名**为 `prism`：
 > 目录 `content/themes/sakura/` → `content/themes/prism/`、界面词典 key 前缀 `theme.sakura.*` → `theme.prism.*`、

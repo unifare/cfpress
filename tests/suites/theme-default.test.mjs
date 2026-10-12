@@ -308,6 +308,46 @@ async function main() {
   // from every page rather than only from the login URL itself.
   checkTruthy("the header offers sign in when signed out", loginOut.includes("/zh-CN/login") && loginOut.includes("登录"));
   checkTruthy("the header shows the member name when signed in", loginIn.includes("Bob"));
+  // The account page and the editor are the two pages a reader only reaches
+  // once signed in, and both are plain forms (rule 85). They are asserted on
+  // the rendered markup — never on `html.includes("form-error")`, which the
+  // stylesheet satisfies on its own (`.form-error{…}` is a CSS rule), the
+  // "anchor on the mention, not the consumer" shape (§12 #16, 铁律 3b).
+  const acctPage = { title: "Account", kind: "page", document_title: "Account · 墨白", path: "/zh-CN/account" };
+  const composePage = { title: "Write a story", kind: "page", document_title: "Write a story · 墨白", path: "/zh-CN/compose" };
+  const accountIn = await render("account.html", base({
+    member: signedInMember, my_posts: [{ ...post, status: "draft" }], page: acctPage,
+  }));
+  const accountOut = await render("account.html", base({ member: null, page: acctPage }));
+  const composeIn = await render("compose.html", base({ member: signedInMember, query: {}, page: composePage }));
+  const composeOut = await render("compose.html", base({ member: null, query: {}, page: composePage }));
+  for (const [name, html] of [["account (signed in)", accountIn], ["account (signed out)", accountOut],
+    ["compose (signed in)", composeIn], ["compose (signed out)", composeOut]]) {
+    const problems = [];
+    if (!html.includes("<html")) problems.push("shell did not render");
+    if (html.includes("{{")) problems.push("unresolved template syntax leaked");
+    if (html.includes("undefined")) problems.push("output contains undefined");
+    check(`${name} renders clean`, problems, []);
+  }
+  checkTruthy("the account page names the reader", accountIn.includes("Bob"));
+  // A destructive action is a POST form; a GET link would delete on prefetch.
+  checkTruthy("the account page deletes through a POST form",
+    /<form[^>]*action="\/api\/v1\/front\/posts\/[^"]*\/delete"/.test(accountIn),
+    "a delete must be a form, not a link");
+  checkTruthy("the account page offers no plain link that deletes", !/href="[^"]*delete/.test(accountIn));
+  checkTruthy("each row links back into the editor", accountIn.includes('href="/zh-CN/compose?id=post_1"'));
+  checkTruthy("the editor posts to the front API", composeIn.includes('action="/api/v1/front/posts"'));
+  checkTruthy("the editor carries a redirect field", /name="redirect"/.test(composeIn),
+    "without a redirect the reader lands on a JSON body after saving");
+  checkTruthy("the editor chooses the language with a <select>", /<select name="locale">/.test(composeIn));
+  const composeFailed = await render("compose.html", base({ member: signedInMember, query: { error: "slug already used" }, page: composePage }));
+  checkTruthy("the editor shows the failure the server sent back",
+    composeFailed.includes(lookup(zhPack, "compose.errSlug")) && !composeFailed.includes(lookup(zhPack, "compose.errGeneric")),
+    "?error= must be read and rendered");
+  const composeEditing = await render("compose.html", base({ member: signedInMember, query: { id: "post_1" }, edit_post: post, page: composePage }));
+  checkTruthy("the editor switches to an edit form for ?id=",
+    composeEditing.includes('action="/api/v1/front/posts/post_1"'),
+    "?id= must switch the form from create to edit");
 
   // -- 9. the pack actually covers what the templates ask for ---------------  //
   // `{{default(theme.strings.x.y, "English literal")}}` degrades silently: a
@@ -316,7 +356,7 @@ async function main() {
   // Chinese site and nothing anywhere else. This is the only place that notices.
   section("9. Every string the templates ask for exists in both packs");
   const tplFiles = ["home.html", "index.html", "archive.html", "single.html", "page.html", "404.html",
-    "login.html", "register.html",
+    "login.html", "register.html", "account.html", "compose.html",
     "parts/layout.html", "parts/header.html", "parts/footer.html"];
   const refs = new Set();
   for (const f of tplFiles) {

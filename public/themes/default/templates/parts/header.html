@@ -33,7 +33,7 @@
       {{! Member state. `member` is set by the platform from the member session
           (never the admin one — rule 77); a signed-in reader gets their name
           linking to the account page, everyone else gets a sign-in link. }}
-      {{#if member}}<a class="btn btn-ghost" href="/{{locale}}/login">{{member.display_name}}</a>
+      {{#if member}}<a class="btn btn-ghost" href="/{{locale}}/account">{{member.display_name}}</a>
       {{else}}<a class="btn btn-ghost" href="/{{locale}}/login">{{default(theme.strings.auth.signIn, "Sign in")}}</a>{{/if}}
     </div>
   </div>

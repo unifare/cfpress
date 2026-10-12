@@ -1099,6 +1099,28 @@ body 冒充作者被忽略、请求发布仍答 draft、编辑不打回草稿、
 尤其**不带 Content-Type 的 logout 仍是 200 JSON**）。
 注入场景 4 条（表单识别变「非 JSON」/ 重定向守卫放开 / 适配器不再 303 / 端点自己解析 body）。
 
+## 演示内容只有一份定义，安装自己种（规则 86）
+
+全新安装不再是一片空屏 + 一条终端命令：首次请求的 boot 链（`index.ts`）按序
+`seedBundledExtensions → ensureThemeCapabilities → bootstrapAdmin → maybeSeedDemoContent`，
+给**从未种过且一篇内容都没有**的站点写入双语演示文章与「关于」页。三个调用者走**同一个写者**
+`seedDemoContent`（`api.ts`，内部就是编辑器的 `savePost` 路径）：boot 钩子、后台设置屏的
+「恢复演示内容」按钮（`POST /api/v1/seed-demo`，**门 = `settings.manage`**）、终端脚本
+`seed:demo`（现在只做登录 + 调端点 + **外部验证**，不再携带自己的文案副本）。
+
+| # | 不变式 | 为什么 |
+|---|---|---|
+| 86a | **内容只有一份定义**：`src/shared/demo-content.ts`；脚本里出现文案/图片字面量即违规 | 两份「演示」必然漂移成两个不同的演示站点 |
+| 86b | **id 按站点派生** `demo_<siteId>_<key>` | `posts.id` 是全局 PK；固定字面量会让第二站点种子撞 id，而 `savePost` 对他站 id 答 404 |
+| 86c | **boot 决策一次**：戳记 `demo.seeded`（SETTING_DEFS 声明的 site boolean） | 「posts 表为空」是会变化的事实；不记决策，用户删光内容后下次 boot 演示就会复活 |
+| 86d | **非空站点只戳不种**；种失败的 boot 不戳（下次重试） | 安装里已有的内容（会员草稿、导入）不是空屏，别动它 |
+| 86e | **布尔的设置读取必须走 `truthy()`** | `getSetting` 对未写行返回声明默认值 `"0"`——JS 里是真值，裸 `if` 把「从未种过」读成「已种」 |
+
+守卫：`architecture.test.mjs`（4 条：boot 顺序 bootstrap→seed、钩子真实存在并导出、端点门
+`settings.manage`、演示文案单一定义/脚本无副本）；`admin-contract.test.mjs` §21（19 条，**真 D1**：
+端点写入/幂等重跑/编辑器 403/匿名 401、**钩子三态**——已有内容只戳不种、戳记防复活、空且未戳才种）。
+注入 2 条（`settings.manage` 门被中和 / 钩子忘读戳记）。
+
 ## 守卫失效记录（READ THIS）
 
 `tests/suites/architecture.test.mjs` 自己出过**三次假绿**，都是「检查存在但从不触发」。

@@ -1,4 +1,4 @@
-import{Env}from "./shared/types";import{handleApi,handleFrontApi}from "./api";import{findContent,contentAlternates,siteInfo,locales,defaultLocale}from "./platform/frontend";import{robots,sitemap,feed}from "./platform/seo";import{seedBundledExtensions,bootPluginRuntime,doAction,applyFilters,renderShortcodes}from "./extensions/plugin/runtime";import{setPluginTableSync}from "./extensions/plugin/menus";import{syncOwnerTables}from "./extensions/theme/tables";import{setHostHooks}from "./extensions/contract/hooks";import{renderThemePage,runThemeQuery,activeTheme,type ThemeRenderOptions}from "./extensions/theme/runtime-declarative";import{tryRenderWithThemeWorker,handleThemeApi}from "./extensions/theme/runtime-worker";import{processScheduled}from "./shared/scheduler";import{resolveSite,siteListMemo,listSites,resetSiteListMemo}from "./platform/sites";
+import{Env}from "./shared/types";import{handleApi,handleFrontApi,maybeSeedDemoContent}from "./api";import{findContent,contentAlternates,siteInfo,locales,defaultLocale}from "./platform/frontend";import{robots,sitemap,feed}from "./platform/seo";import{seedBundledExtensions,bootPluginRuntime,doAction,applyFilters,renderShortcodes}from "./extensions/plugin/runtime";import{setPluginTableSync}from "./extensions/plugin/menus";import{syncOwnerTables}from "./extensions/theme/tables";import{setHostHooks}from "./extensions/contract/hooks";import{renderThemePage,runThemeQuery,activeTheme,type ThemeRenderOptions}from "./extensions/theme/runtime-declarative";import{tryRenderWithThemeWorker,handleThemeApi}from "./extensions/theme/runtime-worker";import{processScheduled}from "./shared/scheduler";import{resolveSite,siteListMemo,listSites,resetSiteListMemo}from "./platform/sites";
 // The media read path's three gates (tenant / session / owner) live in one
 // module so this route and the admin media API cannot answer differently.
 import{currentUser,loginRequest}from "./platform/auth";import{adminPath,resetAdminPathMemo}from "./platform/settings";import{readMediaPolicy,mediaReadDecision}from "./platform/media-policy";import{listRoutes,findPostTypeBySlug,listPostTypes}from "./extensions/theme/capabilities";
@@ -8,6 +8,7 @@ import{currentUser,loginRequest}from "./platform/auth";import{adminPath,resetAdm
 // theme, then make it *own* what it declares. Without the second half a fresh
 // install renders the bundled theme while the theme owns nothing.
 import{ensureThemeCapabilities}from "./extensions/theme/capabilities";
+import{bootstrapAdmin}from "./platform/auth";
 import{resolveLocale,langFromUrl,langFromCookie,langCookie}from "./platform/i18n/resolve";import{setPackProviders}from "./platform/i18n/packs";import{themePackProvider}from "./extensions/theme/packs";import{pluginPackProvider}from "./extensions/plugin/packs";
 // A theme-owned table is read through the same facade the admin screens use.
 // `resolveTableForSite` lives there precisely so that this route and the
@@ -200,6 +201,13 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
      // through `theme_installs`, which the seeding call is what creates.
      await seedBundledExtensions(env);
      await ensureThemeCapabilities(env);
+     // Demo content ships with the install, not with a terminal script: a
+     // fresh database gets the bilingual demo posts and the About page on its
+     // first request (the hook decides once, via a settings stamp — it never
+     // resurrects content on a site that already has its own). The owner is
+     // bootstrapped first because demo posts are staff-authored.
+     await bootstrapAdmin(env);
+     await maybeSeedDemoContent(env);
    }catch{
      // A failed seed leaves the install exactly as a fresh one was before
      // these calls existed, which is a state the front end already renders.
@@ -595,3 +603,7 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
 },async scheduled(_event:ScheduledController,env:Env,_ctx:ExecutionContext){await processScheduled(env)}};
 
 export{listPostTypes};
+// Test surface: the boot hook is exercised directly by `admin-contract` (the
+// stamp / empty-site / non-empty-site predicate cannot be reached through any
+// HTTP route — by design, it runs once per install, not per request).
+export{maybeSeedDemoContent};

@@ -2058,6 +2058,65 @@ section("A registry row is not an install (rule 69)");
 }
 
 // ---------------------------------------------------------------------------
+section("The demo content is seeded by the install itself (one definition, one writer)");
+// ---------------------------------------------------------------------------
+
+/**
+ * A fresh install used to be an empty screen with a terminal script as the
+ * only way to fill it. The demo now ships with the install: the boot chain
+ * seeds a never-seeded, empty install once (a settings stamp records the
+ * decision, so a user who deletes their content never finds the demo
+ * resurrected on the next boot), the admin Settings screen carries a restore
+ * button, and the terminal script only calls the same endpoint.
+ *
+ * Four structural claims, each checkable without a database:
+ *
+ *   1. the boot chain orders the calls: register → install → bootstrap the
+ *      owner → seed (the seed needs the owner, because demo posts are staff
+ *      content and a blank author blurs rule 84a's id spaces);
+ *   2. the boot hook exists in the API layer and is re-exported for the
+ *      contract suite, which drives it directly;
+ *   3. the `seed-demo` endpoint sits behind `settings.manage` — it enables
+ *      languages and writes published content, exactly the powers the
+ *      locale endpoint it calls internally needs a gate for;
+ *   4. the content has **one definition** (`shared/demo-content.ts`): the
+ *     script must not carry its own copy of the prose, because two copies of
+ *     "the demo" drift into two different demo sites.
+ */
+{
+  const bootSrc = blankComments(read(join(ROOT, "src/index.ts")));
+  const apiSrc = blankComments(read(join(ROOT, "src/api.ts")));
+  const scriptSrc = blankComments(read(join(ROOT, "scripts/seed-demo-content.mjs")));
+
+  const bootAt = bootSrc.indexOf("await bootstrapAdmin(env)");
+  const seedAt = bootSrc.indexOf("await maybeSeedDemoContent(env)");
+  check(
+    "the boot chain bootstraps the owner before it seeds the demo",
+    bootAt >= 0 && seedAt > bootAt,
+    `bootstrap@${bootAt} seed@${seedAt}`
+  );
+  check(
+    "the boot hook is a real exported function",
+    /export async function maybeSeedDemoContent\(/.test(apiSrc)
+      && /export\{maybeSeedDemoContent\}/.test(bootSrc)
+  );
+  const routeAt = apiSrc.indexOf('path === "seed-demo"');
+  const gateAt = apiSrc.indexOf('requirePermission(env, user, "settings.manage"', routeAt);
+  const nextRouteAt = apiSrc.indexOf('if (path ===', routeAt + 1);
+  check(
+    "the seed-demo endpoint sits behind settings.manage",
+    routeAt >= 0 && gateAt > routeAt && gateAt < (nextRouteAt === -1 ? apiSrc.length : nextRouteAt),
+    `route@${routeAt} gate@${gateAt} next@${nextRouteAt}`
+  );
+  check(
+    "the demo prose has one definition (the script calls the endpoint, it does not carry a copy)",
+    /DEMO_CONTENTS/.test(blankComments(read(join(ROOT, "src/shared/demo-content.ts"))))
+      && /seed-demo/.test(scriptSrc)
+      && !/unsplash/.test(scriptSrc)
+  );
+}
+
+// ---------------------------------------------------------------------------
 section("The custom-field read ladder is defined once (rule 70)");
 // ---------------------------------------------------------------------------
 

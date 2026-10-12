@@ -1,6 +1,28 @@
 # CFPress (CFCMS) 交接文档
 
-> 更新时间：2026-10-12 (GMT+8) ｜ 交接基线：**default 主题也拥有会员面（账户 / 投稿）**
+> 更新时间：2026-10-12 (GMT+8) ｜ 交接基线：**演示内容随安装自种（规则 86）+ 同步脚本不再可能空树**
+> **本轮新增**：
+> - **规则 86（演示内容只有一份定义，安装自己种）**：全新安装的首个请求自动写入双语演示文章与
+>   「关于」页。内容唯一定义 `src/shared/demo-content.ts`；三个调用者（boot 钩子 / 后台设置屏按钮
+>   `POST /api/v1/seed-demo`，门 = `settings.manage` / `seed:demo` 脚本——现在只做登录 + 调端点 +
+>   **外部验证**，不再携带文案副本）走同一个写者 `seedDemoContent`（`api.ts`，内部就是编辑器的
+>   savePost 路径，缓存/修订/slug 规则与真实内容一致）。**id 按站点派生** `demo_<siteId>_<key>`
+>   （posts.id 是全局 PK，固定字面量会让第二站点种子撞 id → savePost 对他站 id 答 404）；
+>   **boot 决策一次**：戳记 `demo.seeded`（SETTING_DEFS 声明的 site boolean），非空站点只戳不种、
+>   种失败不戳（下次重试）。⚠️ **布尔的设置读取必须走 `truthy()`**——`getSetting` 对未写行返回声明
+>   默认值 `"0"`，JS 里是真值，裸 `if` 把「从未种过」读成「已种」（本轮实测踩中）。
+>   守卫：architecture 4 条 + admin-contract §21 19 条（真 D1）+ 注入 2 条（权限门中和 / 钩子忘读戳记）。
+> - **sync-bundled-themes 改就地覆盖**：先 `rmSync` 整树再复制的中断 = 全站裸桩无报错（真发生过：
+>   safe-delete 垫片 ETIMEDOUT「删完未复制」）。现在逐文件覆盖 + 最后清过期文件，任何时刻中断留下的
+>   都是合法树。守卫 architecture +1（in-place loop + 过期清理 + 禁裸 `rmSync(targetRoot)`）+ 注入 1 条。
+> - **全新安装验证（本地 + 远程）**：两端 24 迁移自动落、种子链自动建出 `/en/account` 与 `/en/compose`、
+>   无 JS 会员流（注册→投稿 draft→账户页→POST 删除）全通；远程已重置部署（DROP 43 业务表→migrate→
+>   deploy→boot 自种）。⚠️ `seed:demo` 的登录在 `/admin/api/v1/auth/login`（规则 75）；后台列表的代表行
+>   `slug` 是主表值（批次 24）→ 验证按 id 匹配、permalink 是 `/{locale}/blog/{slug}`（posts）。
+> - 基线：architecture **252/0**、admin-contract **280/0**、注入 **124 场景/0**、theme-bundled 160/0、
+>   theme-default 79/0、launcher-parity 66/0、manifest-validation 104/0、`_schema-scope` 26/0、
+>   tsc（src/）0 错误；27 套件合计 **2115 条全绿**。
+> 上一条交接基线：**default 主题也拥有会员面（账户 / 投稿）**
 > **本轮新增**：会员面（账户页 + 投稿编辑器）此前**只存在于 prism**。机制（`buildScope` 的
 > `my_posts` / `query` / `edit_post`，`api.ts` 的前台表单端点）两套主题共享，但 UI 只有一套——
 > 于是 default 主题（`BUNDLED_THEMES` 的第一个，**全新安装未激活任何主题时渲染的就是它**）

@@ -64,6 +64,11 @@ export default async function settings(c) {
   })}
   ${sections || `<div class="panel"><div class="empty">${esc(t("core.settings.noneYet", "This site has no settings yet."))}</div></div>`}
   ${platformPanel}
+  <div class="panel" style="margin-bottom:1rem">
+    <div class="card-title">${esc(t("core.settings.seedDemo.title", "Demo content"))}</div>
+    <div class="card-desc" style="margin-bottom:1rem">${esc(t("core.settings.seedDemo.desc", "Write the bilingual demo articles and the About page for this site. Fixed per-site ids — safe to re-run, it updates instead of duplicating."))}</div>
+    <button class="btn sm" data-action="seed-demo">${icon("refresh")}${esc(t("core.settings.seedDemo.run", "Restore demo content"))}</button>
+  </div>
   <p class="muted text-sm">${esc(t("core.settings.storedPerSite", "Site settings are stored per site. Switch sites from the sidebar to edit another one."))}</p>`;
 }
 
@@ -82,5 +87,30 @@ document.addEventListener("click", async (e) => {
       await api("platform-settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: el.dataset.pkey, value: el.value }) });
     }
     toast(t("core.settings.platformSaved", "Platform settings saved"));
+    return;
+  }
+  if (a.dataset.action === "seed-demo") {
+    // One request per piece: the demo is written piece by piece so a single
+    // click never concentrates the whole seed in one request (relevant on the
+    // free plan's per-request CPU budget). A failure reports what failed
+    // instead of dying silently mid-run — the writes are idempotent, so
+    // re-clicking resumes rather than duplicates.
+    if (!confirm(t("core.settings.seedDemo.confirm", "Restore the demo content? This writes the demo articles and the About page (fixed ids)."))) return;
+    let written = 0;
+    const failed = [];
+    for (const key of ["hello", "second", "edge", "templates", "i18n", "about"]) {
+      try {
+        const r = await api(scoped("seed-demo"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key }) });
+        if (r.written) written += r.written;
+        if (r.failed) failed.push(...r.failed);
+      } catch (err) {
+        failed.push(`${key}: ${err?.message || err}`);
+      }
+    }
+    if (failed.length) {
+      toast(t("core.settings.seedDemo.done", "Demo content written: {written} version(s)", { written }) + " — " + failed.join(", "));
+    } else {
+      toast(t("core.settings.seedDemo.done", "Demo content written: {written} version(s)", { written }));
+    }
   }
 });

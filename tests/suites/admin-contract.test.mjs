@@ -137,7 +137,11 @@ async function main() {
   const files = readdirSync(d1Dir).filter((f) => f.endsWith(".sqlite"));
   if (!files.length) { console.error("Local D1 sqlite not found."); process.exit(2); }
   const sqlite = new DatabaseSync(join(d1Dir, files[0]));
-  const worker = (await compileWorker()).default;
+  // The module namespace, not just the fetch handler: section 21 drives the
+  // boot hook (`maybeSeedDemoContent`) directly, because "runs once per
+  // install" is exactly the contract no HTTP route exercises.
+  const mod = await compileWorker();
+  const worker = mod.default;
   const env = makeEnv(sqlite);
 
   // Idempotent teardown of this suite's fixtures, run at BOTH ends: up front so
@@ -169,6 +173,19 @@ async function main() {
       "DELETE FROM site_locales WHERE site_id='adm'",
       "DELETE FROM sites WHERE id='adm'",
       "DELETE FROM settings WHERE site_id='adm'",
+      // -- section 21 (demo content seeding) --
+      // Translations/meta/revisions go first, by *site* subquery, so the
+      // second fixture site's own post cannot orphan its language rows.
+      "DELETE FROM post_meta WHERE post_id IN (SELECT id FROM posts WHERE site_id LIKE 'admdemo%')",
+      "DELETE FROM post_translations WHERE post_id IN (SELECT id FROM posts WHERE site_id LIKE 'admdemo%')",
+      "DELETE FROM post_revisions WHERE post_id IN (SELECT id FROM posts WHERE site_id LIKE 'admdemo%')",
+      "DELETE FROM posts WHERE site_id LIKE 'admdemo%'",
+      "DELETE FROM content_cache_versions WHERE site_id LIKE 'admdemo%'",
+      "DELETE FROM site_locales WHERE site_id LIKE 'admdemo%'",
+      "DELETE FROM settings WHERE site_id LIKE 'admdemo%'",
+      "DELETE FROM site_users_sites WHERE user_id IN (SELECT id FROM site_users WHERE username='admdemo_limited')",
+      "DELETE FROM site_users WHERE username='admdemo_limited'",
+      "DELETE FROM sites WHERE id LIKE 'admdemo%'",
     ]) { try { sqlite.exec(sql); } catch { /* ok */ } }
   };
   sweep();
@@ -1445,6 +1462,130 @@ async function main() {
     check("no form-surface fixtures were left behind",
       sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE author_member_id IS NOT NULL AND author_member_id NOT IN (SELECT id FROM members)").get()?.n, 0);
     check("and the member accounts are gone", sqlite.prepare("SELECT COUNT(*) AS n FROM members WHERE username LIKE 'adm_fm%'").get()?.n, 0);
+  }
+
+  console.log("\n21. Demo content: a fresh install ships something to look at");
+  // The demo content has exactly one definition (`shared/demo-content.ts`) and
+  // three callers: the boot hook (once per install, behind a stamp), the admin
+  // Settings button (`POST seed-demo`), and the terminal script. This section
+  // pins the writer's contract and the boot hook's predicate — the predicate
+  // is the part with a real trap: "posts table empty" is a fact that changes,
+  // so the decision must be recorded, or a user who deletes their content
+  // finds the demo resurrected on the next boot.
+  {
+    // The seed writes platform `locales` rows (the demo languages); note what
+    // existed before so only the *created* rows are swept — the operator's own
+    // locale rows must survive.
+    const localesBefore = new Set(sqlite.prepare("SELECT code FROM locales").all().map((r) => r.code));
+
+    const cs = await req(worker, env, "/api/v1/sites", {
+      method: "POST", headers: json, body: JSON.stringify({ id: "admdemo", name: "Demo Seed Fixture" }),
+    });
+    check("fixture site created", cs.status < 300, true);
+
+    // ── The writer, through the same save path an editor save takes ──
+    const r1 = await req(worker, env, "/api/v1/seed-demo?site=admdemo", {
+      method: "POST", headers: json, body: JSON.stringify({}),
+    });
+    check("seed-demo answers 200", r1.status, 200);
+    const r1j = await r1.json();
+    check("six pieces in two languages were written", r1j.written, 12);
+    check("nothing failed", r1j.failed, []);
+
+    // Both languages of a piece share one row; the per-site id is derived from
+    // the site (`demo_<siteId>_<key>`), so a second site can never collide.
+    const hello = sqlite.prepare(
+      "SELECT p.slug AS slug, p.status AS status, COUNT(t.locale) AS locales FROM posts p LEFT JOIN post_translations t ON t.post_id=p.id WHERE p.id='demo_admdemo_hello' GROUP BY p.id"
+    ).get();
+    check("hello exists, published, in two languages",
+      hello ? [hello.slug, hello.status, hello.locales] : null, ["hello-world", "published", 2]);
+    check("the demo languages are served on the site",
+      sqlite.prepare("SELECT code FROM site_locales WHERE site_id='admdemo' AND enabled=1 ORDER BY code").all().map((r) => r.code), ["en", "zh-CN"]);
+
+    // ── Idempotent: a second (scoped) run updates, never duplicates ──
+    const r2 = await req(worker, env, "/api/v1/seed-demo?site=admdemo", {
+      method: "POST", headers: json, body: JSON.stringify({ key: "hello", locale: "en" }),
+    });
+    const r2j = await r2.json();
+    check("a scoped re-run answers 200", r2.status, 200);
+    check("and writes exactly one version", r2j.written, 1);
+    check("still two language rows for the piece",
+      sqlite.prepare("SELECT COUNT(*) AS n FROM post_translations WHERE post_id='demo_admdemo_hello'").get()?.n, 2);
+
+    // ── Permission: the gate is `settings.manage`, not merely being staff ──
+    const mk = await req(worker, env, "/api/v1/users?site=admdemo", {
+      method: "POST", headers: json, body: JSON.stringify({ username: "admdemo_limited", password: "demo-pass-1", role: "editor" }),
+    });
+    const mkj = await mk.json();
+    const editorId = mkj.user?.id ?? mkj.id;
+    check("a scoped editor was created", mk.status < 300 && !!editorId, true);
+    const lr2 = await req(worker, env, "/admin/api/v1/auth/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "admdemo_limited", password: "demo-pass-1" }),
+    });
+    const editorCookie = lr2.headers.get("set-cookie")?.split(";")[0] ?? "";
+    const forbidden = await req(worker, env, "/api/v1/seed-demo?site=admdemo", {
+      method: "POST", headers: { "Content-Type": "application/json", Cookie: editorCookie }, body: JSON.stringify({}),
+    });
+    check("an editor without settings.manage is 403", forbidden.status, 403);
+    const anon = await req(worker, env, "/api/v1/seed-demo?site=admdemo", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
+    });
+    check("an unauthenticated call is 401", anon.status, 401);
+
+    // ── The boot hook, driven directly (no route runs it — by design) ──
+    // The endpoint does not stamp; the *hook* owns the decision. Run it once
+    // on this site, which now has content: the decision must be recorded
+    // without seeding anything.
+    const beforeHook = sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE id LIKE 'demo_admdemo_%'").get()?.n;
+    await mod.maybeSeedDemoContent(env, "admdemo");
+    check("the hook records its decision on a site that already has content",
+      [
+        beforeHook,
+        sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE id LIKE 'demo_admdemo_%'").get()?.n,
+        sqlite.prepare("SELECT value FROM settings WHERE site_id='admdemo' AND key='demo.seeded'").get()?.value,
+      ], [6, 6, "1"]);
+
+    // (a) The stamp prevents resurrection: demo rows deleted by hand must not
+    //     come back, even though the site is now empty again.
+    sqlite.exec("DELETE FROM post_meta WHERE post_id LIKE 'demo_admdemo_%'");
+    sqlite.exec("DELETE FROM post_translations WHERE post_id LIKE 'demo_admdemo_%'");
+    sqlite.exec("DELETE FROM posts WHERE id LIKE 'demo_admdemo_%'");
+    await mod.maybeSeedDemoContent(env, "admdemo");
+    check("the stamp prevents resurrection",
+      sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE id LIKE 'demo_admdemo_%'").get()?.n, 0);
+
+    // (b) Stamp removed and the site empty → the boot hook seeds it.
+    sqlite.exec("DELETE FROM settings WHERE site_id='admdemo' AND key='demo.seeded'");
+    await mod.maybeSeedDemoContent(env, "admdemo");
+    check("an empty, unstamped site is seeded by the boot hook",
+      sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE id LIKE 'demo_admdemo_%'").get()?.n, 6);
+    check("and the stamp is back",
+      sqlite.prepare("SELECT value FROM settings WHERE site_id='admdemo' AND key='demo.seeded'").get()?.value, "1");
+
+    // (c) A site with content of its own is never seeded — the exact shape of
+    //     an install that has grown a member draft (or any real content)
+    //     before the first boot of this code.
+    const cs2 = await req(worker, env, "/api/v1/sites", {
+      method: "POST", headers: json, body: JSON.stringify({ id: "admdemo2", name: "Demo Seed Fixture Two" }),
+    });
+    check("second fixture site created", cs2.status < 300, true);
+    const own = await req(worker, env, "/api/v1/posts?site=admdemo2", {
+      method: "POST", headers: json, body: JSON.stringify({ title: "Existing content", slug: "existing-content", content: "<p>the site's own</p>", status: "published" }),
+    });
+    check("the second site has its own post", own.status < 300, true);
+    await mod.maybeSeedDemoContent(env, "admdemo2");
+    check("a site with its own content is not seeded — and the decision is stamped",
+      [
+        sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE id LIKE 'demo_admdemo2_%'").get()?.n,
+        sqlite.prepare("SELECT COUNT(*) AS n FROM settings WHERE site_id='admdemo2' AND key='demo.seeded'").get()?.n,
+      ], [0, 1]);
+
+    // Sweep the platform locales this section may have created (the operator's
+    // own rows were here before and must survive).
+    for (const code of sqlite.prepare("SELECT code FROM locales").all().map((r) => r.code)) {
+      if (!localesBefore.has(code)) sqlite.prepare("DELETE FROM locales WHERE code=?").run(code);
+    }
   }
 
   // End-of-suite sweep, **here** rather than mid-file. It tears down this

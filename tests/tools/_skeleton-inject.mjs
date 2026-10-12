@@ -1691,6 +1691,32 @@ const SCENARIOS = [
     after: ['action="/api/v1/front/posts"'],
     runs: [["tests/suites/theme-default.test.mjs", "the editor switches to an edit form for ?id="]],
   },
+  {
+    label: "the demo seed answers any signed-in staff member",
+    // The endpoint enables languages and writes published content — the same
+    // powers the locale endpoint it calls internally gates behind
+    // `settings.manage`. An editor who can shape a site's content and
+    // languages without that permission is a permission model with a
+    // service entrance.
+    file: join(ROOT, "src/api.ts"),
+    before: ['  if (path === "seed-demo" && method === "POST") {\n    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);'],
+    after: ['  if (path === "seed-demo" && method === "POST") {\n    if (false) return ok({ error: "Forbidden" }, 403);'],
+    runs: [
+      ["tests/suites/architecture.test.mjs", "the seed-demo endpoint sits behind settings.manage"],
+      ["tests/suites/admin-contract.test.mjs", "an editor without settings.manage is 403"],
+    ],
+  },
+  {
+    label: "the boot hook forgets it already decided",
+    // "posts table empty" is a fact that changes. Without the stamp the hook
+    // re-reads the empty table on every boot, and an operator who deletes
+    // their content finds the demo resurrected — the exact surprise the stamp
+    // exists to prevent.
+    file: join(ROOT, "src/api.ts"),
+    before: ["  if (truthy(await getSetting(env, site.id, DEMO_SEED_STAMP))) return;"],
+    after: ["  // the stamp read is gone"],
+    runs: [["tests/suites/admin-contract.test.mjs", "the stamp prevents resurrection"]],
+  },
 
 ];
 

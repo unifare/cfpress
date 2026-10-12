@@ -1228,6 +1228,47 @@ if (modules && !bootError) {
   routeTable.delete("/api/v1/i18n/ui-locale");
 }
 
+// ---------------------------------------------------------------------------
+section("Every list scrolls horizontally on a narrow screen");
+// ---------------------------------------------------------------------------
+
+// `.table-wrap` wraps every admin table (content lists, users, sites, menus,
+// …). It was `overflow: hidden` — rounding corners nicely and *clipping* any
+// table wider than the viewport, which on a phone meant the row's action
+// buttons were simply unreachable: no scrollbar, no way to get to them. Two
+// claims, both anchored where the bug would bite:
+//
+//   1. the wrapper's rule must allow horizontal scrolling (`overflow-x`)
+//      and must not clip it outright;
+//   2. every rendered table must actually sit inside that wrapper — a screen
+//      that renders a bare `<table class="table">` would skip the fix
+//      entirely, and nothing else would notice.
+{
+  const css = readFileSync(join(ADMIN, "admin.css"), "utf8");
+  const ruleAt = css.indexOf(".table-wrap {");
+  const ruleEnd = css.indexOf("}", ruleAt);
+  const rule = css.slice(ruleAt, ruleEnd);
+  check(
+    "the table wrapper scrolls horizontally instead of clipping",
+    ruleAt >= 0 && /overflow-x:\s*auto/.test(rule) && !/overflow:\s*hidden/.test(rule),
+    `rule=${JSON.stringify(rule.trim())}`
+  );
+
+  // Consumption: the scroll rule only matters if the tables are inside it.
+  for (const f of readdirSync(join(ADMIN, "js", "screens")).map((n) => join(ADMIN, "js", "screens", n))
+    .concat([join(ADMIN, "js", "plugin-page.js")])){
+    const src = readFileSync(f, "utf8");
+    const tables = (src.match(/<table class="table">/g) ?? []).length;
+    if (!tables) continue;
+    const wrapped = (src.match(/table-wrap"><table class="table">/g) ?? []).length;
+    check(
+      `every table in ${relative(ADMIN, f)} sits inside the scrolling wrapper`,
+      tables === wrapped,
+      `${wrapped}/${tables} wrapped`
+    );
+  }
+}
+
 if (tmpDir) {
   try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* temp dir — fine */ }
 }

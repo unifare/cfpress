@@ -632,7 +632,14 @@ input.control:focus {
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   background: var(--card);
-  overflow: hidden;
+  /* Narrow screens: a wide table (many columns, nowrap actions) must SCROLL,
+     not vanish. `hidden` clipped the overflow outright — on a phone the
+     action buttons were simply unreachable. `auto` on the x axis gives the
+     wrapper its own horizontal scrollbar; `hidden` stays on y so the
+     rounded corners still clip the thead's background. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 .table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }

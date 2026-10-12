@@ -1717,6 +1717,27 @@ const SCENARIOS = [
     after: ["  // the stamp read is gone"],
     runs: [["tests/suites/admin-contract.test.mjs", "the stamp prevents resurrection"]],
   },
+  {
+    label: "the table wrapper clips instead of scrolling",
+    // The regression the fix came from: `overflow: hidden` rounds the corners
+    // nicely and makes every wide table unreachable on a phone — the row's
+    // action buttons simply do not exist beyond the viewport edge.
+    file: join(ROOT, "public/admin/admin.css"),
+    before: ["  overflow-x: auto;\n  overflow-y: hidden;\n  -webkit-overflow-scrolling: touch;"],
+    after: ["  overflow: hidden;"],
+    runs: [["tests/suites/admin-spa.test.mjs", "the table wrapper scrolls horizontally instead of clipping"]],
+  },
+  {
+    label: "a screen renders its table outside the scrolling wrapper",
+    // The CSS rule only helps tables that sit inside `.table-wrap`. A screen
+    // that drops the wrapper still renders fine on a desktop — and silently
+    // loses the scroll on a phone — so the wrapper presence is pinned per
+    // screen, not just globally.
+    file: join(ROOT, "public/admin/js/screens/content-list.js"),
+    before: ['  <div class="table-wrap"><table class="table">'],
+    after: ['  <table class="table">'],
+    runs: [["tests/suites/admin-spa.test.mjs", "every table in js\\screens\\content-list.js sits inside the scrolling wrapper"]],
+  },
 
 ];
 
@@ -1746,6 +1767,7 @@ const WATCHED = [...new Set([SCHEMA, EVENTS, ARCH, SCOPE, MANIFEST, VALIDATION,
   ADMIN_STATE, AUTH, SITES, SITES_SCREEN,
   BLOCKS, FRONTEND, BLOCK_FIELDS, MEDIA_PICKER, MEDIA_SCREEN, CORE_PACK, API, WRANGLER,
   PERMISSIONS, MIGRATION_0023, USERS_SCREEN, ADMIN_NAV,
+  join(ROOT, "public/admin/admin.css"),
   // The theme batch. `MEMBERS` is the member-scope projection — a scenario
   // injects into it, so it must be watched or a failed injection leaves the
   // source of truth silently modified. The two theme files are watched for the

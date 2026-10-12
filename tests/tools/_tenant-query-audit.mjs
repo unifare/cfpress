@@ -139,19 +139,27 @@ const REVIEWED = {
   // statement terminator so neighbours' `site_id` cannot bleed in) — which
   // surfaced four genuinely new hits below (708, settings.ts:100,
   // runtime-declarative.ts:300, scheduler.ts:39), each judged here.
-  "src/api.ts:708": "UPDATE settings … WHERE id=? — `saveFeature` writes back the row its own `SELECT id FROM settings WHERE site_id=? AND key=?` just read; `id` is the PK of a site-scoped read, same shape as platform/settings.ts:100",
+  // The member-publishing batch (rule 84) added `saveMemberPost` /
+  // `deleteMemberPost` and extracted `writePostMeta()` in `api.ts`, moving the
+  // uninstall/activate block again: 708→719, 948→959, 954→965, 2211→2423.
+  // **This is the fourth drift**, and the statement is unchanged each time —
+  // only its line number moves, so a shift is a re-key, never a silent NEW.
+  // (`src/api.ts:898` is deleted rather than re-keyed: the scanner now skips
+  // any statement whose own window contains `site_id`, and that one selects
+  // `site_id` itself — so it is no longer a hit, and a verdict that is no
+  // longer needed should be deleted, not left to rot.)
+  "src/api.ts:719": "UPDATE settings … WHERE id=? — `saveFeature` writes back the row its own `SELECT id FROM settings WHERE site_id=? AND key=?` just read; `id` is the PK of a site-scoped read, same shape as platform/settings.ts:100",
   "src/platform/settings.ts:100": "UPDATE settings … WHERE id=? — `setSetting` writes back the row its own `SELECT id FROM settings WHERE site_id=? AND key=?` just read; the tenant was established by the read",
   "src/extensions/theme/runtime-declarative.ts:300": "FROM posts p JOIN post_translations — `runThemeQuery` assembles its WHERE from the `conditions` array, whose first element is always `p.site_id = ?` (line 277); the predicate is real but constructed, so a line scanner cannot see it — assembled-statement limitation, judged correct",
   "src/shared/scheduler.ts:39": "UPDATE posts … WHERE id=? — the orphan-queue branch: the post row is gone (no tenant left to scope), so the queue row is marked done so it drains instead of retrying forever. The live branch above carries AND site_id=?",
-  "src/api.ts:2211": "UPDATE theme_installs … WHERE name IN (SELECT value FROM settings WHERE key='theme.active') — theme_installs is PLATFORM-GLOBAL; `active` means 'some site uses it', so the cross-site subquery is the intent",
+  "src/api.ts:2423": "UPDATE theme_installs … WHERE name IN (SELECT value FROM settings WHERE key='theme.active') — theme_installs is PLATFORM-GLOBAL; `active` means 'some site uses it', so the cross-site subquery is the intent",
   "src/extensions/plugin/notify.ts:108": "UPDATE notification_log … WHERE id=? — the row is this send's own claim, addressed by the PK minted a few lines above for this siteId; ok/error are not identity",
   "src/extensions/theme/runtime-worker.ts:411": "menu_items … WHERE menu_id=? AND site_id=? — ⚠️ rewritten in batch 16: `menu_id` is only unique per site (menus is UNIQUE(site_id,id)), so the earlier `WHERE menu_id=?` leaked another tenant's items onto this site's nav; `site_id` is required, not optional",
   "src/extensions/theme/tables.ts:383": "UPDATE theme_table_defs WHERE id=? — registry row addressed by its own PK",
   "src/extensions/theme/tables.ts:404": "SELECT theme_table_defs … WHERE site_id=? AND owner_type=? AND owner_name=? AND logical_name=? — reads back the mapping this same call just wrote, to repair a recorded i18n_table whose table is gone; fully site-scoped",
   "src/platform/frontend.ts:186": "menu_items … WHERE menu_id=? AND site_id=? — ⚠️ rewritten in batch 16 (see runtime-worker:411): `menu_id` is only unique per site, so the earlier site-blind filter rendered the shop site's nav item on the default site's front page",
-  "src/api.ts:948": "SELECT theme_table_defs … WHERE owner_type='theme' AND owner_name=? — theme uninstall gathers every site's generated tables for a theme being removed entirely; owner-scoped by design, no site_id on purpose",
-  "src/api.ts:954": "DELETE FROM theme_table_defs WHERE owner_name=? — same uninstall: the theme is leaving the platform, so every site's mapping goes with it",
-  "src/api.ts:898": "SELECT settings … WHERE key='theme.active' AND value=? — uninstall's active-site check deliberately scans all sites: the 409 must name every site that still renders this theme",
+  "src/api.ts:959": "SELECT theme_table_defs … WHERE owner_type='theme' AND owner_name=? — theme uninstall gathers every site's generated tables for a theme being removed entirely; owner-scoped by design, no site_id on purpose",
+  "src/api.ts:965": "DELETE FROM theme_table_defs WHERE owner_name=? — same uninstall: the theme is leaving the platform, so every site's mapping goes with it",
   "src/platform/admin-menus.ts:268": "DELETE FROM admin_menu_registry WHERE owner_type=? AND owner_name=? — this is `clearOwnerMenusAllSites`, and install-wide is its *name*: an activation interrupted before it wrote `theme.active` leaves menus on sites that no longer select the theme, pointing at tables an uninstall is about to drop. Owner-scoped by design",
   // Re-keyed 166→205: the theme-batch added `memberScope()` (~39 lines) above
   // `logoutMember` in the same file. The statement is unchanged — only its line

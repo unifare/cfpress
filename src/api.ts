@@ -363,19 +363,7 @@ async function savePost(
   // The value is written against THIS save's locale (migration 0019): a
   // category name is prose, and the language that saved it owns what it says.
   // Reading is the ladder in `platform/post-meta.ts` — never here.
-  if (body.meta && typeof body.meta === "object" && !Array.isArray(body.meta)) {
-    for (const [k, v] of Object.entries(body.meta as Record<string, unknown>)) {
-      const key = String(k);
-      if (!/^[a-z0-9_][a-z0-9_-]{0,63}$/i.test(key)) continue;
-      if (!(await fieldExists(env, key, siteId))) continue;
-      await env.DB.prepare(
-        "INSERT INTO post_meta(post_id,meta_key,locale,meta_value,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(post_id,meta_key,locale) DO UPDATE SET meta_value=excluded.meta_value,updated_at=excluded.updated_at"
-      )
-        .bind(entityId, key, locale, v === null || v === undefined ? null : String(v), now())
-        .run()
-        .catch(() => {});
-    }
-  }
+  await writePostMeta(env, siteId, entityId, locale, body.meta);
   await bumpContentCache(env, siteId);
   await activity(env, userId, isCreate ? "create" : "update", kind, entityId, { locale, title, status, siteId });
   // The URL segment this save left the locale with: the override just written,
@@ -401,6 +389,29 @@ async function fieldExists(env: Env, key: string, siteId: string): Promise<boole
     return !!row;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Write a save's theme-declared custom fields, against **that save's locale**
+ * (migration 0019): a category name is prose, and the language that saved it
+ * owns what it says. This is the **only** writer of `post_meta`; reading is
+ * the ladder in `platform/post-meta.ts`, never here (rule 70).
+ */
+async function writePostMeta(
+  env: Env, siteId: string, entityId: string, locale: string, meta: unknown
+): Promise<void> {
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return;
+  for (const [k, v] of Object.entries(meta as Record<string, unknown>)) {
+    const key = String(k);
+    if (!/^[a-z0-9_][a-z0-9_-]{0,63}$/i.test(key)) continue;
+    if (!(await fieldExists(env, key, siteId))) continue;
+    await env.DB.prepare(
+      "INSERT INTO post_meta(post_id,meta_key,locale,meta_value,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(post_id,meta_key,locale) DO UPDATE SET meta_value=excluded.meta_value,updated_at=excluded.updated_at"
+    )
+      .bind(entityId, key, locale, v === null || v === undefined ? null : String(v), now())
+      .run()
+      .catch(() => {});
   }
 }
 
@@ -1087,6 +1098,183 @@ export async function handleFrontApi(env: Env, request: Request, siteId: string,
   }
 }
 
+/**
+ * Front-end publishing: a member writing their **own** posts.
+ *
+ * ## Why this is not `savePost` with a different caller
+ *
+ * `savePost` answers to a **staff** session: it takes its author from the admin
+ * cookie, writes it into `posts.author_id`, and trusts the caller's `status`
+ * (an editor is allowed to publish). A member is a different identity (rule 77),
+ * and the three differences are the reason this is a separate function:
+ *
+ *   1. **The author is the session, not the body.** `author_member_id` comes
+ *      from `requireMember`'s result. `body.author_member_id` is not read at
+ *      all — reading it would let one member author posts *as* another, which
+ *      is the same defect shape as a client-supplied `site_id`. `author_id`
+ *      stays `''` (migration 0024: never invent a fake staff user, because
+ *      `author_id` is a staff id space and every reader of it assumes so).
+ *   2. **The status is the server's decision.** A member submission is a
+ *      *submission*: it lands as `draft`, and publishing stays a staff act.
+ *      `body.status` is ignored outright, so a crafted request cannot put
+ *      itself on the front page. An **edit** does not touch the status at all
+ *      either — a member must not be able to publish, nor to knock a
+ *      staff-published post back to draft.
+ *   3. **Ownership is a filter, and a miss is 404.** Every statement carries
+ *      `site_id` AND `author_member_id`; a post owned by another member,
+ *      another site, or nobody answers 404 — never 403, which would confirm
+ *      that the id exists (the existence oracle MS-1.1 forbids, and the reason
+ *      `savePost` answers 404 for a cross-site id too).
+ *
+ * What it *shares* with `savePost` is everything that is about **content**
+ * rather than identity: the per-language slug with its clash check (rule 58),
+ * the per-language `post_meta` write (rule 70 — written here, read only through
+ * `resolveMetaByPost`), and `bumpContentCache`.
+ *
+ * ## What is deliberately absent
+ *
+ * No `activity()` call. `admin_activity.user_id` holds a **staff** id, and
+ * writing a member id into it would be the "one column, two meanings" defect
+ * migration 0024 refused for `author_id`. Member actions are recorded by the
+ * row they touch (`posts.author_member_id`), not in the staff log.
+ *
+ * No `scheduled_posts` row either: scheduling is publishing, and publishing is
+ * a staff act.
+ */
+async function saveMemberPost(
+  env: Env,
+  siteId: string,
+  memberId: string,
+  id: string | null,
+  body: any
+): Promise<Response> {
+  const defaultLoc = await siteDefaultLocale(env, siteId);
+  const locale = String(body.locale ?? "").trim() || defaultLoc;
+  const isDefaultLocale = locale === defaultLoc;
+  const title = String(body.title ?? "");
+  const excerpt = String(body.excerpt ?? "");
+  const content = typeof body.content === "string" ? body.content : JSON.stringify(body.content ?? []);
+  // `undefined` (field absent) leaves the translation's slug override alone; an
+  // empty string clears it so the URL follows the main table again. Same
+  // three-state contract as `savePost`.
+  const slugGiven = body.slug !== undefined;
+  const tSlug = String(body.slug ?? "").trim();
+
+  const entityId = id ?? `post_${await randomId()}`;
+
+  // Ownership is established before anything is written, on the **site and the
+  // member together** — in the SQL, not by comparing a fetched column in JS. A
+  // predicate the database applies cannot be forgotten by a later edit to the
+  // branch that reads it, and it is the same shape the DELETE uses. A `PUT`
+  // naming an id this member does not own is 404 for every reason it could be:
+  // wrong site, wrong member, no such row. One answer, so the response cannot
+  // be used to enumerate ids.
+  const owned = await env.DB.prepare(
+    "SELECT id FROM posts WHERE id=? AND site_id=? AND author_member_id=? AND type='post' LIMIT 1"
+  ).bind(entityId, siteId, memberId).first<any>();
+  if (id && !owned) {
+    return ok({ error: "not found" }, 404);
+  }
+  const isCreate = !owned;
+
+  // An explicitly sent slug must be free *in this language* (rule 58). Two
+  // translations of different posts may not share a URL; the main-table check
+  // on top covers the default language, whose slug is also the identity.
+  if (tSlug) {
+    const clash = await env.DB.prepare(
+      `SELECT p.id FROM posts p JOIN post_translations t ON t.post_id=p.id
+        WHERE p.site_id=? AND p.type='post' AND t.locale=? AND COALESCE(t.slug,p.slug)=? AND p.id<>? LIMIT 1`
+    ).bind(siteId, locale, tSlug, entityId).first<any>();
+    if (clash) return ok({ error: "slug already used in this language" }, 409);
+    if (isDefaultLocale) {
+      const clashMain = await env.DB.prepare(
+        "SELECT id FROM posts WHERE site_id=? AND type='post' AND slug=? AND id<>? LIMIT 1"
+      ).bind(siteId, tSlug, entityId).first<any>();
+      if (clashMain) return ok({ error: "slug already used in this language" }, 409);
+    }
+  }
+
+  if (isCreate) {
+    await env.DB.prepare(
+      `INSERT INTO posts (id, site_id, author_id, author_member_id, type, slug, status, lang_group, created_at, updated_at)
+       VALUES (?, ?, '', ?, 'post', ?, 'draft', ?, ?, ?)`
+    ).bind(entityId, siteId, memberId, tSlug || entityId, entityId, now(), now()).run();
+  } else {
+    // `status` is deliberately **not** in this UPDATE (see the note above).
+    // The main-table slug follows the save only when this locale owns it —
+    // otherwise renaming would move the *other* languages' URLs, whose
+    // COALESCE falls through to it.
+    const others = await env.DB.prepare(
+      "SELECT COUNT(*) AS c FROM post_translations WHERE post_id=? AND locale<>?"
+    ).bind(entityId, locale).first<any>();
+    const ownsMainSlug = isDefaultLocale || Number(others?.c ?? 0) === 0;
+    if (ownsMainSlug && tSlug) {
+      await env.DB.prepare("UPDATE posts SET slug=?, updated_at=? WHERE id=? AND site_id=?")
+        .bind(tSlug, now(), entityId, siteId).run();
+    } else {
+      await env.DB.prepare("UPDATE posts SET updated_at=? WHERE id=? AND site_id=?")
+        .bind(now(), entityId, siteId).run();
+    }
+  }
+
+  const existing = await env.DB.prepare(
+    "SELECT id, slug FROM post_translations WHERE post_id=? AND locale=? LIMIT 1"
+  ).bind(entityId, locale).first<any>();
+  if (existing) {
+    const nextSlug = slugGiven ? (tSlug || null) : (existing.slug ?? null);
+    await env.DB.prepare(
+      "UPDATE post_translations SET title=?, excerpt=?, content=?, slug=?, updated_at=? WHERE id=?"
+    ).bind(title, excerpt, content, nextSlug, now(), existing.id).run();
+  } else {
+    await env.DB.prepare(
+      "INSERT INTO post_translations (id, post_id, locale, title, excerpt, content, slug, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(await randomId(), entityId, locale, title, excerpt, content, tSlug || null, now(), now()).run();
+  }
+
+  // Custom fields: written against **this save's locale**, and only for keys
+  // the active theme declares for this site. Reading is the ladder in
+  // `platform/post-meta.ts` — never here (rule 70).
+  await writePostMeta(env, siteId, entityId, locale, body.meta);
+
+  await bumpContentCache(env, siteId);
+  // Read the row back rather than reporting what was *asked for*: an update
+  // does not touch the status, so echoing a literal `"draft"` would tell a
+  // member their published post is a draft.
+  const after = await env.DB.prepare(
+    `SELECT p.status, COALESCE(t.slug, p.slug) AS slug
+       FROM posts p JOIN post_translations t ON t.post_id=p.id AND t.locale=?
+      WHERE p.id=? AND p.site_id=? LIMIT 1`
+  ).bind(locale, entityId, siteId).first<any>();
+  const slug = after?.slug ?? (tSlug || entityId);
+  return ok(
+    { id: entityId, post: { id: entityId, locale, slug, status: after?.status ?? "draft", url: `/${locale}/blog/${slug}` } },
+    isCreate ? 201 : 200
+  );
+}
+
+/** A member deleting their **own** post. Same ownership filter, same 404. */
+async function deleteMemberPost(env: Env, siteId: string, memberId: string, id: string): Promise<Response> {
+  const owned = await env.DB.prepare(
+    "SELECT id FROM posts WHERE id=? AND site_id=? AND author_member_id=? AND type='post' LIMIT 1"
+  ).bind(id, siteId, memberId).first<any>();
+  if (!owned) return ok({ error: "not found" }, 404);
+  // Plugins purge their derived data first, exactly as the staff path does.
+  try {
+    await doAction("beforeDeletePost", { env, siteId }, { id, siteId });
+  } catch {
+    /* a plugin failure must not prevent the delete */
+  }
+  await env.DB.prepare("DELETE FROM post_translations WHERE post_id = ?").bind(id).run();
+  await env.DB.prepare("DELETE FROM post_meta WHERE post_id = ?").bind(id).run().catch(() => {});
+  await env.DB.prepare("DELETE FROM term_relationships WHERE post_id = ?").bind(id).run().catch(() => {});
+  // `site_id` stays in the predicate even though `owned` proved it: the check
+  // and the write must agree on what "this post" means, and a later edit to one
+  // of them should not be able to silently widen the other.
+  await env.DB.prepare("DELETE FROM posts WHERE id = ? AND site_id = ?").bind(id, siteId).run();
+  await bumpContentCache(env, siteId);
+  return ok({ ok: true });
+}
+
 async function routeFrontApi(env: Env, request: Request, siteId: string, resolvedPath: string): Promise<Response> {
   // `resolvedPath` is the path *after* the site prefix was stripped, so the
   // match is on `/api/v1/front/…` regardless of how the site is mounted.
@@ -1132,6 +1320,30 @@ async function routeFrontApi(env: Env, request: Request, siteId: string, resolve
     const m = await requireMember(env, request, siteId);
     if (m instanceof Response) return m;
     return ok({ member: m });
+  }
+
+  // -- the member's own posts (rule 84) ------------------------------------
+  // Identity comes from `requireMember` and **only** from there; nothing in the
+  // body or the path can name an author. A signed-out caller gets the 401
+  // `requireMember` produces, which is the same answer every other front
+  // endpoint gives — the surface has one gate, not one per endpoint.
+  //
+  // There is deliberately **no** `GET /posts` list here. The read path for "my
+  // posts" is the account page's `my_posts` scope (rule 82), defined once in
+  // `buildScope`; a second reader with its own SQL would be a second definition
+  // of "mine", and the two would be free to disagree.
+  if (path === "posts" && method === "POST") {
+    const m = await requireMember(env, request, siteId);
+    if (m instanceof Response) return m;
+    return saveMemberPost(env, siteId, m.id, null, await request.json().catch(() => ({})));
+  }
+  const ownPost = path.match(/^posts\/([^/]+)$/);
+  if (ownPost && (method === "PUT" || method === "DELETE")) {
+    const m = await requireMember(env, request, siteId);
+    if (m instanceof Response) return m;
+    const id = decodeURIComponent(ownPost[1]);
+    if (method === "DELETE") return deleteMemberPost(env, siteId, m.id, id);
+    return saveMemberPost(env, siteId, m.id, id, await request.json().catch(() => ({})));
   }
 
   return ok({ error: "Not found" }, 404);

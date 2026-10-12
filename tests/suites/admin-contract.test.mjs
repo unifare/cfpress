@@ -1101,6 +1101,208 @@ async function main() {
   check("the count fixtures are gone", sqlite.prepare("SELECT COUNT(*) AS n FROM sites WHERE id IN ('cnt','cnt2','cnt3')").get().n, 0);
   void defBefore;
 
+  console.log("\n19. Front-end publishing: a member's post is their own, and the session's");
+
+  // Rule 84. Batch D gave the front end an identity; this gives it a **write**
+  // path, and every way that can go wrong produces a 200. So most assertions
+  // below are about what the *row* looks like afterwards, and about what a
+  // second member is told when they aim at the first member's id — which must
+  // be the same 404 an id that never existed gets, or the response becomes an
+  // id-existence oracle.
+  //
+  // Fixtures use the `adm_mp_` prefix (distinct from §17's `adm_mem_*`, which
+  // that section wipes on its way out) and are swept at both ends.
+  {
+    const frontJson = { "Content-Type": "application/json" };
+    const ftReq = (path, init = {}) => req(worker, env, path, init);
+    const wipe = () => {
+      // Swept by **author**, not by an id prefix. The endpoint mints ids as
+      // `post_<randomId()>`, so a `LIKE 'post_mp_%'` sweep matches nothing —
+      // the first version of this section did exactly that, and left five
+      // posts behind, which then failed the *next* run with a 409 slug clash
+      // (red on the wrong assertion). It is the same mistake §17 documents for
+      // member ids, from the other direction: **sweep on the identifier the
+      // test controls, not one it hopes the platform produces.**
+      const mine = "SELECT id FROM posts WHERE author_member_id IN (SELECT id FROM members WHERE username LIKE 'adm_mp%')";
+      for (const sql of [
+        `DELETE FROM post_meta WHERE post_id IN (${mine})`,
+        `DELETE FROM post_translations WHERE post_id IN (${mine})`,
+        "DELETE FROM posts WHERE author_member_id IN (SELECT id FROM members WHERE username LIKE 'adm_mp%')",
+        "DELETE FROM field_defs WHERE declared_by_theme='adm_mp'",
+        "DELETE FROM member_sessions WHERE member_id IN (SELECT id FROM members WHERE username LIKE 'adm_mp%')",
+        "DELETE FROM members WHERE username LIKE 'adm_mp%'",
+        "DELETE FROM settings WHERE site_id='default' AND key='members.registration'",
+      ]) { try { sqlite.exec(sql); } catch { /* ok */ } }
+    };
+    wipe();
+
+    const defaultLoc = sqlite.prepare("SELECT code FROM site_locales WHERE site_id='default' AND is_default=1").get()?.code ?? "en";
+    await req(worker, env, "/api/v1/settings", {
+      method: "POST", headers: json, body: JSON.stringify({ key: "members.registration", value: "1" }),
+    });
+    try {
+      const register = async (name, prefix = "") => {
+        const r = await ftReq(`${prefix}/api/v1/front/auth/register`, {
+          method: "POST", headers: frontJson, body: JSON.stringify({ username: name, password: "longenough1" }),
+        });
+        return (r.headers.get("set-cookie") ?? "").split(";")[0];
+      };
+      const aliceCookie = await register("adm_mp_alice");
+      const bobCookie = await register("adm_mp_bob");
+      checkTruthy("both member fixtures signed in", aliceCookie.startsWith("cfpress_member=") && bobCookie.startsWith("cfpress_member="));
+      const aliceId = sqlite.prepare("SELECT id FROM members WHERE username='adm_mp_alice'").get().id;
+      const bobId = sqlite.prepare("SELECT id FROM members WHERE username='adm_mp_bob'").get().id;
+
+      // ── The gate: no session, no write ──
+      const anon = await ftReq("/api/v1/front/posts", {
+        method: "POST", headers: frontJson, body: JSON.stringify({ title: "x" }),
+      });
+      check("a signed-out create is 401", anon.status, 401);
+
+      // ── A member writes their own post ──
+      const created = await ftReq("/api/v1/front/posts", {
+        method: "POST", headers: { ...frontJson, Cookie: aliceCookie },
+        body: JSON.stringify({ title: "一篇会员投稿", slug: "hui-yuan-tou-gao", content: "<p>正文</p>" }),
+      });
+      check("a member create is 201", created.status, 201);
+      const createdBody = await created.json();
+      const postId = createdBody.post?.id;
+      checkTruthy("the response names the new post", typeof postId === "string" && postId.startsWith("post_"));
+      check("the new post is a draft", createdBody.post?.status, "draft");
+      check("and it links to the built-in permalink", createdBody.post?.url, `/${defaultLoc}/blog/hui-yuan-tou-gao`);
+
+      const row = sqlite.prepare("SELECT author_id, author_member_id, status, type, site_id FROM posts WHERE id=?").get(postId);
+      check("the row records the session member as the author", row?.author_member_id, aliceId);
+      check("and never invents a staff author", row?.author_id, "");
+      check("and the row is a post on this site", [row?.type, row?.site_id], ["post", "default"]);
+
+      // ── The client cannot choose the status ──
+      const forged = await ftReq("/api/v1/front/posts", {
+        method: "POST", headers: { ...frontJson, Cookie: aliceCookie },
+        body: JSON.stringify({ title: "想直接发布", slug: "xiang-zhi-jie-fa-bu", status: "published" }),
+      });
+      const forgedBody = await forged.json();
+      check("a create asking to publish still answers draft", forgedBody.post?.status, "draft");
+      check("and the row agrees", sqlite.prepare("SELECT status FROM posts WHERE id=?").get(forgedBody.post.id)?.status, "draft");
+
+      // ── The client cannot choose the author ──
+      const impersonate = await ftReq("/api/v1/front/posts", {
+        method: "POST", headers: { ...frontJson, Cookie: bobCookie },
+        body: JSON.stringify({ title: "冒充别人", slug: "mao-chong-bie-ren", author_member_id: aliceId }),
+      });
+      const impersonateBody = await impersonate.json();
+      check("a body-supplied author is ignored in favour of the session",
+        sqlite.prepare("SELECT author_member_id FROM posts WHERE id=?").get(impersonateBody.post.id)?.author_member_id, bobId);
+
+      // ── Another member's id answers exactly like an id that never existed ──
+      const stolen = await ftReq(`/api/v1/front/posts/${postId}`, {
+        method: "PUT", headers: { ...frontJson, Cookie: bobCookie },
+        body: JSON.stringify({ title: "我改了别人的文章", content: "<p>被篡改</p>" }),
+      });
+      check("editing another member's post is 404", stolen.status, 404);
+      const ghost = await ftReq("/api/v1/front/posts/post_mp_never_existed", { method: "DELETE", headers: { Cookie: bobCookie } });
+      check("and an id that never existed answers the same 404", ghost.status, 404);
+      check("the post is untouched",
+        sqlite.prepare("SELECT t.title FROM post_translations t WHERE t.post_id=? AND t.locale=?").get(postId, defaultLoc)?.title, "一篇会员投稿");
+
+      const stolenDelete = await ftReq(`/api/v1/front/posts/${postId}`, { method: "DELETE", headers: { Cookie: bobCookie } });
+      check("deleting another member's post is 404", stolenDelete.status, 404);
+      check("and it is still there", sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE id=?").get(postId).n, 1);
+
+      // ── The owner may edit, and an edit is not a publish ──
+      const edited = await ftReq(`/api/v1/front/posts/${postId}`, {
+        method: "PUT", headers: { ...frontJson, Cookie: aliceCookie },
+        body: JSON.stringify({ title: "改过的标题" }),
+      });
+      check("the owner can edit their own post", edited.status, 200);
+      check("and the title changed",
+        sqlite.prepare("SELECT title FROM post_translations WHERE post_id=? AND locale=?").get(postId, defaultLoc)?.title, "改过的标题");
+
+      sqlite.prepare("UPDATE posts SET status='published' WHERE id=?").run(postId);
+      await ftReq(`/api/v1/front/posts/${postId}`, {
+        method: "PUT", headers: { ...frontJson, Cookie: aliceCookie },
+        body: JSON.stringify({ title: "再改一次" }),
+      });
+      check("a member edit does not knock a published post back to draft",
+        sqlite.prepare("SELECT status FROM posts WHERE id=?").get(postId)?.status, "published");
+
+      // ── A slug is unique per language ──
+      const clash = await ftReq("/api/v1/front/posts", {
+        method: "POST", headers: { ...frontJson, Cookie: bobCookie },
+        body: JSON.stringify({ title: "重名", slug: "hui-yuan-tou-gao" }),
+      });
+      check("a slug already used in this language is 409", clash.status, 409);
+
+      // ── Custom fields: undeclared keys are dropped, declared ones carry the locale ──
+      const undeclared = await ftReq("/api/v1/front/posts", {
+        method: "POST", headers: { ...frontJson, Cookie: aliceCookie },
+        body: JSON.stringify({ title: "带自定义字段", slug: "dai-zi-ding-yi", meta: { adm_mp_undeclared: "x" } }),
+      });
+      const undeclaredBody = await undeclared.json();
+      check("an undeclared meta key is not written",
+        sqlite.prepare("SELECT COUNT(*) AS n FROM post_meta WHERE post_id=?").get(undeclaredBody.post.id).n, 0);
+
+      sqlite.prepare(
+        "INSERT INTO field_defs (id, site_id, meta_key, label, field_type, post_types, required, sort_order, declared_by_theme, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+      ).run("fd_adm_mp_probe", "default", "adm_mp_probe", "Probe", "text", '["post"]', 0, 0, "adm_mp", 1, 1);
+      const declared = await ftReq("/api/v1/front/posts", {
+        method: "POST", headers: { ...frontJson, Cookie: aliceCookie },
+        body: JSON.stringify({ title: "声明过的字段", slug: "sheng-ming-guo-de", meta: { adm_mp_probe: "值" } }),
+      });
+      const declaredBody = await declared.json();
+      const metaRow = sqlite.prepare("SELECT meta_key, locale, meta_value FROM post_meta WHERE post_id=?").get(declaredBody.post.id);
+      check("a declared meta key is written against the save's language", [metaRow?.meta_key, metaRow?.locale], ["adm_mp_probe", defaultLoc]);
+      check("and carries the value sent", metaRow?.meta_value, "值");
+
+      // ── Cross-tenant: a member of another site cannot aim at this post ──
+      sqlite.exec("INSERT INTO sites(id,name,host,path_prefix,is_default,status,created_at,updated_at) VALUES ('admmp2','MP Two',NULL,'admmp2',0,'active',1,1) ON CONFLICT(id) DO NOTHING");
+      sqlite.exec("INSERT INTO site_locales(site_id,code,is_default,enabled,sort_order) VALUES ('admmp2','en',1,1,0) ON CONFLICT(site_id,code) DO NOTHING");
+      await req(worker, env, "/api/v1/settings?site=admmp2", {
+        method: "POST", headers: json, body: JSON.stringify({ key: "members.registration", value: "1" }),
+      });
+      const carolCookie = await register("adm_mp_carol", "/admmp2");
+      checkTruthy("the second site's member signed in", carolCookie.startsWith("cfpress_member="));
+      const crossTenant = await ftReq(`/admmp2/api/v1/front/posts/${postId}`, {
+        method: "PUT", headers: { ...frontJson, Cookie: carolCookie },
+        body: JSON.stringify({ title: "跨站篡改" }),
+      });
+      check("a member of another site cannot edit this post (404)", crossTenant.status, 404);
+      check("and the title is still this site's",
+        sqlite.prepare("SELECT title FROM post_translations WHERE post_id=? AND locale=?").get(postId, defaultLoc)?.title, "再改一次");
+
+      // ── There is no second "my posts" reader ──
+      const list = await ftReq("/api/v1/front/posts", { headers: { Cookie: aliceCookie } });
+      check("the front API has no my-posts list endpoint", list.status, 404);
+
+      // ── The owner deletes, and everything hanging off the post goes too ──
+      const del = await ftReq(`/api/v1/front/posts/${postId}`, { method: "DELETE", headers: { Cookie: aliceCookie } });
+      check("the owner can delete their own post", del.status, 200);
+      check("and the post row is gone", sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE id=?").get(postId).n, 0);
+      check("and its translations went with it", sqlite.prepare("SELECT COUNT(*) AS n FROM post_translations WHERE post_id=?").get(postId).n, 0);
+      check("and its custom fields went with it", sqlite.prepare("SELECT COUNT(*) AS n FROM post_meta WHERE post_id=?").get(postId).n, 0);
+    } finally {
+      // Restore the registration flag the way §17 does — leaving it open would
+      // change what the next suite (and the operator's install) observes.
+      await req(worker, env, "/api/v1/settings", {
+        method: "POST", headers: json, body: JSON.stringify({ key: "members.registration", value: "0" }),
+      });
+      for (const sql of [
+        "DELETE FROM settings WHERE site_id='admmp2'",
+        "DELETE FROM site_locales WHERE site_id='admmp2'",
+        "DELETE FROM sites WHERE id='admmp2'",
+      ]) { try { sqlite.exec(sql); } catch { /* ok */ } }
+      wipe();
+    }
+    // The leak assertion is deliberately **prefix-free**: it asks whether any
+    // post is left pointing at a member who no longer exists. That is the exact
+    // residue a prefix-based sweep misses, and it stays true no matter what ids
+    // the endpoint mints.
+    check("no member-post fixtures were left behind",
+      sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE author_member_id IS NOT NULL AND author_member_id NOT IN (SELECT id FROM members)").get().n, 0);
+    check("and the member accounts are gone", sqlite.prepare("SELECT COUNT(*) AS n FROM members WHERE username LIKE 'adm_mp%'").get().n, 0);
+    check("and the probe field declaration", sqlite.prepare("SELECT COUNT(*) AS n FROM field_defs WHERE declared_by_theme='adm_mp'").get().n, 0);
+  }
+
   // End-of-suite sweep, **here** rather than mid-file. It tears down this
   // suite's own fixtures (`adm`, `admtheme`, the `adm_*`/`widget_*` posts) so
   // the shared local D1 is left as the suite found it. It has to run after
@@ -1119,5 +1321,10 @@ async function main() {
 main().catch((e) => {
   console.error("Harness error:", (e && e.message) || e);
   console.error(String((e && e.stack) || "").split("\n").slice(0, 8).join("\n"));
+  // A crashed run must still print a parseable summary, and it must say it
+  // failed. Without this the reverse-validation tool reads "no summary" as
+  // "could not tell", which is never a pass (ARCHITECTURE §12).
+  console.log(`\n${pass} passed, ${fail + 1} failed`);
+  console.log("(aborted) harness threw: " + ((e && e.message) || e));
   process.exit(2);
 });

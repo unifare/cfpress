@@ -399,4 +399,12 @@ async function main() {
   process.exit(0);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  // A crashed run must still print a parseable summary, and it must say it
+  // failed. Without this the reverse-validation tool reads "no summary" as
+  // "could not tell", which is never a pass (AGENTS.md false green type 6).
+  console.log(`\n${pass} passed, ${fail + 1} failed`);
+  console.log("(aborted) harness threw: " + ((e && e.message) || e));
+  process.exit(1);
+});

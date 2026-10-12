@@ -3089,6 +3089,120 @@ section("The language switcher is a dropdown (rule 83)");
 }
 
 // ---------------------------------------------------------------------------
+section("Front-end publishing belongs to the member, and to the session (rule 84)");
+// ---------------------------------------------------------------------------
+
+/**
+ * A member may write their own posts through `/api/v1/front/posts`. That is the
+ * first time the **front** identity gets a write path, and the ways it can go
+ * wrong are all quiet — each one produces a 200 and a post that looks fine:
+ *
+ *   - the author comes from the request instead of the session (one member
+ *     writes as another);
+ *   - the status comes from the request (a member publishes straight to the
+ *     front page);
+ *   - ownership is checked with 403 (which confirms the id exists) or not at
+ *     all (the write lands on a neighbour's row);
+ *   - a member id is written into a **staff** column (`author_id`, or the
+ *     activity log), merging two id spaces — the defect migration 0024
+ *     refused.
+ *
+ * These are lexical for the same reason rules 81/82/83 are: no suite here
+ * drives `routeFrontApi` through the worker. Each is written against the
+ * **defect shape**, and each goes red when the guarantee is dropped.
+ */
+{
+  const src = blankComments(read(join(ROOT, "src", "api.ts")));
+
+  // Slice the function bodies: `site_id = ?` and `author_member_id` appear all
+  // over `api.ts` (every listing filters the site), so a whole-file scan would
+  // agree with code that never carried the pair.
+  const saveStart = src.indexOf("async function saveMemberPost");
+  const delStart = src.indexOf("async function deleteMemberPost", saveStart);
+  const routeStart = src.indexOf("async function routeFrontApi", delStart);
+  const routeEnd = src.indexOf("async function routeApi", routeStart);
+  const saveFn = saveStart >= 0 ? src.slice(saveStart, delStart > 0 ? delStart : saveStart + 9000) : "";
+  const delFn = delStart >= 0 ? src.slice(delStart, routeStart > 0 ? routeStart : delStart + 3000) : "";
+  const routeFn = routeStart >= 0 ? src.slice(routeStart, routeEnd > 0 ? routeEnd : routeStart + 4000) : "";
+
+  check("the member-post writer exists (rule 84, non-vacuity)", saveFn.length > 2000);
+  check("the member-post deleter exists (rule 84, non-vacuity)", delFn.length > 400);
+
+  // 84a — the identity is the session's. Reading `body.author_member_id` would
+  // let a member author posts *as* someone else, and it is the exact shape a
+  // well-meaning "let the client pass the author" refactor introduces.
+  check(
+    "the member id never comes from the request body (rule 84a)",
+    !/body\.author_member_id/.test(saveFn) && !/body\.author_member_id/.test(delFn),
+    "the author must be the session member; a body-supplied author is impersonation"
+  );
+  check(
+    "every ownership predicate carries the site AND the member (rule 84a)",
+    /site_id\s*=\s*\?/.test(saveFn) && /author_member_id\s*=\s*\?/.test(saveFn) &&
+      /site_id\s*=\s*\?/.test(delFn) && /author_member_id\s*=\s*\?/.test(delFn),
+    "a member id is unique per site today; the site filter is what keeps the query from being site-blind (rule 6)"
+  );
+  check(
+    "the routes pass the session member id (rule 84a)",
+    /saveMemberPost\(env,\s*siteId,\s*m\.id,/.test(routeFn) && /deleteMemberPost\(env,\s*siteId,\s*m\.id,/.test(routeFn),
+    "the author argument must be `m.id` — the `requireMember` result, not a path or body value"
+  );
+
+  // 84b — one answer for every way an id can not be yours.
+  check(
+    "an unowned post answers 404, never 403 (rule 84b)",
+    /ok\(\{\s*error:\s*"not found"\s*\},\s*404\)/.test(saveFn) &&
+      /ok\(\{\s*error:\s*"not found"\s*\},\s*404\)/.test(delFn) &&
+      !/403/.test(saveFn) && !/403/.test(delFn),
+    "403 confirms the id exists on this site — the existence oracle MS-1.1 forbids"
+  );
+
+  // 84c — never invent a staff author. `author_id` is a `site_users` id space;
+  // a member id in it would make every reader guess which kind it is looking at.
+  check(
+    "a member post is written with an empty staff author (rule 84c)",
+    /INSERT INTO posts \([^)]*author_id[^)]*author_member_id[^)]*\)/.test(saveFn) &&
+      /VALUES \(\?, \?, '', \?, 'post'/.test(saveFn),
+    "`author_id` must be the literal '' (migration 0024) and `author_member_id` a bound session value"
+  );
+
+  // 84d — the status is the server's decision, on both write paths.
+  const postUpdates = saveFn.match(/UPDATE posts SET[^"]*/g) ?? [];
+  check(
+    "a member submission lands as a draft, not as what the client asked for (rule 84d)",
+    /'draft'/.test(saveFn) && !/body\.status/.test(saveFn),
+    "reading `body.status` lets a crafted request publish itself to the front page"
+  );
+  check(
+    "no member edit touches the status (rule 84d)",
+    postUpdates.length >= 2 && postUpdates.every((s) => !/status/.test(s)),
+    "an edit must not publish, and must not knock a staff-published post back to draft"
+  );
+
+  // 84e — `admin_activity.user_id` holds a staff id. Writing a member id there
+  // is the "one column, two meanings" defect, in a log this time.
+  check(
+    "member writes do not enter the staff activity log (rule 84e)",
+    !/\bactivity\(/.test(saveFn) && !/\bactivity\(/.test(delFn),
+    "admin_activity is a staff log; member authorship is recorded by posts.author_member_id"
+  );
+
+  // 84f — one definition of "mine". The read path is the account page's
+  // `my_posts` scope (rule 82); a second reader here would be a second answer.
+  check(
+    "the front API has no second 'my posts' reader (rule 84f)",
+    /path === "posts" && method === "POST"/.test(routeFn) &&
+      !/path === "posts" && method === "GET"/.test(routeFn),
+    "the read path is `my_posts` in buildScope (rule 82) — two readers are two definitions of 'mine'"
+  );
+  check(
+    "the member-post routes are behind the member gate (rule 84)",
+    (routeFn.match(/requireMember\(env,\s*request,\s*siteId\)/g) ?? []).length >= 3,
+    "every front write must go through `requireMember`, the same gate every other front endpoint uses"
+  );
+}
+
+// ---------------------------------------------------------------------------
 section("This suite's own assertions can actually fail (meta-guard)");
 // ---------------------------------------------------------------------------
 

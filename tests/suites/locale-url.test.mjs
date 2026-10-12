@@ -431,6 +431,12 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error("\nSUITE ERROR:", (e && e.stack) || e);
-  process.exit(1);
+  console.error("Harness error:", (e && e.message) || e);
+  console.error(String((e && e.stack) || "").split("\n").slice(0, 8).join("\n"));
+  // A crashed run must still print a parseable summary, and it must say it
+  // failed. Without this the reverse-validation tool reads "no summary" as
+  // "could not tell", which is never a pass (ARCHITECTURE §12).
+  console.log(`\n${pass} passed, ${fail + 1} failed`);
+  console.log("(aborted) harness threw: " + ((e && e.message) || e));
+  process.exit(2);
 });

@@ -1483,6 +1483,76 @@ const SCENARIOS = [
     after: ["  const langCurrent = langNavRows[0] ?? null;"],
     runs: [["tests/suites/architecture.test.mjs", "the current language is picked by matching, not by position (rule 83a)"]],
   },
+  // --- front-end publishing is the member's own (rule 84) -------------------
+  {
+    // The classic ownership regression: the check above "already established
+    // that this post exists on this site", so the delete drops the member half.
+    // SQL and bind move together — that is what a real refactor looks like, and
+    // it is why a half-edit (SQL only) would not be a valid injection: it makes
+    // the statement throw on a bind-count mismatch, so the suite goes red for a
+    // reason that has nothing to do with ownership. The first manual pass here
+    // did exactly that and had to be redone.
+    label: "the delete ownership check forgets which member owns the post",
+    file: join(ROOT, "src/api.ts"),
+    before: [
+      "\"SELECT id FROM posts WHERE id=? AND site_id=? AND author_member_id=? AND type='post' LIMIT 1\"\n  ).bind(id, siteId, memberId).first<any>();",
+    ],
+    after: [
+      "\"SELECT id FROM posts WHERE id=? AND site_id=? AND type='post' LIMIT 1\"\n  ).bind(id, siteId).first<any>();",
+    ],
+    runs: [
+      ["tests/suites/architecture.test.mjs", "every ownership predicate carries the site AND the member (rule 84a)"],
+      ["tests/suites/admin-contract.test.mjs", "deleting another member's post is 404"],
+    ],
+  },
+  {
+    // "Let the client set the status" — the shape that turns a submission into
+    // a self-service publish. It is invisible from the editor's side (the post
+    // saves fine) and only the front page shows it.
+    label: "a member submission takes its status from the request",
+    file: join(ROOT, "src/api.ts"),
+    before: [
+      "       VALUES (?, ?, '', ?, 'post', ?, 'draft', ?, ?, ?)`\n    ).bind(entityId, siteId, memberId, tSlug || entityId, entityId, now(), now()).run();",
+    ],
+    after: [
+      "       VALUES (?, ?, '', ?, 'post', ?, ?, ?, ?, ?)`\n    ).bind(entityId, siteId, memberId, tSlug || entityId, String(body.status ?? 'draft'), entityId, now(), now()).run();",
+    ],
+    runs: [
+      ["tests/suites/architecture.test.mjs", "a member submission lands as a draft, not as what the client asked for (rule 84d)"],
+      ["tests/suites/admin-contract.test.mjs", "a create asking to publish still answers draft"],
+    ],
+  },
+  {
+    // "The client knows who they are, let them say so" — one member authoring
+    // posts as another. Every other assertion still passes: the post is
+    // created, the slug is free, the response is well-formed.
+    label: "the author comes from the request body instead of the session",
+    file: join(ROOT, "src/api.ts"),
+    before: [
+      ".bind(entityId, siteId, memberId, tSlug || entityId, entityId, now(), now()).run();",
+    ],
+    after: [
+      ".bind(entityId, siteId, String(body.author_member_id ?? memberId), tSlug || entityId, entityId, now(), now()).run();",
+    ],
+    runs: [
+      ["tests/suites/architecture.test.mjs", "the member id never comes from the request body (rule 84a)"],
+      ["tests/suites/admin-contract.test.mjs", "a body-supplied author is ignored in favour of the session"],
+    ],
+  },
+  {
+    // AGENTS.md type 6: a suite that dies before printing `N passed, M failed`
+    // leaves a script nothing to read, and "no summary" is silently read as
+    // "no failure". The rule had been in prose since batch 4 — and by batch 24
+    // **eight** suites had drifted out of it, so an injected defect that crashed
+    // one of them surfaced as `no summary (aborted)`, i.e. as a broken *tool*
+    // rather than a caught defect. `launcher-parity` now asserts the rule
+    // mechanically; this reverts one suite to the exact shape those eight had.
+    label: "a suite's crash path stops printing a summary",
+    file: join(ROOT, "tests/suites/i18n.test.mjs"),
+    before: ['main().catch((e) => {\n  console.error(e);\n  // A crashed run must still print a parseable summary, and it must say it\n  // failed. Without this the reverse-validation tool reads "no summary" as\n  // "could not tell", which is never a pass (AGENTS.md false green type 6).\n  console.log(`\\n${pass} passed, ${fail + 1} failed`);\n  console.log("(aborted) harness threw: " + ((e && e.message) || e));\n  process.exit(1);\n});'],
+    after: ["main().catch((e) => { console.error(e); process.exit(1); });"],
+    runs: [["tests/suites/launcher-parity.test.mjs", "every suite's crash path prints a summary (AGENTS.md type 6)"]],
+  },
 ];
 
 /** Every file any scenario may touch, hashed before and after. */
@@ -1522,7 +1592,10 @@ const WATCHED = [...new Set([SCHEMA, EVENTS, ARCH, SCOPE, MANIFEST, VALIDATION,
   MEMBERS,
   THEME_FILE("prism", "templates/parts/header.html"),
   join(ROOT, "tests/suites/theme-bundled.test.mjs"),
-  join(ROOT, "tests/suites/theme-default.test.mjs")])];
+  join(ROOT, "tests/suites/theme-default.test.mjs"),
+  // The crash-summary scenario patches a *suite*, so that suite must be watched:
+  // an un-restored edit would silently weaken the suite for every later run.
+  join(ROOT, "tests/suites/i18n.test.mjs")])];
 
 function hashAll() {
   const out = {};

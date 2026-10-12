@@ -368,6 +368,53 @@ function normName(s) {
     suitesOnDisk.length > 10,
     `${suitesOnDisk.length} suite files on disk`
   );
+
+  // 5c. every suite's crash path prints a summary.
+  //
+  // AGENTS.md's sixth false green: a suite that dies before printing
+  // `N passed, M failed` leaves nothing for a script to read, and "no summary"
+  // is silently read as "no failure" — the reader cannot tell "green" from
+  // "crashed". The rule has been in prose since batch 4, yet by batch 24
+  // **eight** suites had drifted out of it: their `catch` exited with a code
+  // and printed no summary, so an injected defect that crashed a suite
+  // surfaced as `no summary (aborted)` — i.e. as a broken *tool*, not a caught
+  // defect. A convention with no mechanism is a convention that decays, so this
+  // asserts it mechanically: from a suite's LAST crash handler to the end of
+  // the file, the text must contain the summary (a `summary()`/`finish()`
+  // call, or the `passed, … failed` phrase). Recording an error and still
+  // reporting — `catch { bootError = e }` then assert — is allowed, because the
+  // run does self-report.
+  {
+    // A crash construct. Anchored to the start of a line on purpose: this
+    // guard's own source contains these strings as *data*, and an unanchored
+    // search finds itself, then checks the wrong block.
+    const CRASH = /^[ \t]*(?:\} catch\b|main\(\)\.catch\(|process\.on\("(?:uncaughtException|unhandledRejection)")/m;
+    const SUMMARY = /\b(?:summary|finish|report)\s*\(|passed,[^\n]*failed/;
+    const offenders = [];
+    for (const rel of suitesOnDisk) {
+      const src = readFileSync(join(ROOT, rel), "utf8");
+      const re = new RegExp(CRASH.source, "gm");
+      let m;
+      let last = -1;
+      while ((m = re.exec(src)) !== null) {
+        last = m.index;
+        re.lastIndex = m.index + 1;
+      }
+      if (last < 0) {
+        offenders.push(`${rel} (no crash handler at all)`);
+        continue;
+      }
+      if (!SUMMARY.test(src.slice(last))) {
+        offenders.push(`${rel} (no summary after its last crash handler)`);
+      }
+    }
+    checkEmpty("every suite's crash path prints a summary (AGENTS.md type 6)", offenders);
+    check(
+      "the crash-path scan saw the suites (the check is not vacuous)",
+      suitesOnDisk.length > 20,
+      `${suitesOnDisk.length} suites scanned`
+    );
+  }
 }
 
 // 6. the table covers package.json's `test` chain — otherwise the launcher and

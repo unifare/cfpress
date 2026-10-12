@@ -43,6 +43,24 @@ function bad(name, detail) {
   console.log(`  FAIL ${name}${detail ? `\n       ${detail}` : ""}`);
 }
 
+// A throw anywhere below would skip the summary line at the end of the file,
+// and a missing summary is read as "could not tell", not as "fine"
+// (AGENTS.md false green type 6). Registered before any code can throw.
+process.on("uncaughtException", (e) => {
+  console.error("Harness error (uncaught):", (e && e.message) || e);
+  fail++;
+  failures.push(`uncaught: ${(e && e.message) || e}`);
+  console.log(`\n${pass} passed, ${fail} failed (aborted)`);
+  process.exit(2);
+});
+process.on("unhandledRejection", (e) => {
+  console.error("Harness error (unhandled rejection):", (e && e.message) || e);
+  fail++;
+  failures.push(`unhandled: ${(e && e.message) || e}`);
+  console.log(`\n${pass} passed, ${fail} failed (aborted)`);
+  process.exit(2);
+});
+
 /** Bundle the real source so the test drives shipped code, not a copy. */
 async function loadSecurity() {
   const esbuild = require("esbuild");

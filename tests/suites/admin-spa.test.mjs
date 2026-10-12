@@ -866,7 +866,20 @@ if (modules && !bootError) {
   check("a row with no object key renders nothing", mediaTileHtml({ id: "x" }) === "", mediaTileHtml({ id: "x" }));
   check("an empty library renders the empty state",
     mediaGridHtml([]).includes("No media uploaded yet."), mediaGridHtml([]));
-  check("and the footer reports the totals", mediaBodyHtml([row], { total: 50, hasMore: true }).includes("Showing 1 of 50"));
+  // The modern tile keeps its actions in a hover overlay (icon buttons over
+  // the picture), not a button row below it — the resting grid is imagery.
+  check("the tile's actions live in the thumb overlay",
+    tile.includes('class="media-actions"') && tile.includes('class="icon-btn danger"'),
+    tile.slice(tile.indexOf("media-actions"), tile.indexOf("media-actions") + 120));
+  check("and the overlay still carries copy and open",
+    tile.includes("data-copy=") && tile.includes("target=\"_blank\""));
+  // The upload tile is a first-class grid member, so the affordance survives
+  // "load more" (it re-renders with the grid, and its click is delegated).
+  const body = mediaBodyHtml([row], { total: 50, hasMore: true });
+  check("the grid opens with an upload tile",
+    body.includes('data-media-upload="1"') && body.indexOf("media-upload-tile") < body.indexOf("media-tile\" data-media-row"),
+    body.slice(0, 240));
+  check("and the footer reports the totals", body.includes("Showing 1 of 50"));
 
   // The screen itself: toolbar, drop zone, upload control, empty state.
   // This section is about the *empty* library, so it pins an empty list
@@ -878,7 +891,10 @@ if (modules && !bootError) {
   check("the media screen renders its search and filter",
     mediaHtml.includes('id="media-q"') && mediaHtml.includes('id="media-type"'), mediaHtml.slice(0, 200));
   check("a drop zone and an upload control", mediaHtml.includes('id="media-drop"') && mediaHtml.includes('id="upload"'));
-  check("and says the library is empty", mediaHtml.includes('class="empty"'));
+  // An empty library is a destination, not a dead end: a dashed panel with the
+  // upload affordance in it, spanning the grid.
+  check("and says the library is empty", mediaHtml.includes('class="media-empty"') && mediaHtml.includes("No media uploaded yet."),
+    mediaHtml.slice(mediaHtml.indexOf("media-grid"), mediaHtml.indexOf("media-grid") + 200));
 
   // -------------------------------------------------------------------------
   section("The themes screen reports which sites actually use a theme");

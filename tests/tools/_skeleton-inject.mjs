@@ -1738,6 +1738,27 @@ const SCENARIOS = [
     after: ['  <table class="table">'],
     runs: [["tests/suites/admin-spa.test.mjs", "every table in js\\screens\\content-list.js sits inside the scrolling wrapper"]],
   },
+  {
+    label: "the media tile's actions leave the overlay for a button row",
+    // The modern tile hides copy/open/delete in a hover overlay over the
+    // picture. Flattening them back into a visible toolbar is not a refactor —
+    // the resting grid stops being imagery, and the check that pins the
+    // overlay shape goes red on purpose.
+    file: MEDIA_SCREEN,
+    before: [`      <div class="media-actions">`],
+    after: [`      <div class="media-actions-flat">`],
+    runs: [["tests/suites/admin-spa.test.mjs", "the tile's actions live in the thumb overlay"]],
+  },
+  {
+    label: "the picker stops announcing what is selected",
+    // aria-pressed is the only part of the selection a screen reader sees; the
+    // ring is decoration. Dropping the announcement makes multi-select a
+    // silent gamble, so the picker suite red-flags exactly that loss.
+    file: MEDIA_PICKER,
+    before: ['    aria-pressed="${selected ? "true" : "false"}"'],
+    after: ['    aria-pressed="false"'],
+    runs: [["tests/suites/media-picker.test.mjs", "selection is announced to the reader (aria-pressed)"]],
+  },
 
 ];
 

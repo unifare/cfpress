@@ -179,6 +179,28 @@ async function main() {
     checkTruthy("values are escaped", picker.mediaFieldHtml({ value: '"><script>x</script>' }).includes("&quot;&gt;&lt;script&gt;"));
   });
 
+  await section("4b. the picker draws the library's wall of pictures", async () => {
+    // The picker's tiles were inline-styled divs with 96px thumbs — a different
+    // (and much poorer) interface than the library screen. Both now draw the
+    // same wall; these checks pin the selection semantics, which are the part
+    // a restyle can silently break.
+    const it = picker.mediaItem(ROW);
+    const plain = picker.pickerTileHtml(it, false, false);
+    const picked = picker.pickerTileHtml(it, true, true);
+    checkTruthy("selection is announced to the reader (aria-pressed)",
+      plain.includes('aria-pressed="false"') && picked.includes('aria-pressed="true"'));
+    checkTruthy("and to the eye (the selected class)",
+      picked.includes("is-selected") && !plain.includes("is-selected"));
+    checkTruthy("the check badge is part of every tile", plain.includes("media-check"));
+    checkTruthy("the thumb is the shared square, not an inline-styled box",
+      plain.includes("media-thumb") && !plain.includes("style=\"width:96px"));
+    checkTruthy("a picked item's meta says so (multiple mode)",
+      picked.includes("selected"));
+    const grid = picker.pickerGridHtml([it], [], false);
+    checkTruthy("the grid is the shared media grid, not an inline-styled div",
+      grid.includes("media-grid") && grid.includes("media-pick-grid") && !grid.includes("grid-template-columns:repeat(auto-fill,minmax(7.5rem"));
+  });
+
   await section("5. what the picker returns, the real renderer draws", async () => {
     // The loop this suite exists for: library row → picker item → block
     // attribute → the renderer's markup. A picker that produced a

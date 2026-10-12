@@ -38,6 +38,7 @@
  */
 import { api, scoped } from "./state.js";
 import { attr, esc, toast } from "../ui.js";
+import { icon } from "../icons.js";
 import { t } from "./i18n.js";
 
 /** `/media/<key>` for one R2 object key. Percent-encoded as one segment, which
@@ -87,34 +88,35 @@ function formatBytes(n) {
   return `${(b / 1048576).toFixed(1)} MB`;
 }
 
-/** A thumbnail for an item: the image itself, or a neutral placeholder. */
-function thumb(item, size) {
-  const style = `width:${size}px;height:${size}px;object-fit:cover;border-radius:.375rem;background:var(--muted)`;
-  return isImage(item.mimeType)
-    ? `<img src="${attr(item.url)}" alt="${attr(item.alt)}" loading="lazy" style="${style}">`
-    : `<span style="${style};display:flex;align-items:center;justify-content:center;font-size:.75rem;color:var(--muted-foreground)">FILE</span>`;
-}
-
-/** One selectable tile. Exported so the grid's markup is testable without a
- *  browser and so the dialog and any future variant agree on it. */
+/** One selectable tile — the same wall-of-pictures the library screen draws,
+ *  plus a selection ring and a check badge so "which ones did I pick" is
+ *  readable across the whole grid at a glance. The state is announced twice
+ *  (class for the eye, `aria-pressed` for the reader) because a border change
+ *  alone is invisible to assistive tech. */
 export function pickerTileHtml(item, selected, multiple) {
-  return `<button type="button" class="media-tile" data-media-id="${attr(item.id)}"
+  const isImg = isImage(item.mimeType);
+  return `<button type="button" class="media-tile${selected ? " is-selected" : ""}" data-media-id="${attr(item.id)}"
     data-media-url="${attr(item.url)}" data-media-alt="${attr(item.alt)}"
     aria-pressed="${selected ? "true" : "false"}"
-    title="${attr(item.filename || item.url)}"
-    style="display:flex;flex-direction:column;gap:.375rem;padding:.5rem;border-radius:.5rem;cursor:pointer;
-      border:2px solid ${selected ? "var(--primary)" : "transparent"};background:var(--card);text-align:left">
-    ${thumb(item, 96)}
-    <span style="font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(item.filename || item.url)}</span>
-    <span class="muted" style="font-size:.7rem">${esc(formatBytes(item.size))}${multiple ? (selected ? " · ✓" : "") : ""}</span>
+    title="${attr(item.filename || item.url)}">
+    <span class="media-thumb">${isImg
+      ? `<img src="${attr(item.url)}" alt="${attr(item.alt)}" loading="lazy">`
+      : `<span class="media-file">${icon("file-text")}</span>`}
+      <span class="media-check" aria-hidden="true">${icon("check")}</span>
+    </span>
+    <span class="media-meta">
+      <span class="media-name">${esc(item.filename || item.url)}</span>
+      <span class="media-sub">${esc(formatBytes(item.size))}${multiple && selected ? ` · ${esc(t("core.media.picked", "selected"))}` : ""}</span>
+    </span>
   </button>`;
 }
 
-/** The whole grid, including its empty state. */
+/** The whole grid, including its empty state. The grid scrolls its own height
+ *  so a big library never grows the dialog off-screen. */
 export function pickerGridHtml(items, selectedIds, multiple) {
   if (!items.length) return `<div class="empty">${esc(t("core.media.empty", "No media uploaded yet."))}</div>`;
   const selected = new Set(selectedIds ?? []);
-  return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(7.5rem,1fr));gap:.5rem;max-height:22rem;overflow:auto;padding:.25rem">
+  return `<div class="media-grid media-pick-grid">
     ${items.map((i) => pickerTileHtml(i, selected.has(i.id), multiple)).join("")}
   </div>`;
 }
@@ -197,6 +199,7 @@ export async function openMediaPicker({ multiple = false, accept = "image/*", on
   let items = [];
   const selected = new Map(); // id -> item
   let query = "";
+  let type = "";
   let busy = false;
 
   let resolveOuter = () => {};
@@ -211,14 +214,21 @@ export async function openMediaPicker({ multiple = false, accept = "image/*", on
     const grid = host.querySelector("#mp-grid");
     if (grid) grid.innerHTML = pickerGridHtml(items, [...selected.keys()], multiple);
     const count = host.querySelector("#mp-count");
-    if (count) count.textContent = `${items.length} ${t("core.media.files", "files")}`;
+    if (count) {
+      count.textContent = selected.size && multiple
+        ? t("core.media.selectedCount", "{n} selected", { n: selected.size })
+        : `${items.length} ${t("core.media.files", "files")}`;
+    }
     const confirm = host.querySelector("#mp-ok");
     if (confirm) confirm.disabled = selected.size === 0;
   };
 
   const load = async () => {
     try {
-      const payload = await api(scoped("media" + (query ? `?q=${encodeURIComponent(query)}` : "")));
+      const params = new URLSearchParams({ limit: "60" });
+      if (query) params.set("q", query);
+      if (type) params.set("type", type);
+      const payload = await api(scoped(`media?${params}`));
       items = mediaItemsFromPayload(payload);
     } catch (e) {
       items = [];
@@ -228,11 +238,16 @@ export async function openMediaPicker({ multiple = false, accept = "image/*", on
   };
 
   host.innerHTML = `<div class="overlay">
-    <div class="dialog" role="dialog" aria-modal="true" aria-label="${attr(t("core.media.choose", "Choose from library"))}" style="max-width:44rem">
+    <div class="dialog dialog-wide" role="dialog" aria-modal="true" aria-label="${attr(t("core.media.choose", "Choose from library"))}">
       <h2>${esc(t("core.media.choose", "Choose from library"))}</h2>
       <p class="dialog-desc">${esc(t("core.media.pickHint", "Pick a file already in this site's library, or upload a new one."))}</p>
-      <div class="toolbar" style="margin-bottom:.75rem">
+      <div class="toolbar" style="margin-bottom:.25rem">
         <input id="mp-search" placeholder="${attr(t("core.action.search", "Search"))}" style="flex:1">
+        <select id="mp-type" aria-label="${attr(t("core.media.filterAll", "All types"))}">
+          <option value="">${esc(t("core.media.filterAll", "All types"))}</option>
+          <option value="image/">${esc(t("core.media.filterImages", "Images"))}</option>
+          <option value="application/">${esc(t("core.media.filterDocuments", "Documents"))}</option>
+        </select>
         <label class="btn outline sm" style="margin:0">${esc(t("core.action.upload", "Upload"))}
           <input id="mp-file" type="file" ${multiple ? "multiple" : ""} accept="${attr(accept)}" hidden>
         </label>
@@ -269,6 +284,10 @@ export async function openMediaPicker({ multiple = false, accept = "image/*", on
     query = e.target.value.trim();
     clearTimeout(searchTimer);
     searchTimer = setTimeout(load, 200);
+  });
+  host.querySelector("#mp-type").addEventListener("change", (e) => {
+    type = e.target.value;
+    load();
   });
 
   host.querySelector("#mp-file").onchange = async (e) => {

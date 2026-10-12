@@ -62,48 +62,65 @@ function formatBytes(n) {
   return `${(b / 1048576).toFixed(1)} MB`;
 }
 
-/** One tile. Rows are what the API returns, so `mediaItem()` normalises them
- *  (and refuses a row it cannot name, rather than rendering a broken tile). */
+/** One tile. The tile IS the thumbnail: the picture fills a square, the three
+ *  actions ride in a glass overlay that fades in on hover/focus, and the
+ *  metadata is two quiet lines under the picture. Rows are what the API
+ *  returns, so `mediaItem()` normalises them (and refuses a row it cannot
+ *  name, rather than rendering a broken tile). */
 export function mediaTileHtml(row) {
   const m = mediaItem(row);
   if (!m) return "";
   const isImg = m.mimeType.startsWith("image/");
   const name = m.filename || m.url;
+  const label = (k, d) => attr(t(k, d));
   return `<figure class="media-tile" data-media-row="${attr(m.id)}">
     <div class="media-thumb">${isImg
       ? `<img src="${attr(m.url)}" alt="${attr(m.alt)}" loading="lazy">`
-      : `<span class="media-file">${icon("file-text")}</span>`}</div>
-    <figcaption>
-      <div class="media-name" title="${attr(name)}">${esc(name)}</div>
-      <div class="muted text-sm">${esc(formatBytes(m.size))} · ${esc(m.mimeType || "—")}</div>
-      <input class="media-alt" data-media-alt="${attr(m.id)}" value="${attr(m.alt)}"
-        placeholder="${attr(t("core.media.altPlaceholder", "alt text"))}"
-        aria-label="${attr(t("core.media.alt", "Alt text"))}">
-    </figcaption>
-    <div class="toolbar">
-      <button type="button" class="btn outline sm" data-copy="${attr(m.url)}">${icon("copy")}${esc(t("core.media.copyUrl", "URL"))}</button>
-      <a class="btn outline sm" href="${attr(m.url)}" target="_blank" rel="noopener">${icon("external")}${esc(t("core.media.open", "Open"))}</a>
-      <button type="button" class="btn outline danger sm" data-media-del="${attr(m.id)}|${attr(name)}">${icon("trash")}${esc(t("core.action.delete", "Delete"))}</button>
+      : `<span class="media-file">${icon("file-text")}</span>`}
+      <div class="media-actions">
+        <button type="button" class="icon-btn" data-copy="${attr(m.url)}" title="${label("core.media.copyUrl", "URL")}" aria-label="${label("core.media.copyUrl", "URL")}">${icon("copy")}</button>
+        <a class="icon-btn" href="${attr(m.url)}" target="_blank" rel="noopener" title="${label("core.media.open", "Open")}" aria-label="${label("core.media.open", "Open")}">${icon("external")}</a>
+        <button type="button" class="icon-btn danger" data-media-del="${attr(m.id)}|${attr(name)}" title="${label("core.action.delete", "Delete")}" aria-label="${label("core.action.delete", "Delete")}">${icon("trash")}</button>
+      </div>
     </div>
+    <figcaption class="media-meta">
+      <div class="media-name" title="${attr(name)}">${esc(name)}</div>
+      <div class="media-sub">${esc(formatBytes(m.size))} · ${esc(m.mimeType || "—")}</div>
+    </figcaption>
+    <input class="media-alt" data-media-alt="${attr(m.id)}" value="${attr(m.alt)}"
+      placeholder="${attr(t("core.media.altPlaceholder", "alt text"))}"
+      aria-label="${attr(t("core.media.alt", "Alt text"))}">
   </figure>`;
 }
 
 export function mediaGridHtml(items) {
-  const tiles = (items ?? []).map(mediaTileHtml).join("");
-  return tiles || `<div class="empty">${esc(t("core.media.empty", "No media uploaded yet."))}</div>`;
+  const list = items ?? [];
+  if (!list.length) {
+    return `<div class="media-empty">${icon("image")}
+      <div>${esc(t("core.media.empty", "No media uploaded yet."))}</div>
+      <span class="text-sm">${esc(t("core.media.dropHint", "Drop files here to upload"))}</span>
+    </div>`;
+  }
+  return list.map(mediaTileHtml).join("");
 }
 
 /** The grid + its footer, as one string — used both for the first paint and for
- *  "load more", so the two can never disagree about the footer's arithmetic. */
+ *  "load more", so the two can never disagree about the footer's arithmetic.
+ *  The upload tile is a first-class grid member: the affordance to add more
+ *  lives where the files are, not only in the header. */
 export function mediaBodyHtml(items, info) {
   const shown = (items ?? []).length;
-  return `<div id="media-grid" class="media-grid">${mediaGridHtml(items)}</div>
-    <div class="toolbar" style="margin-top:1rem;align-items:center">
-      <span class="muted text-sm">${esc(t("core.media.showing", "Showing {shown} of {total}", { shown, total: info.total }))}</span>
-      ${info.hasMore
-        ? `<button type="button" class="btn outline sm" data-media-more="1">${esc(t("core.media.loadMore", "Load more"))}</button>`
-        : ""}
-    </div>`;
+  const add = t("core.media.addMedia", "Upload files");
+  return `<div id="media-grid" class="media-grid">
+    <button type="button" class="media-tile media-upload-tile" data-media-upload="1" title="${attr(add)}" aria-label="${attr(add)}">${icon("upload")}<span>${esc(add)}</span></button>
+    ${mediaGridHtml(items)}
+  </div>
+  <div class="toolbar" style="margin-top:1rem;align-items:center">
+    <span class="muted text-sm">${esc(t("core.media.showing", "Showing {shown} of {total}", { shown, total: info.total }))}</span>
+    ${info.hasMore
+      ? `<button type="button" class="btn outline sm" data-media-more="1">${esc(t("core.media.loadMore", "Load more"))}</button>`
+      : ""}
+  </div>`;
 }
 
 /** Fetch one page and fold it into the view. `append` is what "load more" does. */
@@ -203,6 +220,11 @@ async function uploadFiles(files) {
 // ---------------------------------------------------------------------------
 
 document.addEventListener("click", async (e) => {
+  // The upload tile is part of the grid, so it survives "load more" without a
+  // rebind — a delegated click just presses the header's hidden input.
+  const up = e.target.closest("[data-media-upload]");
+  if (up) { document.querySelector("#upload")?.click(); return; }
+
   const cp = e.target.closest("[data-copy]");
   if (cp) {
     try {

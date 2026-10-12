@@ -762,6 +762,10 @@ input.control:focus {
   animation: dialog-in 160ms ease;
 }
 .dialog h2 { font-size: 1.125rem; }
+/* A dialog whose content is a grid (the media picker) wants wall width, not
+   prose width. `width` is what the base rule sets, so the modifier widens
+   that — an inline max-width would never bind. */
+.dialog.dialog-wide { width: min(52rem, 100%); }
 .dialog .dialog-desc {
   margin: 0.5rem 0 1.25rem;
   font-size: 0.875rem;
@@ -949,43 +953,154 @@ input.control:focus {
 }
 
 /* --------------------------------------------------------------------------
-   Media library — a grid of tiles rather than a table.
+   Media library — a wall of pictures, not a list of cards.
 
-   A table row can show a filename and a byte count; it cannot show you the
-   picture, and "which of these is the right photo" is the only question this
-   screen exists to answer. Everything below uses the same oklch tokens as the
-   rest of the admin, so it follows the light/dark theme without its own rules.
+   The tile IS the thumbnail: square, edge-to-edge, rounded. Its actions live
+   in a glass overlay that fades in over the picture on hover/focus, so the
+   resting grid is pure imagery (the modern-library look) while every action
+   stays one click away. Metadata sits under the picture in two quiet lines;
+   the alt input keeps its place there because inline editing is why alt text
+   gets filled at all. Everything uses the same oklch tokens as the rest of
+   the admin, so light/dark come free; the overlay itself is always dark-on-
+   image, because what is under it is a photograph, not a theme surface.
    -------------------------------------------------------------------------- */
 .media-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));
+  gap: 0.875rem;
 }
 .media-tile {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.625rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--card);
+  gap: 0.375rem;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: none;
 }
 .media-thumb {
-  aspect-ratio: 4 / 3;
+  position: relative;
+  aspect-ratio: 1 / 1;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border-radius: calc(var(--radius) - 2px);
+  border-radius: var(--radius-md);
   background: var(--muted);
   color: var(--muted-foreground);
+  box-shadow: inset 0 0 0 1px oklch(0 0 0 / 0.06);
 }
-.media-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.media-file { display: flex; }
-.media-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.media-alt { width: 100%; margin-top: 0.25rem; font-size: 0.8125rem; }
-.media-tile .toolbar { margin-top: auto; }
+.media-thumb img {
+  display: block; width: 100%; height: 100%; object-fit: cover;
+  transition: transform 0.25s ease;
+}
+.media-tile:hover .media-thumb img,
+.media-tile:focus-within .media-thumb img { transform: scale(1.045); }
+.media-file { display: flex; font-size: 1.75rem; }
+
+/* The action overlay: three glass icon buttons pinned to the thumb's top
+   edge, hidden until the tile is hovered or focused — keyboard users get
+   them via :focus-within, touch users via the alt input's focus. */
+.media-actions {
+  position: absolute;
+  top: 0.375rem; right: 0.375rem;
+  display: flex;
+  gap: 0.25rem;
+  opacity: 0;
+  transform: translateY(-0.125rem);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 2;
+}
+.media-tile:hover .media-actions,
+.media-tile:focus-within .media-actions { opacity: 1; transform: none; }
+.media-actions .icon-btn {
+  width: 1.75rem; height: 1.75rem;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: calc(var(--radius-sm) + 1px);
+  background: oklch(0 0 0 / 0.55);
+  color: oklch(1 0 0 / 0.95);
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  text-decoration: none;
+  transition: background-color 0.12s ease;
+}
+.media-actions .icon-btn:hover { background: oklch(0 0 0 / 0.75); color: #fff; }
+.media-actions .icon-btn.danger:hover { background: var(--destructive); }
+.media-actions .icon-btn svg { width: 0.9rem; height: 0.9rem; }
+
+.media-meta { min-width: 0; padding: 0 0.125rem; }
+.media-name {
+  font-weight: 500; font-size: 0.8125rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.media-sub {
+  font-size: 0.75rem; color: var(--muted-foreground);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.media-alt {
+  width: 100%;
+  margin-top: 0;
+  font-size: 0.75rem;
+  padding-block: 0.3125rem;
+}
+
+/* The upload tile: a dashed slot that is a first-class grid member, so the
+   affordance to add more lives where the files are, not only in the header. */
+.media-upload-tile {
+  align-items: center; justify-content: center;
+  gap: 0.375rem;
+  min-height: 100%;
+  aspect-ratio: 1 / 1;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius-md);
+  color: var(--muted-foreground);
+  background: none;
+  cursor: pointer;
+  font: inherit; font-size: 0.8125rem;
+  transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+}
+.media-upload-tile:hover { border-color: var(--ring); color: var(--foreground); background: var(--accent); }
+.media-upload-tile svg { width: 1.25rem; height: 1.25rem; }
+
+/* The picker's selectable tile: same wall, plus a selection ring and a check
+   badge, so "which ones did I pick" is readable across the whole grid. */
+button.media-tile { cursor: pointer; text-align: left; }
+button.media-tile.is-selected .media-thumb {
+  box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--primary);
+}
+.media-check {
+  position: absolute;
+  top: 0.375rem; left: 0.375rem;
+  width: 1.375rem; height: 1.375rem;
+  display: none;
+  align-items: center; justify-content: center;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  box-shadow: 0 0 0 2px var(--background);
+  z-index: 2;
+}
+.media-check svg { width: 0.8rem; height: 0.8rem; }
+button.media-tile.is-selected .media-check { display: inline-flex; }
+
+/* An empty library is a destination, not a dead end: one dashed panel with
+   the upload affordance right in it. */
+.media-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 3.5rem 1rem;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--muted-foreground);
+  text-align: center;
+}
+.media-empty svg { width: 2rem; height: 2rem; opacity: 0.7; }
 
 /* The drop target is the whole panel, because the thing a user aims at is
    "somewhere on this screen" rather than a three-pixel border — and the
@@ -999,6 +1114,15 @@ input.control:focus {
 .media-drop.over { background: var(--accent); outline-color: var(--ring); }
 .media-drop-hint { display: none; margin-bottom: 0.75rem; }
 .media-drop.over .media-drop-hint { display: block; }
+
+/* The picker dialog shows the same wall inside a wider dialog; the grid
+   scrolls its own height so the dialog never grows off-screen. */
+.media-pick-grid {
+  max-height: 24rem;
+  overflow: auto;
+  padding: 0.125rem;
+  margin-top: 0.75rem;
+}
 
 @media (max-width: 640px) {
   .cards.cols-4, .cards.cols-2 { grid-template-columns: 1fr; }

@@ -1,0 +1,17 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+<p class="eyebrow">{{page.title}}</p>
+<h1>Category</h1>
+
+{{#if posts}}
+  <ul class="list">
+    {{#each posts as post}}
+      <li class="item"><h2><a href="{{post.url}}">{{post.title}}</a></h2></li>
+    {{/each}}
+  </ul>
+{{else}}
+  <p class="empty">No posts in this category.</p>
+{{/if}}
+
+{{/section}}

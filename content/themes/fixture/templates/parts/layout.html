@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="{{locale}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{#if page.document_title}}{{page.document_title}}{{else}}{{page.title}}{{#if site.title}} | {{site.title}}{{/if}}{{/if}}</title>
+{{#if page.description}}<meta name="description" content="{{page.description}}">{{/if}}
+<meta name="robots" content="{{#if site.robots}}{{site.robots}}{{else}}index,follow{{/if}}">
+<meta name="generator" content="CFPress / {{theme.title}} {{theme.version}}">
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{page.title}}">
+{{#if page.description}}<meta property="og:description" content="{{page.description}}">{{/if}}
+<meta property="og:site_name" content="{{site.title}}">
+</head>
+<body>
+{{@include "parts/header"}}
+<main id="content">
+{{@section "content"}}
+</main>
+{{@include "parts/footer"}}
+</body>
+</html>

@@ -1,0 +1,92 @@
+{
+  "name": "default",
+  "title": "墨白 MOBAI",
+  "version": "1.0.0",
+  "author": "CFPress",
+  "description": "一份为长阅读设计的中文博客主题：衬线标题、留白充足的单栏正文、杂志式的封面与文章栅格，明暗两套配色。订阅走标准 RSS，不依赖任何第三方脚本或外链字体。",
+  "supports": [
+    "blocks",
+    "menus",
+    "widgets"
+  ],
+  "menuLocations": [
+    { "id": "header", "label": "Header" },
+    { "id": "footer", "label": "Footer" }
+  ],
+  "sidebars": [
+    { "id": "sidebar", "label": "Sidebar" },
+    { "id": "footer", "label": "Footer" }
+  ],
+  "templates": [
+    "index",
+    "home",
+    "single",
+    "page",
+    "archive",
+    "404",
+    "login",
+    "register",
+    "account",
+    "compose"
+  ],
+  "parts": [
+    "layout",
+    "styles",
+    "header",
+    "footer"
+  ],
+  "locales": [
+    "zh-CN",
+    "en"
+  ],
+  "routes": [
+    {
+      "path": "/blog",
+      "template": "archive",
+      "title": "Blog",
+      "query": {
+        "type": "post",
+        "limit": 50,
+        "order": "created_at desc"
+      }
+    },
+    {
+      "path": "/login",
+      "template": "login",
+      "title": "Sign in"
+    },
+    {
+      "path": "/register",
+      "template": "register",
+      "title": "Create an account"
+    },
+    {
+      "path": "/account",
+      "template": "account",
+      "title": "Account"
+    },
+    {
+      "path": "/compose",
+      "template": "compose",
+      "title": "Write a story"
+    }
+  ],
+  "fields": [
+    {
+      "key": "category",
+      "type": "text",
+      "label": "分类",
+      "postTypes": [
+        "post"
+      ]
+    },
+    {
+      "key": "tags",
+      "type": "text",
+      "label": "标签（逗号分隔）",
+      "postTypes": [
+        "post"
+      ]
+    }
+  ]
+}

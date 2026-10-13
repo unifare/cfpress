@@ -1,0 +1,25 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+<div class="wrap">
+  <div class="sec-head tight"><h2>{{#if page.title}}{{page.title}}{{else}}{{site.title}}{{/if}}</h2><div class="line"></div></div>
+  {{#if posts}}
+    <div class="grid">
+      {{#each posts as post}}
+        <a class="card" href="{{post.url}}">
+          <div class="card-img">{{#if post.cover}}<img loading="lazy" src="{{post.cover}}" alt="{{post.title}}">{{/if}}</div>
+          <div class="card-body">
+            <div class="card-cat"><span><em>◆</em> {{#if post.meta.category}}{{post.meta.category}}{{else}}{{default(theme.strings.uncategorized, "Uncategorised")}}{{/if}}</span><span>{{#if post.reading_time}}{{post.reading_time}}{{/if}}</span></div>
+            <h3>{{post.title}}</h3>
+            {{#if post.excerpt}}<p>{{post.excerpt}}</p>{{/if}}
+            <div class="card-foot"><span class="avatar">{{#if post.meta.category}}{{truncate(post.meta.category, 1)}}{{else}}文{{/if}}</span>{{#if post.date_display}}<span>{{post.date_display}}</span>{{/if}}</div>
+          </div>
+        </a>
+      {{/each}}
+    </div>
+  {{else}}
+    <p class="empty">{{default(theme.strings.articles.empty, "Nothing published yet.")}}</p>
+  {{/if}}
+</div>
+
+{{/section}}

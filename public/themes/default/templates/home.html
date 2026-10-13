@@ -1,0 +1,228 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+<div class="wrap">
+
+  {{! The cover story is the newest post, not editorial copy typed into a
+      template: a front page that cannot be updated from the admin is a mockup. }}
+  {{#each posts as post}}
+    {{#if @first}}
+      <header class="hero">
+        <div class="hero-text">
+          <div class="kicker">{{default(theme.strings.hero.kicker, "Cover story")}} · {{#if post.meta.category}}{{post.meta.category}}{{else}}{{default(theme.strings.hero.longread, "Long read")}}{{/if}}</div>
+          <h1>{{post.title}}</h1>
+          {{#if post.excerpt}}<p>{{post.excerpt}}</p>{{/if}}
+          <div class="hero-meta">
+            {{#if post.date_display}}<span>{{post.date_display}}</span><span>·</span>{{/if}}
+            {{#if post.reading_time}}<span>{{default(theme.strings.hero.minutes, "About")}} {{post.reading_time}}</span>{{/if}}
+          </div>
+          <div class="hero-cta">
+            <a class="btn" href="{{post.url}}">{{default(theme.strings.hero.read, "Start reading")}}</a>
+            <a class="btn btn-ghost" href="#sec-articles">{{default(theme.strings.hero.browse, "Browse all articles")}}</a>
+          </div>
+        </div>
+        <figure class="hero-fig">
+          {{#if post.cover}}<img src="{{post.cover}}" alt="{{post.title}}">{{/if}}
+          <figcaption><span class="dot"></span>{{default(theme.strings.hero.pick, "Editor's pick")}}{{#if post.reading_time}} · {{post.reading_time}}{{/if}}</figcaption>
+        </figure>
+      </header>
+    {{/if}}
+  {{/each}}
+
+  <div class="ticker">
+    {{#each posts as post}}{{#if @first}}<span><b>{{default(theme.strings.ticker.latest, "Latest")}}</b>　《{{post.title}}》{{default(theme.strings.ticker.published, "published")}}</span>{{/if}}{{/each}}
+    <span><b>{{default(theme.strings.subscribe, "Subscribe")}}</b>　{{default(theme.strings.ticker.feed, "RSS feed is live")}} /feed.xml</span>
+    <span><b>{{default(theme.strings.ticker.index, "Index")}}</b>　{{default(theme.strings.ticker.sitemap, "Sitemap")}} /sitemap.xml</span>
+  </div>
+
+  <div class="sec-head" id="sec-articles"><h2>{{default(theme.strings.articles.title, "Latest writing")}}</h2><div class="line"></div><span class="more" id="countLabel"></span></div>
+
+  <div class="chips" id="chips">
+    <button class="chip active" type="button" data-cat="{{default(theme.strings.articles.all, "All")}}">{{default(theme.strings.articles.all, "All")}}</button>
+  </div>
+
+  <div class="grid" id="grid"
+       data-all="{{default(theme.strings.articles.all, "All")}}"
+       data-nomatch="{{default(theme.strings.articles.noMatch, "No matching articles. Try another keyword.")}}"
+       data-uncat="{{default(theme.strings.uncategorized, "Uncategorised")}}"
+       data-tagempty="{{default(theme.strings.tags.empty, "No tags yet.")}}"
+       data-unit="{{default(theme.strings.articles.unit, "articles")}}">
+    {{#each posts as post}}
+      <a class="card" href="{{post.url}}" data-cat="{{#if post.meta.category}}{{post.meta.category}}{{else}}{{default(theme.strings.uncategorized, "Uncategorised")}}{{/if}}" data-tags="{{#if post.meta.tags}}{{post.meta.tags}}{{/if}}">
+        <div class="card-img">{{#if post.cover}}<img loading="lazy" src="{{post.cover}}" alt="{{post.title}}">{{/if}}</div>
+        <div class="card-body">
+          <div class="card-cat"><span><em>◆</em> {{#if post.meta.category}}{{post.meta.category}}{{else}}{{default(theme.strings.uncategorized, "Uncategorised")}}{{/if}}</span><span>{{#if post.reading_time}}{{post.reading_time}}{{/if}}</span></div>
+          <h3>{{post.title}}</h3>
+          {{#if post.excerpt}}<p>{{post.excerpt}}</p>{{/if}}
+          <div class="card-foot">
+            <span class="avatar">{{#if post.meta.category}}{{truncate(post.meta.category, 1)}}{{else}}文{{/if}}</span>
+            {{#if post.date_display}}<span>{{post.date_display}}</span>{{/if}}
+          </div>
+        </div>
+      </a>
+    {{/each}}
+  </div>
+  {{#if posts}}{{else}}<p class="empty">{{default(theme.strings.articles.empty, "Nothing published yet.")}}</p>{{/if}}
+
+  <div class="sec-head" id="sec-rank"><h2>{{default(theme.strings.rank.title, "Recently published")}}</h2><div class="line"></div><span class="more">{{default(theme.strings.rank.note, "Newest first")}}</span></div>
+  <section class="rank">
+    <div class="rank-list">
+      {{#each posts as post}}
+        <a class="r" href="{{post.url}}">
+          <span class="num">0{{@index}}</span>
+          <div>
+            <h4>{{post.title}}</h4>
+            <small>{{#if post.meta.category}}{{post.meta.category}} · {{/if}}{{#if post.reading_time}}{{default(theme.strings.hero.minutes, "About")}} {{post.reading_time}}{{/if}}</small>
+          </div>
+          <span class="when">{{#if post.date_display}}{{post.date_display}}{{/if}}</span>
+        </a>
+      {{/each}}
+    </div>
+    {{! `sec-topics` is what the header nav's 专题/Topics link scrolls to: the
+        tag cloud IS the topic browser, and an anchor to an id the page does
+        not have is a link that silently does nothing. }}
+    <aside class="side" id="sec-topics">
+      <h5>{{default(theme.strings.tags.title, "Tags")}}</h5>
+      <div class="tagcloud" id="tags"></div>
+      <div class="newsbox">
+        <h5>{{default(theme.strings.subscribe, "Subscribe")}}</h5>
+        <div class="side-lede">{{default(theme.strings.side.title, "One email a week, nothing more.")}}</div>
+        <p>{{default(theme.strings.side.desc, "Subscribe in any RSS reader.")}}</p>
+        <div class="row">
+          <input id="feedUrl" type="text" readonly value="/{{locale}}/feed.xml" aria-label="RSS">
+          <button class="btn" type="button" id="copyFeed" data-copied="{{default(theme.strings.side.copied, "Feed URL copied")}}">{{default(theme.strings.side.copy, "Copy")}}</button>
+        </div>
+      </div>
+    </aside>
+  </section>
+
+  <div class="sec-head" id="sec-about"><h2>{{default(theme.strings.about.title, "About")}}</h2><div class="line"></div></div>
+  <section class="split">
+    <div class="split-text">
+      <div class="kicker">{{default(theme.strings.about.kicker, "Independent publishing")}}</div>
+      <h2>{{site.title}}</h2>
+      {{#if site.description}}<p>{{site.description}}</p>{{/if}}
+      <div class="quote">{{default(theme.strings.about.quote, "“Slow is not behind.”")}}</div>
+      <div class="hero-cta">
+        <a class="btn" href="/{{locale}}/feed.xml">{{default(theme.strings.footer.rss, "RSS feed")}}</a>
+        <a class="btn btn-ghost" href="/sitemap.xml">{{default(theme.strings.footer.sitemap, "Sitemap")}}</a>
+      </div>
+    </div>
+    <div class="split-fig">
+      <div class="kicker">{{default(theme.strings.about.open, "Open by default")}}</div>
+      <h3>{{default(theme.strings.about.openTitle, "A standard feed and sitemap.")}}</h3>
+      <p>{{default(theme.strings.about.openDesc, "/feed.xml, /sitemap.xml, /robots.txt — no third-party service.")}}</p>
+    </div>
+  </section>
+
+</div>
+
+{{! The chips, the tag cloud and the search box are all built from the rendered
+    cards rather than from a second query: the page already carries every post
+    it is allowed to show, so deriving the facets from the DOM cannot disagree
+    with the grid. Without JavaScript the grid is still complete and every card
+    still links — only the filtering is lost. }}
+<script>
+(function () {
+  var grid = document.getElementById("grid");
+  if (!grid) return;
+  var ALL = grid.dataset.all || "All";
+  var UNCAT = grid.dataset.uncat || "Uncategorised";
+  var NOMATCH = grid.dataset.nomatch || "No matching articles.";
+  var UNIT = grid.dataset.unit || "articles";
+  var cards = [].slice.call(grid.querySelectorAll(".card"));
+  var chips = document.getElementById("chips");
+  var tags = document.getElementById("tags");
+  var q = document.getElementById("q");
+  var count = document.getElementById("countLabel");
+  var curCat = ALL;
+
+  function cats() {
+    var seen = [];
+    cards.forEach(function (c) {
+      var v = c.dataset.cat || UNCAT;
+      if (seen.indexOf(v) < 0) seen.push(v);
+    });
+    return seen;
+  }
+  cats().forEach(function (c) {
+    var b = document.createElement("button");
+    b.className = "chip";
+    b.type = "button";
+    b.dataset.cat = c;
+    b.textContent = c;
+    chips.appendChild(b);
+  });
+
+  var tagSet = [];
+  cards.forEach(function (c) {
+    (c.dataset.tags || "").split(/[,，]/).map(function (t) { return t.trim(); }).filter(Boolean).forEach(function (t) {
+      if (tagSet.indexOf(t) < 0) tagSet.push(t);
+    });
+  });
+  if (tagSet.length) {
+    tagSet.forEach(function (t) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.textContent = t;
+      b.addEventListener("click", function () {
+        if (q) q.value = t;
+        curCat = ALL;
+        [].forEach.call(chips.querySelectorAll(".chip"), function (x) { x.classList.toggle("active", x.dataset.cat === ALL); });
+        apply();
+        document.getElementById("sec-articles").scrollIntoView({ behavior: "smooth" });
+      });
+      tags.appendChild(b);
+    });
+  } else {
+    tags.innerHTML = '<span class="tagcloud-empty">' + (grid.dataset.tagempty || "") + '</span>';
+  }
+
+  function apply() {
+    var term = q ? q.value.trim().toLowerCase() : "";
+    var shown = 0;
+    cards.forEach(function (c) {
+      var okCat = curCat === ALL || (c.dataset.cat || UNCAT) === curCat;
+      var hay = (c.textContent || "").toLowerCase() + " " + (c.dataset.tags || "").toLowerCase();
+      var okQ = !term || hay.indexOf(term) >= 0;
+      var show = okCat && okQ;
+      c.style.display = show ? "" : "none";
+      if (show) shown++;
+    });
+    if (count) count.textContent = shown + " " + UNIT;
+    var existing = grid.querySelector(".grid-empty");
+    if (existing) existing.remove();
+    if (!shown) {
+      var d = document.createElement("div");
+      d.className = "grid-empty";
+      d.textContent = NOMATCH;
+      grid.appendChild(d);
+    }
+  }
+
+  if (chips) chips.addEventListener("click", function (e) {
+    var b = e.target.closest(".chip");
+    if (!b) return;
+    curCat = b.dataset.cat;
+    [].forEach.call(chips.querySelectorAll(".chip"), function (x) { x.classList.toggle("active", x === b); });
+    apply();
+  });
+  if (q) {
+    q.addEventListener("input", apply);
+    // A search started on another page arrives as `?q=`. The front end has no
+    // server-side search route, so the box filters the list it was given — and
+    // says so, rather than pretending to search the whole archive.
+    var initial = new URLSearchParams(location.search).get("q");
+    if (initial) q.value = initial;
+  }
+  var copy = document.getElementById("copyFeed");
+  if (copy) copy.addEventListener("click", function () {
+    var abs = location.origin + "/{{locale}}/feed.xml";
+    if (navigator.clipboard) navigator.clipboard.writeText(abs).then(function () { window.defaultToast(copy.dataset.copied || abs); }, function () { window.defaultToast(abs); });
+    else window.defaultToast(abs);
+  });
+  apply();
+})();
+</script>
+
+{{/section}}

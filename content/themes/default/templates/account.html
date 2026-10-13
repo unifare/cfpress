@@ -1,0 +1,86 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+{{#if member}}
+<div class="wrap account">
+
+  <section class="panel">
+    <div class="avatar-lg">{{truncate(member.display_name, 1)}}</div>
+    <div class="kicker">{{default(theme.strings.account.kicker, "Account")}}</div>
+    <h1>{{member.display_name}}</h1>
+    <p class="lede">{{default(theme.strings.account.lede, "Your reader account on this site.")}}</p>
+
+    <dl class="kv">
+      <div><dt>{{default(theme.strings.account.username, "Username")}}</dt><dd>{{member.username}}</dd></div>
+      <div><dt>{{default(theme.strings.account.email, "Email")}}</dt><dd>{{#if member.email}}{{member.email}}{{else}}{{default(theme.strings.account.noEmail, "Not set")}}{{/if}}</dd></div>
+      <div><dt>{{default(theme.strings.account.role, "Role")}}</dt><dd>{{member.role}}</dd></div>
+    </dl>
+
+    {{! No JavaScript needed: the form POSTs to the front-end logout endpoint
+        and the server clears the member cookie and redirects back. }}
+    <form method="post" action="/api/v1/front/auth/logout" class="auth-form">
+      <input type="hidden" name="redirect" value="/{{locale}}">
+      <button class="btn btn-ghost" type="submit">{{default(theme.strings.auth.signOut, "Sign out")}}</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <div class="sec-head tight">
+      <h2>{{default(theme.strings.account.myPosts, "My posts")}}</h2>
+      <div class="line"></div>
+      {{#if my_posts}}<span class="more">{{len(my_posts)}} {{default(theme.strings.articles.unit, "articles")}}</span>{{/if}}
+      <a class="btn btn-ghost" href="/{{locale}}/compose">{{default(theme.strings.account.newPost, "Write a story")}}</a>
+    </div>
+
+    {{#if my_posts}}
+      <div class="myposts">
+        {{#each my_posts as post}}
+          <div class="mypost">
+            <a class="mypost-main" href="{{post.url}}">
+              <h4>{{post.title}}</h4>
+              <div class="sub">
+                {{#if post.date_display}}{{post.date_display}}{{/if}}
+                {{#if post.reading_time}} · {{post.reading_time}}{{/if}}
+              </div>
+            </a>
+            {{#if post.status}}<span class="badge">{{post.status}}</span>{{/if}}
+            {{! Managing a story is two more forms: an edit link that reopens the
+                editor on this post, and a delete that is a form because a plain
+                link can only GET — and a GET must never destroy a row. Both go
+                through the same front API as everything else, so ownership is
+                checked in one place (rule 84). }}
+            <div class="mypost-actions">
+              <a class="icon-btn" href="/{{locale}}/compose?id={{post.id}}"
+                 title="{{default(theme.strings.account.edit, "Edit")}}" aria-label="{{default(theme.strings.account.edit, "Edit")}}">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+              </a>
+              <form method="post" action="/api/v1/front/posts/{{post.id}}/delete" class="inline-form">
+                <input type="hidden" name="redirect" value="/{{locale}}/account">
+                <button class="icon-btn danger" type="submit"
+                        title="{{default(theme.strings.account.delete, "Delete")}}" aria-label="{{default(theme.strings.account.delete, "Delete")}}">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+                </button>
+              </form>
+            </div>
+          </div>
+        {{/each}}
+      </div>
+    {{else}}
+      <p class="empty">{{default(theme.strings.account.noPosts, "You have not published anything yet.")}}</p>
+    {{/if}}
+  </section>
+
+</div>
+{{else}}
+<div class="auth">
+  <div class="auth-card">
+    <div class="kicker">{{default(theme.strings.account.kicker, "Account")}}</div>
+    <h1>{{default(theme.strings.account.signedOutTitle, "You are not signed in")}}</h1>
+    <p class="lede">{{default(theme.strings.account.signedOutLede, "Sign in to see your account and your posts.")}}</p>
+    <a class="btn" href="/{{locale}}/login">{{default(theme.strings.auth.signIn, "Sign in")}}</a>
+    <p class="auth-alt">{{default(theme.strings.auth.noAccount, "No account yet?")}} <a href="/{{locale}}/register">{{default(theme.strings.auth.createOne, "Create one")}}</a></p>
+  </div>
+</div>
+{{/if}}
+
+{{/section}}

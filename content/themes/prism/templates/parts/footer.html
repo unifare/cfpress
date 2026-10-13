@@ -1,0 +1,44 @@
+<footer class="sitefoot">
+  <div class="wrap">
+    {{#if widgets.footer_html}}
+    <div class="foot-widgets">{{{widgets.footer_html}}}</div>
+    {{/if}}
+
+    {{#if menu.footer}}
+    <nav class="foot-nav" aria-label="{{default(theme.strings.nav.footerAria, "Footer navigation")}}">
+      {{#each menu.footer as item}}<a href="{{item.url}}">{{item.title}}</a>{{/each}}
+    </nav>
+    {{/if}}
+
+    <div class="foot">
+      <div>
+        <h5>{{site.title}}</h5>
+        {{#if site.description}}<p>{{site.description}}</p>{{/if}}
+      </div>
+      <div>
+        <h5>{{default(theme.strings.footer.browse, "Browse")}}</h5>
+        <p><a href="/{{locale}}">{{default(theme.strings.nav.home, "Home")}}</a></p>
+        <p><a href="/{{locale}}/blog">{{default(theme.strings.nav.blog, "Posts")}}</a></p>
+      </div>
+      <div>
+        <h5>{{default(theme.strings.subscribe, "Subscribe")}}</h5>
+        <p><a href="/{{locale}}/feed.xml">{{default(theme.strings.footer.rss, "RSS feed")}}</a></p>
+        <p><a href="/sitemap.xml">{{default(theme.strings.footer.sitemap, "Sitemap")}}</a></p>
+      </div>
+      <div>
+        <h5>{{default(theme.strings.footer.account, "Account")}}</h5>
+        {{#if member}}
+          <p><a href="/{{locale}}/account">{{default(theme.strings.auth.accountKicker, "Account")}}</a></p>
+        {{else}}
+          <p><a href="/{{locale}}/login">{{default(theme.strings.auth.signIn, "Sign in")}}</a></p>
+          <p><a href="/{{locale}}/register">{{default(theme.strings.auth.createAccount, "Create account")}}</a></p>
+        {{/if}}
+      </div>
+    </div>
+
+    <div class="copy">
+      <span>{{theme.title}} v{{theme.version}}</span>
+      <span>{{default(theme.strings.footer.built, "Built with CFPress")}}</span>
+    </div>
+  </div>
+</footer>

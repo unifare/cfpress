@@ -1,0 +1,29 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+<p class="eyebrow">{{page.title}}</p>
+<h1>Items</h1>
+{{#if site.description}}<p class="lede">{{site.description}}</p>{{/if}}
+
+{{#if items}}
+  <ul class="grid">
+    {{#each items as item}}
+      <li class="card">
+        <h2><a href="/{{locale}}/items/{{item.slug}}">{{item.name}}</a></h2>
+        {{#if item.blurb}}<p>{{truncate(item.blurb, 120)}}</p>{{/if}}
+        <div class="row">
+          <span class="price">{{number(item.price)}}</span>
+          {{#if item.in_stock}}
+            <span class="stock">In stock</span>
+          {{else}}
+            <span class="stock">Sold out</span>
+          {{/if}}
+        </div>
+      </li>
+    {{/each}}
+  </ul>
+{{else}}
+  <p class="empty">No items yet. Add one from the admin under Items.</p>
+{{/if}}
+
+{{/section}}

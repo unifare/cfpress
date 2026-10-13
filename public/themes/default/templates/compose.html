@@ -1,0 +1,88 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+{{#if member}}
+<div class="wrap compose">
+
+  <section class="panel">
+    <div class="kicker">{{default(theme.strings.compose.kicker, "Your desk")}}</div>
+    {{#if edit_post}}
+      <h1>{{default(theme.strings.compose.editTitle, "Edit your story")}}</h1>
+    {{else}}
+      <h1>{{default(theme.strings.compose.title, "Write a story")}}</h1>
+    {{/if}}
+    <p class="lede">{{default(theme.strings.compose.lede, "Saved as a draft. An editor reviews it before it goes live.")}}</p>
+    <p class="byline">{{default(theme.strings.compose.writingAs, "Writing as")}} <b>{{member.display_name}}</b></p>
+
+    {{! A failed submission comes back here as `?error=<code>` — the only place a
+        redirect can carry a reason. Without this the reader would land on the
+        same form with no idea what went wrong. The codes are the stable ones
+        `api.ts` answers; anything else gets the generic line. }}
+    {{#if query.error}}
+      <p class="form-error" role="alert">
+        {{#if contains(query.error, "slug")}}
+          {{default(theme.strings.compose.errSlug, "That URL is already taken in this language. Pick another.")}}
+        {{else}}
+          {{default(theme.strings.compose.errGeneric, "Your story could not be saved. Please try again.")}}
+        {{/if}}
+      </p>
+    {{/if}}
+
+    {{! No JavaScript. One form, two actions: `/posts` creates, `/posts/{id}`
+        edits — and `?id=` is what tells them apart. The id is in the URL, not a
+        hidden field, because the same page has to work for a language the post
+        does not have yet (the fields come up empty, the action still edits). }}
+    <form method="post" class="compose-form" action="/api/v1/front/posts{{#if query.id}}/{{query.id}}{{/if}}">
+      <label class="field">
+        <span>{{default(theme.strings.compose.language, "Language")}}</span>
+        <select name="locale">
+          {{#each locales as l}}
+            <option value="{{l.code}}"{{#if l.code == locale}} selected{{/if}}>{{l.name}}</option>
+          {{/each}}
+        </select>
+      </label>
+
+      <label class="field">
+        <span>{{default(theme.strings.compose.postTitle, "Title")}}</span>
+        <input name="title" type="text" required value="{{#if edit_post}}{{edit_post.title}}{{/if}}">
+      </label>
+
+      <label class="field">
+        <span>{{default(theme.strings.compose.slug, "URL slug")}}</span>
+        <input name="slug" type="text" value="{{#if edit_post}}{{edit_post.slug}}{{/if}}">
+        <small>{{default(theme.strings.compose.slugHint, "Lowercase words joined by dashes. Leave blank to use the title.")}}</small>
+      </label>
+
+      <label class="field">
+        <span>{{default(theme.strings.compose.excerpt, "Summary")}}</span>
+        <textarea name="excerpt" rows="2">{{#if edit_post}}{{edit_post.excerpt}}{{/if}}</textarea>
+      </label>
+
+      <label class="field">
+        <span>{{default(theme.strings.compose.body, "Story")}}</span>
+        <textarea name="content" rows="16" required>{{#if edit_post}}{{edit_post.content}}{{/if}}</textarea>
+      </label>
+
+      <input type="hidden" name="redirect" value="/{{locale}}/account">
+
+      <div class="compose-actions">
+        <button class="btn" type="submit">{{default(theme.strings.compose.save, "Save draft")}}</button>
+        <a class="btn btn-ghost" href="/{{locale}}/account">{{default(theme.strings.compose.cancel, "Cancel")}}</a>
+      </div>
+    </form>
+  </section>
+
+</div>
+{{else}}
+<div class="auth">
+  <div class="auth-card">
+    <div class="kicker">{{default(theme.strings.compose.kicker, "Your desk")}}</div>
+    <h1>{{default(theme.strings.account.signedOutTitle, "You are not signed in")}}</h1>
+    <p class="lede">{{default(theme.strings.compose.signedOutLede, "Sign in to write a story.")}}</p>
+    <a class="btn" href="/{{locale}}/login">{{default(theme.strings.auth.signIn, "Sign in")}}</a>
+    <p class="auth-alt">{{default(theme.strings.auth.noAccount, "No account yet?")}} <a href="/{{locale}}/register">{{default(theme.strings.auth.createOne, "Create one")}}</a></p>
+  </div>
+</div>
+{{/if}}
+
+{{/section}}

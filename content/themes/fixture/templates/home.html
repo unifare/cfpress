@@ -1,0 +1,24 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+{{! The front page has its own template. In the resolver hierarchy `home`
+    outranks `index` for the site root, and a theme that declares `home` in
+    its manifest but ships no file renders the fallback shell — 200, no error.
+    Keeping the file here is what makes "declared ⇒ shipped" testable. }}
+<h1 class="home-title">{{site.title}}</h1>
+{{#if site.description}}<p class="lede">{{site.description}}</p>{{/if}}
+
+{{#if posts}}
+  <ul class="list highlights">
+    {{#each posts as post}}
+      <li class="item">
+        <h2><a href="{{post.url}}">{{post.title}}</a></h2>
+        {{#if post.excerpt}}<p>{{truncate(post.excerpt, 200)}}</p>{{/if}}
+      </li>
+    {{/each}}
+  </ul>
+{{else}}
+  <p class="empty">Nothing published yet.</p>
+{{/if}}
+
+{{/section}}

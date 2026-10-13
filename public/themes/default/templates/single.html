@@ -1,0 +1,38 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+{{#if post}}
+<article class="article">
+  <div class="wrap">
+    <header class="article-head">
+      <div class="kicker">{{#if post.meta.category}}{{post.meta.category}}{{else}}{{default(theme.strings.hero.longread, "Long read")}}{{/if}} · {{site.title}}</div>
+      <h1>{{post.title}}</h1>
+      <div class="article-byline">
+        {{#if post.date_display}}{{post.date_display}}{{/if}}{{#if post.reading_time}} · {{default(theme.strings.hero.minutes, "About")}} {{post.reading_time}}{{/if}}
+      </div>
+    </header>
+
+    {{#if post.cover}}
+      <figure class="article-cover">
+        <img src="{{post.cover}}" alt="{{post.title}}">
+        <figcaption>{{default(theme.strings.hero.pick, "Editor's pick")}} / {{site.title}}</figcaption>
+      </figure>
+    {{/if}}
+
+    <div class="prose">
+      {{#if post.excerpt}}<p class="lede">{{post.excerpt}}</p>{{/if}}
+      {{#if post.html}}{{{post.html}}}{{/if}}
+      {{#if post.meta.tags}}<p class="article-tags">{{default(theme.strings.article.tags, "Tags")}}：{{post.meta.tags}}</p>{{/if}}
+    </div>
+
+    <div class="article-foot">
+      <a class="btn" href="/{{locale}}">← {{default(theme.strings.article.back, "All writing")}}</a>
+      <a class="btn btn-ghost" href="/feed.xml">{{default(theme.strings.footer.rss, "RSS feed")}}</a>
+    </div>
+  </div>
+</article>
+{{else}}
+  <div class="wrap"><p class="empty">{{default(theme.strings.articles.empty, "Nothing published yet.")}}</p></div>
+{{/if}}
+
+{{/section}}

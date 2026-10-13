@@ -1,0 +1,123 @@
+{
+  "name": "notify",
+  "title": "Notify",
+  "version": "1.0.0",
+  "description": "Posts a webhook when content changes, and shows a delivery log in the admin. The reference example for the three pillars of the plugin system: own tables, notification channels, and host-rendered admin pages.",
+  "permissions": ["content.read", "settings.read", "settings.write"],
+
+  "hooks": ["html", "afterSavePost"],
+  "subscribes": ["PostPublished"],
+
+  "tables": [
+    {
+      "name": "log",
+      "label": "Delivery log",
+      "fields": [
+        { "key": "event", "type": "text", "label": "Event" },
+        { "key": "target", "type": "text", "label": "Target" },
+        { "key": "severity", "type": "number", "label": "Severity" },
+        { "key": "note", "type": "longtext", "label": "Note" }
+      ],
+      "translatable": ["event", "target", "note"]
+    }
+  ],
+
+  "channels": [
+    {
+      "code": "webhook",
+      "labelKey": "plugin.notify.channel.webhook.label",
+      "configSchema": [
+        { "key": "url", "type": "url", "required": true, "labelKey": "plugin.notify.channel.webhook.url" },
+        { "key": "secret", "type": "password", "labelKey": "plugin.notify.channel.webhook.secret" },
+        { "key": "enabled", "type": "boolean", "labelKey": "plugin.notify.channel.webhook.enabled" },
+        { "key": "retries", "type": "number", "labelKey": "plugin.notify.channel.webhook.retries" }
+      ]
+    }
+  ],
+
+  "adminPages": [
+    {
+      "id": "deliveries",
+      "path": "deliveries",
+      "titleKey": "plugin.notify.page.deliveries.title",
+      "blocks": [
+        {
+          "type": "stats",
+          "source": "log",
+          "aggregate": "count",
+          "labelKey": "plugin.notify.block.count"
+        },
+        {
+          "type": "stats",
+          "source": "log",
+          "aggregate": "sum",
+          "field": "severity",
+          "labelKey": "plugin.notify.block.severity"
+        },
+        {
+          "type": "table",
+          "source": "log",
+          "columns": ["event", "target", "severity"],
+          "labelKey": "plugin.notify.block.recent"
+        },
+        {
+          "type": "form",
+          "source": "log",
+          "fields": ["event", "target", "note"],
+          "labelKey": "plugin.notify.block.record"
+        }
+      ]
+    }
+  ],
+
+  "adminMenus": [
+    {
+      "id": "notify-settings",
+      "label": "Notify Settings",
+      "icon": "chart",
+      "screen": "plugin-settings",
+      "capability": "settings.read"
+    },
+    {
+      "id": "notify-deliveries",
+      "label": "Deliveries",
+      "icon": "box",
+      "screen": "plugin-page:deliveries",
+      "capability": "content.read"
+    }
+  ],
+
+  "settings": [
+    { "key": "title_template", "type": "text", "label": "Title template", "default": "%title% | %site%" },
+    { "key": "default_description", "type": "textarea", "label": "Default description", "default": "" }
+  ],
+
+  "langs": {
+    "en": {
+      "plugin.notify.title": "Notify",
+      "plugin.notify.channel.webhook.label": "Webhook",
+      "plugin.notify.channel.webhook.url": "Endpoint URL",
+      "plugin.notify.channel.webhook.secret": "Signing secret",
+      "plugin.notify.channel.webhook.enabled": "Enabled",
+      "plugin.notify.channel.webhook.retries": "Retry count",
+      "plugin.notify.page.deliveries.title": "Deliveries",
+      "plugin.notify.block.count": "Deliveries recorded",
+      "plugin.notify.block.severity": "Severity total",
+      "plugin.notify.block.recent": "Recent deliveries",
+      "plugin.notify.block.record": "Record a delivery"
+    },
+    "zh-CN": {
+      "plugin.notify.title": "通知",
+      "plugin.notify.channel.webhook.label": "Webhook",
+      "plugin.notify.channel.webhook.url": "回调地址",
+      "plugin.notify.channel.webhook.secret": "签名密钥",
+      "plugin.notify.channel.webhook.enabled": "启用",
+      "plugin.notify.channel.webhook.retries": "重试次数",
+      "plugin.notify.page.deliveries.title": "投递记录",
+      "plugin.notify.block.count": "已记录投递",
+      "plugin.notify.block.severity": "严重度合计",
+      "plugin.notify.block.recent": "最近投递",
+      "plugin.notify.block.record": "登记一次投递"
+    }
+  }
+}

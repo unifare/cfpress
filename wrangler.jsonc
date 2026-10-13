@@ -1,0 +1,90 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cfpress",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cfpress",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "content/migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "cfpress-media"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "CACHE",
+      "id": "REPLACE_WITH_KV_NAMESPACE_ID"
+    }
+  ],
+  "triggers": {"crons": ["*/5 * * * *"]},
+
+  // ---------------------------------------------------------------------------
+  // Platform feature switches — the deploy-time fallback layer.
+  //
+  // Precedence is: per-site `settings` row (editable in the admin, at
+  // Tools -> Features) > these vars > the switch's declared default. Every
+  // switch defaults to off, so a deploy that sets nothing here writes nothing
+  // to KV, declines `runtime: "worker"` themes, and keeps the admin's
+  // interface-language menu decoupled from the site's languages (§2.4).
+  //
+  // Setting a var is how you turn a capability on for *every* site at once
+  // without touching the database. Leaving it out is not the same as setting
+  // it to `false`: an omitted var lets the admin still override per site,
+  // whereas `"false"` here only changes the inherited default.
+  //
+  // The keys are defined once in `src/shared/features.ts`
+  // (`FEATURE_SWITCHES`) and must match these names exactly — the runtime
+  // reads them by literal name from `env`. Var name -> switch key:
+  //
+  //   CFPRESS_CACHE_MIRROR_KV         -> cache_mirror_kv
+  //   CFPRESS_THEME_RUNTIME_WORKER    -> theme_runtime_worker
+  //   CFPRESS_UI_LOCALE_FOLLOW_SITE   -> ui_locale_follow_site
+  // ---------------------------------------------------------------------------
+  "vars": {
+    "CFPRESS_CACHE_MIRROR_KV": "false",
+    "CFPRESS_THEME_RUNTIME_WORKER": "false",
+    "CFPRESS_UI_LOCALE_FOLLOW_SITE": "false"
+  },
+
+  // ---------------------------------------------------------------------------
+  // Paid-plan features, commented out by default.
+  //
+  // Both bindings are *optional in the source* — `runtime-worker.ts` returns
+  // null when `env.LOADER` is absent and `index.ts` falls through to the
+  // declarative renderer. A deploy without them is a working CMS that declines
+  // `runtime: "worker"` themes, not a broken one.
+  //
+  //   worker_loaders — the sandbox that runs a theme's own Worker code.
+  //                    Requires a Workers Paid plan.
+  //   services       — the worker fetches itself for outbound theme calls.
+  //                    Meaningless without the loader it serves.
+  //
+  // Restore both together on a paid account; half of the pair is worse than
+  // neither, because THEME_HOST would point at a worker that cannot load.
+  // ---------------------------------------------------------------------------
+  // "worker_loaders": [
+  //   {
+  //     "binding": "LOADER"
+  //   }
+  // ],
+  // "services": [
+  //   {
+  //     "binding": "THEME_HOST",
+  //     "service": "cfpress"
+  //   }
+  // ],
+
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/", "/api/*", "/media/*", "/admin/*", "/__cfpress/*"]
+  }
+}

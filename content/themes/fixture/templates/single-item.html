@@ -1,0 +1,23 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+{{#if item}}
+  <article class="single">
+    <p class="eyebrow">{{page.title}}</p>
+    <h1>{{item.name}}</h1>
+    {{#if item.blurb}}<p class="lede">{{item.blurb}}</p>{{/if}}
+    <div class="row">
+      <span class="price">{{number(item.price)}}</span>
+      {{#if item.in_stock}}
+        <span class="stock">In stock</span>
+      {{else}}
+        <span class="stock">Sold out</span>
+      {{/if}}
+    </div>
+    {{#if item.released_on}}<p class="note">Released {{item.released_on}}</p>{{/if}}
+  </article>
+{{else}}
+  <p class="empty">Item not found.</p>
+{{/if}}
+
+{{/section}}

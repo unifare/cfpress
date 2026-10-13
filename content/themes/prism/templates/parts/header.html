@@ -1,0 +1,75 @@
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="/{{locale}}">
+      {{! Three facets in a rounded tile — the theme's whole identity in one mark,
+          and it is drawn, not typed. }}
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none">
+          <path d="M12 3 21 19H3z" fill="rgba(255,255,255,.92)"/>
+          <path d="M12 3v16" stroke="rgba(20,16,32,.45)" stroke-width="1.1"/>
+          <path d="M7.2 19 12 10l4.8 9" stroke="rgba(20,16,32,.28)" stroke-width="1.1" fill="none"/>
+        </svg>
+      </span>
+      <span>{{site.title}}</span>
+    </a>
+
+    <nav class="nav" aria-label="{{default(theme.strings.nav.aria, "Main navigation")}}">
+      {{#if menu.header}}
+        {{#each menu.header as item}}<a href="{{item.url}}">{{item.title}}</a>{{/each}}
+      {{else}}
+        <a href="/{{locale}}">{{default(theme.strings.nav.home, "Home")}}</a>
+        <a href="/{{locale}}/blog">{{default(theme.strings.nav.blog, "Posts")}}</a>
+      {{/if}}
+    </nav>
+
+    <div class="top-actions">
+      <form class="searchbox" method="get" action="/{{locale}}">
+        <input id="q" name="q" type="search" placeholder="{{default(theme.strings.nav.search, "Search…")}}" aria-label="{{default(theme.strings.nav.search, "Search")}}">
+        <button class="icon-btn" type="submit" aria-label="{{default(theme.strings.nav.search, "Search")}}">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        </button>
+      </form>
+
+      {{! One entry per enabled site locale; the platform omits the whole key on a
+          monolingual site, so a one-entry switcher never renders. `lang_current`
+          is the entry the reader is already on, picked in `buildScope` from the
+          same array `lang_nav` comes from — a template cannot look an item up,
+          and looping to find `current` would print the other names too.
+
+          The trigger shows the language's *name* ("简体中文"), not its code:
+          `zh-CN` is an identifier, and a reader choosing a language should not
+          have to decode one. }}
+      {{#if lang_nav}}
+      <details class="lang-menu">
+        <summary aria-label="{{default(theme.strings.nav.language, "Language")}}">
+          <svg class="globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18"/></svg>
+          <span>{{lang_current.name}}</span>
+          <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </summary>
+        <div class="menu-list">
+          {{#each lang_nav as l}}
+            <a href="{{l.url}}"{{#if l.current}} class="active" aria-current="true"{{/if}} hreflang="{{l.code}}">
+              <span>{{l.name}}</span>
+              {{#if l.current}}<svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 4 4L19 7"/></svg>{{/if}}
+            </a>
+          {{/each}}
+        </div>
+      </details>
+      {{/if}}
+
+      <button class="icon-btn" id="themeToggle" type="button" aria-pressed="false" aria-label="{{default(theme.strings.a11y.theme, "Toggle colour scheme")}}"></button>
+
+      {{! The signed-in member, or a sign-in link. `member` is filled by the
+          platform from the **member** session — never the admin's (rule 77) — so
+          an admin browsing the front end sees the signed-out state, which is
+          correct: the two identities are structurally separate. }}
+      {{#if member}}
+        <a class="member-chip" href="/{{locale}}/account" title="{{default(theme.strings.auth.accountKicker, "Account")}}">
+          <span class="dot"></span>{{member.display_name}}
+        </a>
+      {{else}}
+        <a class="btn btn-ghost" href="/{{locale}}/login">{{default(theme.strings.auth.signIn, "Sign in")}}</a>
+      {{/if}}
+    </div>
+  </div>
+</header>

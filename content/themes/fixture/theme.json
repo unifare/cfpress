@@ -1,0 +1,97 @@
+{
+  "name": "fixture",
+  "title": "Test Fixture Theme",
+  "version": "1.0.0",
+  "author": "CFPress tests",
+  "description": "Not a design. A minimal theme that carries exactly the capabilities the test suites need to exercise: multi-language packs, a theme-owned table with prose fields, declarative front-end routes, admin menu registration for its own table, and one template per render kind. It replaces the four showcase themes that used to double as test material, so the suites keep their coverage without also keeping 22 files of decoration nobody tests.",
+  "supports": ["blocks", "menus", "widgets"],
+
+  "templates": [
+    "index",
+    "home",
+    "single",
+    "page",
+    "archive",
+    "category",
+    "tag",
+    "search",
+    "archive-item",
+    "single-item",
+    "404"
+  ],
+  "parts": ["layout", "header", "footer"],
+
+  "locales": ["en", "zh-CN"],
+
+  "routes": [
+    {
+      "path": "/items",
+      "template": "archive-item",
+      "title": "Items",
+      "resolve": { "table": "item" },
+      "query": { "as": "items" }
+    },
+    {
+      "path": "/items/:slug",
+      "template": "single-item",
+      "resolve": { "table": "item", "by": "slug" }
+    },
+    {
+      "path": "/writing",
+      "template": "archive",
+      "title": "Writing",
+      "query": { "type": "post", "limit": 50, "order": "created_at desc", "as": "posts" }
+    }
+  ],
+
+  "tables": [
+    {
+      "name": "item",
+      "label": "Item",
+      "translatable": ["name", "blurb"],
+      "fields": [
+        { "key": "name", "type": "text", "label": "Name", "required": true },
+        { "key": "blurb", "type": "longtext", "label": "Blurb" },
+        { "key": "price", "type": "number", "label": "Price (minor units)" },
+        { "key": "stock", "type": "number", "label": "Stock" },
+        { "key": "in_stock", "type": "boolean", "label": "In stock" },
+        { "key": "released_on", "type": "date", "label": "Released on" }
+      ]
+    }
+  ],
+
+  "adminMenus": [
+    {
+      "id": "fixture-items",
+      "label": "Items",
+      "label_key": "theme.fixture.menu.items",
+      "icon": "box",
+      "screen": "table-list",
+      "args": { "table": "item" },
+      "sortOrder": 20
+    },
+    {
+      "id": "fixture-item-new",
+      "label": "Add item",
+      "label_key": "theme.fixture.menu.itemNew",
+      "icon": "plus",
+      "screen": "table-edit",
+      "args": { "table": "item" },
+      "sortOrder": 21
+    },
+    {
+      "id": "fixture-settings",
+      "label": "Fixture settings",
+      "label_key": "theme.fixture.menu.settings",
+      "icon": "chart",
+      "screen": "theme-settings",
+      "sortOrder": 22
+    }
+  ],
+
+  "settings": [
+    { "key": "tagline", "label": "Tagline", "type": "text", "default": "Fixture tagline." },
+    { "key": "showStock", "label": "Show stock counts", "type": "boolean", "default": "true" },
+    { "key": "perPage", "label": "Items per page", "type": "number", "default": "12" }
+  ]
+}

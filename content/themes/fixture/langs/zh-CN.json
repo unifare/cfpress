@@ -1,0 +1,12 @@
+{
+  "theme.fixture.admin.title": "测试夹具",
+  "theme.fixture.admin.description": "条目、价格与夹具设置。",
+  "theme.fixture.menu.items": "条目",
+  "theme.fixture.menu.itemNew": "新增条目",
+  "theme.fixture.menu.settings": "夹具设置",
+  "theme.fixture.field.price": "价格",
+  "theme.fixture.field.stock": "库存",
+  "theme.fixture.field.in_stock": "有货",
+  "theme.fixture.field.blurb": "简介",
+  "theme.fixture.field.released_on": "发布日期"
+}

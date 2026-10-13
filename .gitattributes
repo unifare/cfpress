@@ -1,0 +1,71 @@
+# Line endings are not cosmetic in this repo.
+#
+# `core.autocrlf=true` (the Windows default) rewrites text files to CRLF on
+# checkout. For a POSIX shell script that is fatal in a quiet way: the kernel
+# hands `#!/usr/bin/env sh` a file whose first line is `sh\r`, and every line
+# ends in `\r`, so `sh scripts/cfpress.sh` dies with
+# `\r: command not found` or, worse, runs with mangled arguments.
+#
+# `.ps1` needs the opposite guarantee for a different reason: Windows
+# PowerShell 5.1 reads a BOM-less file as ANSI/GBK, which turns every Chinese
+# label in the menu into mojibake *at parse time*. The BOM is a byte, and a
+# checkout that "normalises" the file is one way to lose it. `working-tree-encoding`
+# keeps the BYTES pinned rather than the line endings.
+#
+# So: pin each extension to the form its interpreter actually requires, instead
+# of letting the developer's autocrlf setting decide.
+
+# --- shell: always LF, in the repo and in the working tree -------------------
+*.sh            text eol=lf
+*.bash          text eol=lf
+*.mjs           text eol=lf
+*.cjs           text eol=lf
+*.js            text eol=lf
+*.ts            text eol=lf
+*.tsx           text eol=lf
+*.json          text eol=lf
+*.jsonc         text eol=lf
+*.sql           text eol=lf
+*.css           text eol=lf
+*.md            text eol=lf
+# Theme templates. The engine tolerates CRLF (verified: a CRLF template renders
+# identical output), so this is not a correctness pin — it is a *diff* pin. With
+# `core.autocrlf=true`, an unpinned `.html` shows as modified after every
+# checkout, and a reviewer then has to re-derive that the change is whitespace.
+# Same reason as the shell scripts: the form is decided here, not by the
+# developer's git config.
+*.html          text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+
+# --- PowerShell: keep CRLF; the BOM is the writer's job ---------------------
+# `working-tree-encoding=UTF-8-BOM` would be the elegant way to pin the BOM,
+# but it needs an `iconv` that knows that encoding — and Git for Windows ships
+# one that does not (`iconv -f UTF-8-BOM` → "conversion from UTF-8-BOM
+# unsupported"), which makes `git add` fail outright with
+#
+#     error: failed to encode 'scripts/cfpress.ps1' from UTF-8-BOM to UTF-8
+#
+# An attribute that breaks `git add` on the platform the file is written for is
+# worse than no attribute. So the BOM is asserted, not transported:
+# `tests/launcher-parity.test.mjs` reads the raw bytes of scripts/cfpress.ps1
+# and fails if the first three are not EF BB BF.
+#
+# CRLF is still pinned, because that one git can do and it matters: PS 5.1 is
+# happy either way, but a stray LF-only file confuses some Windows editors into
+# rewriting the whole file (and dropping the BOM while they are at it).
+*.ps1           text eol=crlf
+*.psd1          text eol=crlf
+*.psm1          text eol=crlf
+
+# --- binaries: leave alone --------------------------------------------------
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.webp          binary
+*.ico           binary
+*.woff          binary
+*.woff2         binary
+*.zip           binary
+*.sqlite        binary

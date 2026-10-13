@@ -1,0 +1,14 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+{{#if post}}
+  <article class="single">
+    <h1>{{post.title}}</h1>
+    {{#if post.excerpt}}<p class="lede">{{post.excerpt}}</p>{{/if}}
+    {{#if post.html}}<div class="body">{{{post.html}}}</div>{{/if}}
+  </article>
+{{else}}
+  <p class="empty">Post not found.</p>
+{{/if}}
+
+{{/section}}

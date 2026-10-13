@@ -1,0 +1,12 @@
+{
+  "theme.fixture.admin.title": "Test Fixture",
+  "theme.fixture.admin.description": "Items, pricing and fixture settings.",
+  "theme.fixture.menu.items": "Items",
+  "theme.fixture.menu.itemNew": "Add item",
+  "theme.fixture.menu.settings": "Fixture settings",
+  "theme.fixture.field.price": "Price",
+  "theme.fixture.field.stock": "Stock",
+  "theme.fixture.field.in_stock": "In stock",
+  "theme.fixture.field.blurb": "Blurb",
+  "theme.fixture.field.released_on": "Released on"
+}

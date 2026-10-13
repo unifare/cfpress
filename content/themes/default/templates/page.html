@@ -1,0 +1,22 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+{{#if post}}
+<article class="article">
+  <div class="wrap">
+    <header class="article-head">
+      <div class="kicker">{{default(theme.strings.page.kicker, "Page")}}</div>
+      <h1>{{post.title}}</h1>
+      {{#if post.excerpt}}<p class="lede">{{post.excerpt}}</p>{{/if}}
+    </header>
+    <div class="prose">{{#if post.html}}{{{post.html}}}{{/if}}</div>
+    <div class="article-foot">
+      <a class="btn" href="/{{locale}}">← {{default(theme.strings.footer.home, "Back to the front page")}}</a>
+    </div>
+  </div>
+</article>
+{{else}}
+  <div class="wrap"><p class="empty">{{default(theme.strings.articles.empty, "Nothing published yet.")}}</p></div>
+{{/if}}
+
+{{/section}}

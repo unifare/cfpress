@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="{{locale}}" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{#if page.document_title}}{{page.document_title}}{{else}}{{page.title}}{{#if site.title}} · {{site.title}}{{/if}}{{/if}}</title>
+{{#if page.description}}<meta name="description" content="{{page.description}}">{{/if}}
+<meta name="robots" content="{{#if site.robots}}{{site.robots}}{{else}}index,follow{{/if}}">
+<meta name="generator" content="CFPress / {{theme.title}} {{theme.version}}">
+<meta name="color-scheme" content="light dark">
+{{#if site.url}}<link rel="canonical" href="{{site.url}}{{page.path}}">{{/if}}
+{{! hreflang. A translated piece (or a multilingual site) tells search engines
+    which language variants exist; `x-default` points at the site's default
+    language version. Entries are absolute URLs, absolutized by the platform. }}
+{{#if post}}{{#each post.alternates as alt}}<link rel="alternate" hreflang="{{alt.locale}}" href="{{alt.url}}">
+{{#if alt.default}}<link rel="alternate" hreflang="x-default" href="{{alt.url}}">
+{{/if}}{{/each}}{{else}}{{#if site.url}}{{#each locales as l}}<link rel="alternate" hreflang="{{l.code}}" href="{{site.url}}/{{l.code}}">
+{{/each}}{{/if}}{{/if}}
+{{! Open Graph. `og:url` is what stops a share of `?utm_source=…` from being
+    counted as a separate page, so it is the canonical URL, not the raw path. }}
+<meta property="og:type" content="{{#if post}}article{{else}}website{{/if}}">
+<meta property="og:title" content="{{page.title}}">
+{{#if page.description}}<meta property="og:description" content="{{page.description}}">{{/if}}
+{{#if site.url}}<meta property="og:url" content="{{site.url}}{{page.path}}">{{/if}}
+<meta property="og:site_name" content="{{site.title}}">
+{{#if post}}{{#if post.cover}}<meta property="og:image" content="{{post.cover}}">{{/if}}{{/if}}
+<meta name="twitter:card" content="summary_large_image">
+{{! Feed discovery. A reader that finds no <link rel=alternate> has to guess the
+    URL; this is the one line that makes the feed discoverable. The link points
+    at THIS page language's feed (`/{locale}/feed.xml`); the bare `/feed.xml`
+    remains the default-language address. }}
+<link rel="alternate" type="application/rss+xml" title="{{site.title}}" href="/{{locale}}/feed.xml">
+{{#if post}}<meta property="article:published_time" content="{{date(post.created_at)}}">{{/if}}
+{{! Resolve the palette before first paint, so a dark reader never sees a white
+    frame. `colorScheme` keeps native controls (scrollbars, form widgets) in step. }}
+<script>
+(function () {
+  try {
+    var saved = localStorage.getItem("default-theme");
+    var dark = saved ? saved === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var root = document.documentElement;
+    root.dataset.theme = dark ? "dark" : "";
+    root.style.colorScheme = dark ? "dark" : "light";
+  } catch (e) {
+    document.documentElement.dataset.theme = "";
+  }
+})();
+</script>
+{{@include "parts/styles"}}
+</head>
+<body>
+<a class="skip" href="#content">{{default(theme.strings.skip, "Skip to content")}}</a>
+{{@include "parts/header"}}
+<main id="content">
+{{@section "content"}}
+</main>
+{{! Sidebar widgets — rendered by the platform, grouped under the theme's
+    declared `sidebar` location. A site with no sidebar widgets renders
+    nothing here: the single-column reading layout stays untouched. }}
+{{#if widgets.sidebar}}<aside class="wrap side-widgets">{{{widgets.sidebar}}}</aside>{{/if}}
+{{@include "parts/footer"}}
+<div class="toast" id="toast"></div>
+{{! One listener registered on every page: the toggle is part of the chrome, and
+    a reader who lands on a 404 should still be able to switch the lights. }}
+<script>
+(function () {
+  window.defaultToast = function (t) {
+    var el = document.getElementById("toast");
+    if (!el) return;
+    el.textContent = t;
+    el.classList.add("show");
+    clearTimeout(el._t);
+    el._t = setTimeout(function () { el.classList.remove("show"); }, 2200);
+  };
+  var btn = document.getElementById("themeBtn");
+  if (btn) btn.addEventListener("click", function () {
+    var root = document.documentElement;
+    var dark = root.dataset.theme !== "dark";
+    root.dataset.theme = dark ? "dark" : "";
+    root.style.colorScheme = dark ? "dark" : "light";
+    try { localStorage.setItem("default-theme", dark ? "dark" : "light"); } catch (e) {}
+  });
+})();
+</script>
+</body>
+</html>

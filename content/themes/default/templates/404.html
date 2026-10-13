@@ -1,0 +1,13 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+<div class="wrap">
+  <div class="notfound">
+    <p class="code">404</p>
+    <h1>{{default(theme.strings.notFound.title, "This page does not exist")}}</h1>
+    <p>{{default(theme.strings.notFound.desc, "It may have moved, or it never existed.")}}</p>
+    <a class="btn" href="/{{locale}}">{{default(theme.strings.notFound.back, "Back to the front page")}}</a>
+  </div>
+</div>
+
+{{/section}}

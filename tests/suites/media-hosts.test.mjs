@@ -491,7 +491,7 @@ async function main() {
     });
     const cleared = await (await req(`/api/v1/media?site=${SITE_A}`, { headers: { Cookie: adminCookie() } })).json();
     check("an explicit null clears the key", cleared.storage?.imgbbKey, false);
-    const keyRowGone = sqlite.prepare("SELECT COUNT(*) AS n FROM settings WHERE site_id=? AND key='cfpress.media.imgbb_key'").get(SITE_A).n;
+    const keyRowGone = sqlite.prepare("SELECT COUNT(*) AS n FROM settings WHERE site_id=? AND key='cfpress.media.imgbb_key'").get(SITE_A)?.n;
     check("and the row is gone, not blanked", keyRowGone, 0);
     const noKey = await upload(SITE_A, "after-clear.png");
     check("uploads then refuse, naming the secret", noKey.status, 400);

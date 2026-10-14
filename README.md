@@ -10,18 +10,7 @@
 [![Tests](https://img.shields.io/badge/tests-28%20suites-brightgreen.svg)](package.json)
 
 **Live demo → [cfpress-demo.2aass.workers.dev](https://cfpress-demo.2aass.workers.dev)**
-
-Front end and admin, both running on Cloudflare's free tier — no server, no container, no
-build step. The [admin](https://cfpress-demo.2aass.workers.dev/admin/) signs in with the
-first-login default described under [Quick start](#quick-start).
-
-It is a public sandbox, so go ahead and break it: the site restores its demo content and
-reopens its media policy every 24 hours. That is `CFPRESS_DEMO_RESET_MINUTES` — a var this
-deployment sets and a normal install does not, which is the only thing that separates the two.
-The check rides on ordinary requests rather than on the cron trigger, because scheduled
-delivery is best-effort: a demo that silently stops resetting is the one failure this feature
-exists to prevent, and resetting a few seconds late costs nothing.
-
+**admin → [cfpress-demo.2aass.workers.dev/admin](https://cfpress-demo.2aass.workers.dev/admin)**
 ![The CFPress front page, running the shipped 墨白 MOBAI theme](assets/screenshots/hero.jpg)
 
 CFPress is a self-hosted content management system built on Cloudflare Workers, D1, R2 and KV.

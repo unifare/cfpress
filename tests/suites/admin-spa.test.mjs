@@ -836,6 +836,7 @@ if (modules && !bootError) {
   // the query string live in exported helpers so they are checkable here.
 
   const { mediaQuery, mediaPageInfo, mediaTileHtml, mediaGridHtml, mediaBodyHtml } = modules.mediaScreen;
+  const { mediaStorageOff, mediaStorageHint, mediaStorageNoticeHtml } = modules.mediaScreen;
 
   check("the query string asks for a page and a size", mediaQuery({}) === "page=1&limit=24", mediaQuery({}));
   check("and encodes the search and the MIME prefix",
@@ -895,6 +896,49 @@ if (modules && !bootError) {
   // upload affordance in it, spanning the grid.
   check("and says the library is empty", mediaHtml.includes('class="media-empty"') && mediaHtml.includes("No media uploaded yet."),
     mediaHtml.slice(mediaHtml.indexOf("media-grid"), mediaHtml.indexOf("media-grid") + 200));
+
+  // --- storage off ---------------------------------------------------------
+  //
+  // R2 is behind a **default-off** switch (`media_store_r2`), so "the library
+  // exists but nothing can be uploaded" is the state a fresh install is most
+  // likely in. The screen has to say *which* fix applies, and the two are not
+  // interchangeable: "turn the switch on" is useless on a deploy with no
+  // bucket, and "add the binding" is wrong advice for one that has it. The
+  // server sends a `code` for exactly this reason; these pin the mapping.
+  check("no storage state reads as fine, not as a refusal",
+    mediaStorageOff(undefined) === null && mediaStorageOff(null) === null && mediaStorageOff({ available: true }) === null,
+    String([mediaStorageOff(undefined), mediaStorageOff(null), mediaStorageOff({ available: true })]));
+  check("an unavailable state is reported",
+    mediaStorageOff({ available: false, code: "switch_off" })?.code === "switch_off",
+    String(mediaStorageOff({ available: false, code: "switch_off" })?.code));
+  check("the notice is empty when storage is fine", mediaStorageNoticeHtml({ available: true }) === "");
+  check("the switch code advises the switch",
+    mediaStorageHint({ code: "switch_off" }).includes("media_store_r2"));
+  // Both halves asserted: the right advice *and* the absence of the wrong one.
+  check("and the binding code advises the binding, never the switch",
+    mediaStorageHint({ code: "no_binding" }).includes("MEDIA bucket") &&
+      !mediaStorageHint({ code: "no_binding" }).includes("media_store_r2"),
+    mediaStorageHint({ code: "no_binding" }));
+  check("the upload tile is dropped when uploads are refused",
+    !mediaBodyHtml([row], { total: 1, hasMore: false }, { available: false, code: "switch_off" }).includes("media-upload-tile"));
+  check("but kept when storage is fine (non-vacuity)",
+    mediaBodyHtml([row], { total: 1, hasMore: false }, { available: true }).includes("media-upload-tile"));
+
+  // The screen itself, against a payload that refuses uploads.
+  routeTable.set("/api/v1/media", {
+    items: [],
+    storage: { available: false, code: "switch_off", reason: "media storage is off for this site — enable `media_store_r2` under Tools, Features" },
+  });
+  contentEl.innerHTML = "";
+  await modules.screens.SCREENS.media(contentEl);
+  const offHtml = contentEl.innerHTML;
+  check("the screen explains why uploads are off",
+    offHtml.includes('data-media-storage-off="switch_off"') && offHtml.includes("Media storage is off for this site"),
+    offHtml.slice(0, 260));
+  check("and stops offering a picker whose every file would fail",
+    !offHtml.includes('id="upload"') && !offHtml.includes("media-upload-tile"));
+  check("while the library and its filters still work",
+    offHtml.includes('id="media-q"') && offHtml.includes('id="media-drop"'));
 
   // -------------------------------------------------------------------------
   section("The themes screen reports which sites actually use a theme");

@@ -9,8 +9,8 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](tsconfig.json)
 [![Tests](https://img.shields.io/badge/tests-28%20suites-brightgreen.svg)](package.json)
 
-**Live demo → [cfpress-demo.2aass.workers.dev](https://cfpress-demo.2aass.workers.dev)**
-**admin → [cfpress-demo.2aass.workers.dev/admin](https://cfpress-demo.2aass.workers.dev/admin)**
+**Live demo → [demo.cfpress.cc](https://demo.cfpress.cc)**
+**admin → [demo.cfpress.cc/admin](https://demo.cfpress.cc/admin)**
 ![The CFPress front page, running the shipped 墨白 MOBAI theme](assets/screenshots/hero.jpg)
 
 CFPress is a self-hosted content management system built on Cloudflare Workers, D1, R2 and KV.
@@ -109,9 +109,14 @@ not a broken one.
 The same holds one layer down. R2 is where uploaded media and uploaded themes live, and a
 deploy that omits the bucket still renders — a bundled theme reads its templates and its
 strings from the worker assets, so `MEDIA` is optional and a bucketless install is a CMS
-with an empty media library rather than one that answers `1101` on every page. Uploading
-is the part that genuinely needs the bucket, and it is refused with a `503` that names
-the binding instead of failing obscurely.
+with an empty media library rather than one that answers `1101` on every page.
+
+Storing is the part that genuinely needs the bucket, and it is opt-in as well: the
+`media_store_r2` switch (Tools → Features, **off by default**) decides whether this site
+writes to R2 at all, so a deploy can declare the bucket and still choose not to use it, and
+an operator can turn storage on without a redeploy. When an upload is refused, the `503`
+says which of the two is missing — the switch, or the binding — because the fixes are
+different and naming the wrong one sends you round a circle.
 
 ---
 

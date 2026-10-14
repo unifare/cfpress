@@ -1,37 +1,67 @@
 /**
- * The R2-backed object store, read through helpers that tolerate its absence.
+ * The R2-backed object store: how it is read, and when it is used at all.
  *
- * Every normal install has one: `wrangler.jsonc` declares a `MEDIA` bucket, and
- * the admin's media library, uploaded themes and uploaded plugins all live in
- * it. But nothing on the *render* path requires it. The two-source rule in
+ * ## Two independent gates, and why both are needed
+ *
+ * **The binding may be absent.** `wrangler.jsonc` declares a `MEDIA` bucket, but
+ * nothing on the render path requires it: the two-source rule in
  * `extensions/theme/` already reads an uploaded theme from R2 and falls back to
- * the copy that ships in the worker assets, so a site whose content is all in D1
- * and whose theme is one of `BUNDLED_THEMES` renders against an empty bucket —
- * that is the stated intent, and `activeTheme` even probes both sources so a
- * fresh install picks a theme it can really render.
+ * the copy that ships in the worker assets, and `activeTheme` probes both
+ * sources so a fresh install picks a theme it can really render. What was never
+ * handled is the bucket being absent rather than empty — every read was written
+ * `env.MEDIA.get(key)`, which throws a `TypeError` when the binding does not
+ * exist, so the assets fallback underneath it was unreachable and the whole site
+ * answered `1101` on every page. Reading through `mediaStoreGet` makes "no
+ * bucket" mean "no uploaded overrides" instead.
  *
- * What was never handled is the bucket being *absent* rather than empty. Every
- * read was written `env.MEDIA.get(key)`, which throws a `TypeError` when the
- * binding does not exist, so the assets fallback underneath it was unreachable
- * and the whole site answered `1101` on every page — with a stack trace pointing
- * at template loading rather than at the missing binding. `MEDIA` was a hard
- * requirement in practice while the code around it was written as though it were
- * not, which is the worst of both: the config says "R2 required", the comments
- * say "a miss here is normal", and the failure mode says neither.
+ * **The switch may be off.** `media_store_r2` (see `shared/features.ts`) is a
+ * per-site feature switch, **off by default**, editable under Tools -> Features
+ * with no redeploy. For *storing*, a deployment that declares the bucket and
+ * leaves the switch off behaves exactly like one that never had it. That is
+ * deliberate: whether an install stores media is the operator's decision, not a
+ * consequence of which bindings happen to be in the config file, and it has to
+ * be reversible from the admin.
  *
- * Reading through these helpers makes "no bucket" mean "no uploaded overrides" —
- * a deployment that works. Writes are the genuinely unsupported case and say so
- * instead of failing obscurely: an install with no bucket cannot accept an
- * upload, and a `media_files` row pointing at an object that was never written
- * is worse than a refusal.
+ * The two are reported separately because they need different fixes — "turn the
+ * switch on" versus "add the binding and redeploy" — and a single "storage
+ * unavailable" would send an operator to the wrong one.
+ *
+ * ## What the switch gates, and what it deliberately does not
+ *
+ * It gates **storing** — the media upload and the extension upload, the two
+ * places a new object is created. That is the whole of it, and the boundary is
+ * chosen so that turning storage off can never hide or break something that is
+ * already there:
+ *
+ *   - **Not the read path.** `/media/...` and the theme runtime keep working.
+ *     An extension installed while the switch was on is part of the site's
+ *     rendering; blanking it would be a destructive act dressed up as a
+ *     setting. The reads are null-safe and cost nothing when the bucket is
+ *     empty, and gating them would mean threading a site id into template
+ *     loading, which runs several times per page on the render critical path.
+ *   - **Not the media library.** `mediaList` reports the state (`storage`) so
+ *     the admin can explain itself, but it does not refuse: rows written while
+ *     the switch was on are still real rows, and hiding them would leave an
+ *     operator unable to delete a file that is still being served.
+ *
+ * What an operator sees when the switch is off is therefore "new uploads are
+ * refused, everything already stored keeps working" — which is what "stop
+ * storing media here" should mean.
+ *
+ * ## Names
+ *
+ * Every helper carries the `mediaStore` prefix because `api.ts` already has a
+ * `mediaDelete` and a `mediaList` — the admin *routes*, which answer HTTP — and
+ * a bare `mediaGet` next to those reads as one family when it is two.
  *
  * Lives in `shared/` because both the admin API and the theme runtime read it,
- * and theme code may not import from `platform/`. Every name here carries the
- * `mediaStore` prefix because `api.ts` already has a `mediaDelete` and a
- * `mediaList` — the admin *routes*, which answer HTTP — and a bare `mediaGet`
- * next to those reads as one family when it is two.
+ * and theme code may not import from `platform/`.
  */
 import { Env } from "./types";
+import { featureEnabled } from "./features";
+
+/** The switch that decides whether this site's storage is wired up. */
+export const MEDIA_STORE_SWITCH = "media_store_r2";
 
 /** True when this deployment declared an R2 `MEDIA` binding. */
 export function hasMediaStore(env: Env): boolean {
@@ -47,6 +77,56 @@ export function hasMediaStore(env: Env): boolean {
  */
 export const MEDIA_UNAVAILABLE =
   "this deployment has no media storage configured (no R2 `MEDIA` binding)";
+
+/** Operator-facing wording for the switched-off case. */
+export const MEDIA_DISABLED =
+  "media storage is off for this site — enable `media_store_r2` under Tools, Features";
+
+/**
+ * Why storing is refused, in two forms: one for an operator to read, one for
+ * the admin screen to branch on.
+ *
+ * `code` exists because the two refusals need **different advice**, and the
+ * screen cannot recover that from `reason` without string-matching English
+ * prose — which would silently break the first time the wording changed, and
+ * would tell a demo deploy (no bucket) to go and flip a switch that cannot
+ * help it. The prose stays for the `503` body, where a human reads it directly.
+ */
+export type MediaStorageBlock =
+  | { available: true; code: null; reason: null }
+  | { available: false; code: "no_binding" | "switch_off"; reason: string };
+
+/**
+ * The storage state for one site.
+ *
+ * **The binding is checked first, and that order is the point.** A missing
+ * bucket is a hard prerequisite: telling an operator to flip a switch when the
+ * bucket does not exist sends them round a loop, because they will flip it and
+ * be refused again for the same reason. Naming the binding first is also the
+ * only wording that is true for the state a fresh install is most likely in
+ * when this fires — a deploy that never declared `r2_buckets` at all.
+ *
+ * The switch is the second question because it is the one an operator can act
+ * on from the admin with no redeploy, and by the time we ask it the bucket is
+ * known to exist, so "turn it on" is advice that will actually work.
+ */
+export async function mediaStorageState(env: Env, siteId: string): Promise<MediaStorageBlock> {
+  if (!hasMediaStore(env)) return { available: false, code: "no_binding", reason: MEDIA_UNAVAILABLE };
+  if (!(await featureEnabled(env, siteId, MEDIA_STORE_SWITCH)))
+    return { available: false, code: "switch_off", reason: MEDIA_DISABLED };
+  return { available: true, code: null, reason: null };
+}
+
+/**
+ * The refusal sentence for this site, or null when storing may proceed.
+ *
+ * A thin projection of `mediaStorageState` so the two cannot disagree about
+ * which gate wins — the write paths only need the sentence, the admin screen
+ * needs the code, and both read one decision.
+ */
+export async function mediaStorageBlocked(env: Env, siteId: string): Promise<string | null> {
+  return (await mediaStorageState(env, siteId)).reason;
+}
 
 /**
  * Read one object.

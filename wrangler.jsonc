@@ -12,6 +12,10 @@
       "migrations_dir": "content/migrations"
     }
   ],
+  // Declared here, but unused until `media_store_r2` is on (Tools -> Features).
+  // Removing this block is also supported: `MEDIA` is optional in `Env`, every
+  // access goes through `src/shared/media-store.ts`, and the site renders
+  // normally with the bucket absent — see tests/suites/media.test.mjs §11.
   "r2_buckets": [
     {
       "binding": "MEDIA",
@@ -32,8 +36,11 @@
   // Precedence is: per-site `settings` row (editable in the admin, at
   // Tools -> Features) > these vars > the switch's declared default. Every
   // switch defaults to off, so a deploy that sets nothing here writes nothing
-  // to KV, declines `runtime: "worker"` themes, and keeps the admin's
-  // interface-language menu decoupled from the site's languages (§2.4).
+  // to KV, declines `runtime: "worker"` themes, keeps the admin's
+  // interface-language menu decoupled from the site's languages (§2.4), and
+  // refuses media/theme uploads — `media_store_r2` off means the `MEDIA` bucket
+  // below is declared but unused, and the switch is how an operator turns it on
+  // without a redeploy.
   //
   // Setting a var is how you turn a capability on for *every* site at once
   // without touching the database. Leaving it out is not the same as setting
@@ -47,11 +54,13 @@
   //   CFPRESS_CACHE_MIRROR_KV         -> cache_mirror_kv
   //   CFPRESS_THEME_RUNTIME_WORKER    -> theme_runtime_worker
   //   CFPRESS_UI_LOCALE_FOLLOW_SITE   -> ui_locale_follow_site
+  //   CFPRESS_MEDIA_STORE_R2          -> media_store_r2
   // ---------------------------------------------------------------------------
   "vars": {
     "CFPRESS_CACHE_MIRROR_KV": "false",
     "CFPRESS_THEME_RUNTIME_WORKER": "false",
-    "CFPRESS_UI_LOCALE_FOLLOW_SITE": "false"
+    "CFPRESS_UI_LOCALE_FOLLOW_SITE": "false",
+    "CFPRESS_MEDIA_STORE_R2": "false"
   },
 
   // ---------------------------------------------------------------------------

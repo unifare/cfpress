@@ -32,7 +32,7 @@ import { attr, confirmDialog, esc, toast } from "../../ui.js";
 /** How many tiles per request. The endpoint caps `limit` at 100. */
 export const MEDIA_PAGE_LIMIT = 24;
 
-let view = { q: "", type: "", page: 1, items: [], total: 0 };
+let view = { q: "", type: "", page: 1, items: [], total: 0, storage: null };
 
 /** The query string the list endpoint understands.
  *
@@ -107,12 +107,21 @@ export function mediaGridHtml(items) {
 /** The grid + its footer, as one string — used both for the first paint and for
  *  "load more", so the two can never disagree about the footer's arithmetic.
  *  The upload tile is a first-class grid member: the affordance to add more
- *  lives where the files are, not only in the header. */
-export function mediaBodyHtml(items, info) {
+ *  lives where the files are, not only in the header.
+ *
+ *  `storage` is optional and defaults to "fine", because the two call sites that
+ *  matter (the first paint and "load more") must pass the same value or the tile
+ *  would vanish on page two. The tile is dropped entirely when uploads are
+ *  refused: an affordance that opens a picker whose every file then fails is
+ *  worse than no affordance. */
+export function mediaBodyHtml(items, info, storage = null) {
   const shown = (items ?? []).length;
   const add = t("core.media.addMedia", "Upload files");
+  const canUpload = !mediaStorageOff(storage);
   return `<div id="media-grid" class="media-grid">
-    <button type="button" class="media-tile media-upload-tile" data-media-upload="1" title="${attr(add)}" aria-label="${attr(add)}">${icon("upload")}<span>${esc(add)}</span></button>
+    ${canUpload
+      ? `<button type="button" class="media-tile media-upload-tile" data-media-upload="1" title="${attr(add)}" aria-label="${attr(add)}">${icon("upload")}<span>${esc(add)}</span></button>`
+      : ""}
     ${mediaGridHtml(items)}
   </div>
   <div class="toolbar" style="margin-top:1rem;align-items:center">
@@ -129,8 +138,46 @@ async function load({ append = false } = {}) {
   const d = await api(scoped(`media?${mediaQuery({ q: view.q, type: view.type, page })}`));
   const items = d.items || [];
   const info = mediaPageInfo({ ...d, page });
-  view = { ...view, page: info.page, total: info.total, items: append ? [...view.items, ...items] : items };
+  view = { ...view, page: info.page, total: info.total, storage: d.storage ?? null, items: append ? [...view.items, ...items] : items };
   return info;
+}
+
+/** The storage state when uploads are refused, or `null` when they are fine.
+ *
+ *  An **absent** state reads as fine on purpose. The field is newer than the
+ *  endpoint, and a screen that treated "I was not told" as "storage is off"
+ *  would invent a refusal — the one failure mode worse than not explaining. */
+export function mediaStorageOff(storage) {
+  return storage && storage.available === false ? storage : null;
+}
+
+/** The advice for a refusal, in the operator's language.
+ *
+ *  `code` picks the sentence, because the two refusals need different fixes:
+ *  "turn the switch on" (Tools -> Features, no redeploy) versus "add the R2
+ *  binding and redeploy". Showing the wrong one sends the operator round a
+ *  loop — which is why the server sends a code rather than only prose. */
+export function mediaStorageHint(state) {
+  if (state?.code === "no_binding") {
+    return t(
+      "core.media.storageOffBinding",
+      "This deployment declares no MEDIA bucket, so there is nowhere to store files. Add the R2 binding and redeploy — turning the switch on will not help on its own."
+    );
+  }
+  return t(
+    "core.media.storageOffSwitch",
+    "Uploads are refused until you turn on the media_store_r2 switch under Tools, Features. Files already uploaded keep working."
+  );
+}
+
+/** The banner that says uploads are off, and why. Empty when they are not. */
+export function mediaStorageNoticeHtml(storage) {
+  const off = mediaStorageOff(storage);
+  if (!off) return "";
+  return `<div class="panel" data-media-storage-off="${attr(off.code || "unknown")}" style="margin-bottom:.75rem">
+    <div class="card-title">${esc(t("core.media.storageOff", "Media storage is off for this site"))}</div>
+    <div class="muted text-sm" style="margin-top:.35rem">${esc(mediaStorageHint(off))}</div>
+  </div>`;
 }
 
 export default async function media(c) {
@@ -146,12 +193,20 @@ export default async function media(c) {
   const filter = (value, label) =>
     `<option value="${attr(value)}"${view.type === value ? " selected" : ""}>${esc(label)}</option>`;
 
+  // Uploads refused? Then the header control is not a control — it is a label
+  // that opens a picker whose every file would fail. It becomes inert text, and
+  // the banner below says which fix applies.
+  const off = mediaStorageOff(view.storage);
+
   c.innerHTML = `${pageHead({
     title: t("core.media.title", "Media"),
     sub: t(info.total === 1 ? "core.media.subOne" : "core.media.subMany", "{n} files in this site's library", { n: info.total }),
-    actions: `<label class="btn primary">${icon("upload")}${esc(t("core.media.upload", "Upload"))}<input id="upload" type="file" multiple hidden></label>`,
+    actions: off
+      ? `<span class="btn outline" aria-disabled="true" title="${attr(mediaStorageHint(off))}">${icon("upload")}${esc(t("core.media.upload", "Upload"))}</span>`
+      : `<label class="btn primary">${icon("upload")}${esc(t("core.media.upload", "Upload"))}<input id="upload" type="file" multiple hidden></label>`,
     crumbs: [{ label: t("core.nav.content", "Content") }, { label: t("core.media.title", "Media") }],
   })}
+  ${mediaStorageNoticeHtml(view.storage)}
   <div class="toolbar" style="margin-bottom:.75rem">
     <input id="media-q" value="${attr(view.q)}" placeholder="${attr(t("core.msg.searchPlaceholder", "Search…"))}" style="flex:1">
     <select id="media-type">
@@ -161,8 +216,8 @@ export default async function media(c) {
     </select>
   </div>
   <div id="media-drop" class="media-drop">
-    <div class="media-drop-hint muted text-sm">${esc(t("core.media.dropHint", "Drop files here to upload"))}</div>
-    ${mediaBodyHtml(view.items, info)}
+    <div class="media-drop-hint muted text-sm">${esc(off ? mediaStorageHint(off) : t("core.media.dropHint", "Drop files here to upload"))}</div>
+    ${mediaBodyHtml(view.items, info, view.storage)}
   </div>`;
 
   const uploadInput = document.querySelector("#upload");
@@ -196,10 +251,19 @@ export default async function media(c) {
  *
  *  One request per file rather than a batch: the endpoint takes one object, and
  *  a partial failure should keep the files that did land instead of rolling the
- *  whole drop back. Failures are counted and reported, not swallowed. */
+ *  whole drop back. Failures are counted and reported, not swallowed.
+ *
+ *  The storage check is here, at the single choke point both doors reach (the
+ *  picker and the drop zone), rather than at each: the server refuses anyway,
+ *  but a per-file 503 toast says "503" twenty times where one sentence about
+ *  the switch is the actual answer. */
 async function uploadFiles(files) {
   const list = files.filter(Boolean).slice(0, 20);
   if (!list.length) return;
+  if (mediaStorageOff(view.storage)) {
+    toast(t("core.media.storageOffToast", "Media storage is off — see the notice above"), "error");
+    return;
+  }
   let ok = 0;
   const failed = [];
   for (const f of list) {
@@ -241,7 +305,7 @@ document.addEventListener("click", async (e) => {
       const info = await load({ append: true });
       const body = document.querySelector("#media-grid");
       if (body) {
-        body.outerHTML = mediaBodyHtml(view.items, info);
+        body.outerHTML = mediaBodyHtml(view.items, info, view.storage);
       } else {
         render();
       }

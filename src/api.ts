@@ -14,7 +14,7 @@ import { createRevision, autosave } from "./platform/revisions";
 import { requirePermission, can, accessibleSiteIds, SITE_ROLES, SUPERADMIN_ROLE } from "./platform/permissions";
 import { bumpContentCache } from "./shared/cache";
 import { BUNDLED_THEMES } from "./shared/bundled";
-import { hasMediaStore, MEDIA_UNAVAILABLE, mediaStorePut, mediaStoreDelete, mediaStoreList } from "./shared/media-store";
+import { mediaStorageBlocked, mediaStorageState, mediaStorePut, mediaStoreDelete, mediaStoreList } from "./shared/media-store";
 import { featureSnapshot, inheritedValue, truthy, FEATURE_SETTINGS_KEY, FEATURE_SWITCHES, type FeatureSwitch } from "./shared/features";
 import { DEMO_CONTENTS, DEMO_LOCALES, DEMO_RESET_STAMP, DEMO_SEED_STAMP } from "./shared/demo-content";
 import { clearOwnerMenusAllSites, listAdminMenuGroups } from "./platform/admin-menus";
@@ -674,10 +674,12 @@ async function postMetaRows(env: Env, postId: string): Promise<{ post_id: string
   }
 }
 
-async function uploadExtension(env:Env,userId:string,request:Request,type:"plugin"|"theme"){
-  // Checked before the form is read, so a bucketless deploy does not spend a
-  // 20MB unzip finding out that there is nowhere to put the result.
-  if(!hasMediaStore(env))return ok({error:MEDIA_UNAVAILABLE},503);
+async function uploadExtension(env:Env,siteId:string,userId:string,request:Request,type:"plugin"|"theme"){
+  // Checked before the form is read, so a deployment with storage switched off
+  // (or with no bucket) does not spend a 20MB unzip finding out that there is
+  // nowhere to put the result.
+  const blocked=await mediaStorageBlocked(env,siteId);
+  if(blocked)return ok({error:blocked},503);
   const form=await request.formData();
   const file=form.get("file");
   if(!(file instanceof File))return ok({error:"file required"},400);
@@ -1047,6 +1049,13 @@ async function savePlatformSetting(env: Env, userId: string, body: any) {
  * site's policy asks for it, `uploaded_by` (the owner). The same module answers
  * the `/media/<key>` read path, so a file the list shows is a file the reader
  * can actually fetch.
+ *
+ * The list is deliberately **not** refused when storage is off. Rows written
+ * while the switch was on are still real rows, and a list that hid them would
+ * leave an operator unable to delete a file that is still being served. So the
+ * payload carries the state instead (`storage`), and the screen says "uploads
+ * are off, here is why" once rather than letting every dropped file fail with
+ * its own 503.
  */
 async function mediaList(env: Env, url: URL, siteId: string, userId: string) {
   const page = Math.max(1, Number(url.searchParams.get("page") ?? "1"));
@@ -1076,13 +1085,22 @@ async function mediaList(env: Env, url: URL, siteId: string, userId: string) {
   ).bind(...binds, limit, offset).all();
   const total = await env.DB.prepare(`SELECT COUNT(*) AS count FROM media_files WHERE site_id = ?${tail}`)
     .bind(...binds).first<any>();
-  return ok({ items: rows.results, page, limit, total: total?.count ?? 0, isolation: policy.isolation, site: siteId });
+  // `storage` carries a `code` (`switch_off` | `no_binding`) as well as the
+  // sentence, so the screen can say which fix applies in the operator's own
+  // language instead of string-matching English prose.
+  return ok({
+    items: rows.results, page, limit, total: total?.count ?? 0, isolation: policy.isolation, site: siteId,
+    storage: await mediaStorageState(env, siteId),
+  });
 }
 
 async function mediaUpload(env: Env, userId: string, request: Request, siteId: string) {
-  // Before the form is read and before the site is resolved: with nowhere to
-  // put the bytes, neither the tenant nor the payload can change the answer.
-  if (!hasMediaStore(env)) return ok({ error: MEDIA_UNAVAILABLE }, 503);
+  // Before the form is read and before the site is resolved: with storage
+  // switched off — or nowhere to put the bytes — neither the tenant nor the
+  // payload can change the answer. `mediaStorageBlocked` names which of the two
+  // it is, because the fix is different for each.
+  const blocked = await mediaStorageBlocked(env, siteId);
+  if (blocked) return ok({ error: blocked }, 503);
   // The tenant a file is filed under comes from `?site=`, which the client
   // controls and `requestSiteId()` only shape-checks. A write is the one place
   // that mints a tenant, so it is the one place that must confirm the site
@@ -2952,7 +2970,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     return ok({ok:true});
   }
   const uploadMatch=path.match(/^extensions\/(plugins|themes)\/upload$/);
-  if(uploadMatch&&method==="POST") { if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403); return uploadExtension(env,user.id,request,uploadMatch[1]==="plugins"?"plugin":"theme"); }
+  if(uploadMatch&&method==="POST") { if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403); return uploadExtension(env,siteId,user.id,request,uploadMatch[1]==="plugins"?"plugin":"theme"); }
   if(path==="extensions/versions"&&method==="GET"){
     // Platform package registry — same bar as the plugin list (the filed gap:
     // a site-scoped editor got 200 and the whole registry).

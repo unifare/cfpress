@@ -151,6 +151,11 @@ function makeEnv(sqlite) {
   return {
     DB: makeD1(sqlite),
     MEDIA: makeR2(),
+    // Uploading a theme/plugin writes to R2, and storing is behind a
+    // **default-off** switch (`media_store_r2`). This suite exercises the
+    // upload, so its deploy has the switch on; the switch itself, both ways,
+    // is media.test.mjs §12.
+    CFPRESS_MEDIA_STORE_R2: "true",
     CACHE: (() => {
       const m = new Map();
       return { async get(k) { return m.has(k) ? m.get(k) : null; }, async put(k, v) { m.set(k, v); }, async delete(k) { m.delete(k); } };

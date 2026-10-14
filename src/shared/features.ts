@@ -111,6 +111,12 @@ export const FEATURE_SWITCHES: readonly FeatureSwitch[] = [
     defaultOn: false,
     label: "Offer only this site's languages in the admin interface-language menu",
   },
+  {
+    key: "media_store_r2",
+    varName: "CFPRESS_MEDIA_STORE_R2",
+    defaultOn: false,
+    label: "Store media and uploaded themes in R2 (requires the MEDIA bucket binding)",
+  },
 ] as const;
 
 /** Look up one switch by key. Throws on an unknown key — a typo here would

@@ -207,8 +207,8 @@ async function main() {
     const r = await req(bare, "/api/v1/features", { headers: { Cookie: cookie } });
     check("features list is 200", r.status, 200);
     const body = await r.json();
-    check("one entry per declared switch", body.items.length, 3);
-    check("the expected keys are present", body.items.map((i) => i.key).sort(), ["cache_mirror_kv", "theme_runtime_worker", "ui_locale_follow_site"]);
+    check("one entry per declared switch", body.items.length, 4);
+    check("the expected keys are present", body.items.map((i) => i.key).sort(), ["cache_mirror_kv", "media_store_r2", "theme_runtime_worker", "ui_locale_follow_site"]);
     check("all ship disabled", body.items.every((i) => i.enabled === false), true);
     check("with no var and no row the provenance is the default", body.items.every((i) => i.source === "default"), true);
     check("each entry names its var", body.items.every((i) => typeof i.var === "string" && i.var.startsWith("CFPRESS_")), true);
@@ -438,14 +438,16 @@ async function main() {
     check("a second save is 200", r2.status, 200);
     const r3 = await save(bare, { key: "ui_locale_follow_site", value: true });
     check("a third save is 200", r3.status, 200);
+    const r4 = await save(bare, { key: "media_store_r2", value: true });
+    check("a fourth save is 200", r4.status, 200);
 
     const rows = sqlite.prepare(`SELECT value FROM settings WHERE site_id='default' AND key='${FEATURES_KEY}'`).all();
-    check("still exactly one row after three saves", rows.length, 1);
+    check("still exactly one row after four saves", rows.length, 1);
     // Same guard as section 3: never index before checking the shape, or a
     // failure here ends the suite before its summary and reads as "aborted".
     let parsed = null;
     try { parsed = rows.length ? JSON.parse(rows[0].value) : null; } catch { parsed = "<unparseable>"; }
-    check("every declared switch lives in that one row", parsed, { cache_mirror_kv: true, theme_runtime_worker: true, ui_locale_follow_site: true });
+    check("every declared switch lives in that one row", parsed, { cache_mirror_kv: true, theme_runtime_worker: true, ui_locale_follow_site: true, media_store_r2: true });
 
     const state = await getFeatures(bare);
     check("every declared switch reads back on", state.items.every((i) => i.enabled === true), true);

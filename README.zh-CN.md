@@ -9,8 +9,8 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](tsconfig.json)
 [![Tests](https://img.shields.io/badge/tests-28%20suites-brightgreen.svg)](package.json)
 
-**在线 Demo → [cfpress-demo.2aass.workers.dev](https://cfpress-demo.2aass.workers.dev)**
-**→ 后台 [cfpress-demo.2aass.workers.dev/admin](https://cfpress-demo.2aass.workers.dev/admin)**
+**在线 Demo → [demo.cfpress.cc](https://demo.cfpress.cc)**
+**→ 后台 [demo.cfpress.cc/admin](https://demo.cfpress.cc/admin)**
 ![CFPress 首页，运行内置的墨白 MOBAI 主题](assets/screenshots/hero.jpg)
 
 CFPress 是一个自托管内容管理系统，构建在 Cloudflare Workers、D1、R2 和 KV 之上。
@@ -100,7 +100,11 @@ Workers + D1 + R2 + KV 都有免费额度。CFPress 就是照着在这些额度�
 再往下一层也是同一个道理。R2 存放上传的媒体和上传的主题，但**省略这个绑定部署出来的站点照样能渲染**：
 内置主题的模板和文案都从 worker assets 读取，所以 `MEDIA` 是可选的，
 没有存储桶的安装是一个"媒体库为空"的 CMS，而不是每一页都回 `1101` 的 CMS。
-真正离不开存储桶的是**上传**，它会以 `503` 明确告诉你缺哪个绑定，而不是含糊地失败。
+
+真正离不开存储桶的是**存储**，而它同样是**可选的**：`media_store_r2` 开关
+（工具 → 功能，**默认关闭**）决定本站是否往 R2 写入 —— 所以一个部署可以声明了存储桶
+却选择不使用它，运维也可以不重新部署就打开存储。上传被拒绝时，`503` 会说明缺的是
+两者中的哪一个：开关，还是绑定 —— 因为两者的修法不同，说错了只会让你绕圈子。
 
 ---
 

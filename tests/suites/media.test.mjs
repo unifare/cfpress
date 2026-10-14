@@ -126,13 +126,25 @@ function makeR2() {
   };
 }
 
-function makeEnv(sqlite) {
+/**
+ * The env every section below runs against.
+ *
+ * `CFPRESS_MEDIA_STORE_R2` is set to `"true"` here on purpose. Storing media is
+ * behind a **default-off** feature switch (`shared/features.ts`), so an env with
+ * the bucket but not the switch refuses every upload — which is the correct
+ * product behaviour and would make sections 1–10 (the working pipeline) fail for
+ * a reason that has nothing to do with what they test. Section 12 covers the
+ * switch itself, both ways; this function's job is to model a deployment that
+ * *has* turned media storage on.
+ */
+function makeEnv(sqlite, vars = { CFPRESS_MEDIA_STORE_R2: "true" }) {
   const kv = new Map();
   return {
     DB: makeD1(sqlite),
     MEDIA: makeR2(),
     CACHE: { async get(k) { return kv.has(k) ? kv.get(k) : null; }, async put(k, v) { kv.set(k, v); }, async delete(k) { kv.delete(k); } },
     ASSETS: assetsStub(),
+    ...vars,
   };
 }
 
@@ -546,6 +558,142 @@ async function main() {
     // from) and must not become a 500.
     const read = await attempt(`/media/${encodeURIComponent(`uploads/${SITE_A}/2026-01-01/none.png`)}`);
     check("and the media read path answers 404, not 500", read.status, 404);
+
+    // The library reports the same state, with a code the screen branches on.
+    // This is the other branch of that code: a bucketless deploy must be told
+    // to add the binding, not to flip a switch that cannot help it.
+    const libNoBucket = await attempt(`/api/v1/media?site=${SITE_A}`, { headers: { Cookie: adminCookie } });
+    check("the bucketless library still answers 200", libNoBucket.status, 200);
+    check("and its storage code names the binding", JSON.parse(libNoBucket.body).storage?.code, "no_binding");
+  });
+
+  // -------------------------------------------------------------------------
+  // Section 12 guards the *switch*, which section 11 does not touch.
+  //
+  // Section 11 covers a deployment that has no bucket at all. This one covers
+  // the deployment that declared the bucket and left `media_store_r2` off —
+  // which is the state of every fresh install, and the one an operator changes
+  // from Tools -> Features with no redeploy.
+  //
+  // The two refusals are asserted to be *distinguishable* on purpose. They need
+  // different fixes ("turn the switch on" vs "add the binding and redeploy"),
+  // and a single "storage unavailable" would send an operator to the wrong one.
+  // The binding is checked first for the same reason: telling someone to flip a
+  // switch when the bucket does not exist is advice that cannot work.
+  // -------------------------------------------------------------------------
+  await section("12. media storage is behind a default-off switch the admin can flip", async () => {
+    // Through the admin endpoint the Features screen actually calls, not a
+    // direct settings write. The claim is "the operator can do this from the
+    // admin", so the test has to go through the admin.
+    const setSwitch = async (value) => {
+      const r = await req(`/api/v1/features?site=${SITE_A}`, {
+        method: "POST", headers: json(adminCookie),
+        body: JSON.stringify({ key: "media_store_r2", value }),
+      });
+      return { status: r.status, body: await r.json() };
+    };
+
+    // Baseline. The suite's env has the switch on (see `makeEnv`), so this also
+    // proves the toggle below is what changed the answer, not something else.
+    const on = await upload(adminCookie, SITE_A, "switch-on.png");
+    check("with the switch on, storing works", on.status, 201);
+
+    // Off, with the bucket still declared. The refusal must name the *switch*:
+    // naming the binding would send the operator to the deploy config for a fix
+    // that lives in the admin.
+    const off = await setSwitch(false);
+    check("the admin can turn media storage off", off.status, 200);
+    const refused = await upload(adminCookie, SITE_A, "switch-off.png");
+    check("and then storing is refused", refused.status, 503);
+    check("the refusal names the switch",
+      [String(refused.body.error).includes("media_store_r2"), String(refused.body.error).includes("`MEDIA` binding")],
+      [true, false]);
+
+    // The library is deliberately *not* refused. Rows written while the switch
+    // was on are still real rows, and hiding them would leave an operator
+    // unable to delete a file that is still being served. It carries the state
+    // instead, so the screen can explain itself once rather than letting every
+    // dropped file fail with its own 503.
+    const lib = await list(adminCookie, SITE_A);
+    check("the library still lists with storage off", Array.isArray(lib.items), true);
+    check("and reports storage as unavailable", lib.storage?.available, false);
+    check("with the same reason the upload gave", String(lib.storage?.reason).includes("media_store_r2"), true);
+    // The `code` is what the screen branches on to say *which* fix applies, in
+    // the operator's language — the English `reason` is only for the 503 body.
+    check("and a machine-readable code the screen can localise", lib.storage?.code, "switch_off");
+
+    // The extension upload is the other storing door, and both must agree —
+    // they are the two places an object is created.
+    const themeFd = new FormData();
+    themeFd.append("file", new File([new Uint8Array([1, 2, 3])], "t.zip", { type: "application/zip" }));
+    const extOff = await req(`/api/v1/extensions/themes/upload?site=${SITE_A}`, {
+      method: "POST", headers: { Cookie: adminCookie }, body: themeFd,
+    });
+    check("an extension upload is refused with 503", extOff.status, 503);
+    check("and it names the switch too", String((await extOff.json()).error).includes("media_store_r2"), true);
+
+    // Back on: the upload that was just refused now lands, with no redeploy in
+    // between. That round trip is the whole claim the admin toggle makes.
+    const back = await setSwitch(true);
+    check("the admin can turn it back on", back.status, 200);
+    const again = await upload(adminCookie, SITE_A, "switch-back-on.png");
+    check("and storing works again", again.status, 201);
+
+    // The other gate. Switch ON but no bucket: the reason must name the
+    // *binding*, because flipping the switch cannot conjure one.
+    const noBucket = makeEnv(sqlite); // switch on (the `makeEnv` default) …
+    delete noBucket.MEDIA; //            … bucket absent
+    const fd2 = new FormData();
+    fd2.append("file", new File([new Uint8Array([137, 80, 78, 71])], "no-bucket-2.png", { type: "image/png" }));
+    const r2 = await worker.fetch(
+      new Request(`http://${HOST_A}/api/v1/media?site=${SITE_A}`, {
+        method: "POST", headers: { Cookie: adminCookie }, body: fd2,
+      }),
+      noBucket,
+      { waitUntil() {}, passThroughOnException() {} }
+    );
+    check("switch on but no bucket is refused with 503", r2.status, 503);
+    check("and that refusal names the binding", String((await r2.json()).error).includes("R2 `MEDIA` binding"), true);
+
+    // Both gates shut at once: the switch off **for this site** and no bucket.
+    // The binding is named, not the switch — flipping the switch cannot conjure
+    // a bucket, so it is the one thing certain to be needed, and leading with
+    // the switch would send the operator round a loop.
+    //
+    // This is also the *only* case that observes the check order. With the
+    // switch on, either order produces the same answer, so a swapped order is
+    // invisible to every other assertion here — including the one above.
+    //
+    // ⚠️ The site's own row has to be turned off here, not merely omitted from
+    // the env. The row written by `setSwitch(true)` above wins over the env var
+    // (that is the documented precedence), so a "both gates shut" case built by
+    // leaving the var out would still resolve the switch to **on** and pass
+    // whichever way the clauses are ordered. It was written that way first, and
+    // the reverse-validation run is what caught it: swapping the clauses left
+    // this suite 98/0.
+    const offAgain = await setSwitch(false);
+    check("the site's own row really is off for this case (non-vacuity)", offAgain.status, 200);
+    const neither = makeEnv(sqlite, {}); // no switch var (defaults off) …
+    delete neither.MEDIA; //                … and no bucket
+    const fd3 = new FormData();
+    fd3.append("file", new File([new Uint8Array([137, 80, 78, 71])], "neither.png", { type: "image/png" }));
+    const r3 = await worker.fetch(
+      new Request(`http://${HOST_A}/api/v1/media?site=${SITE_A}`, {
+        method: "POST", headers: { Cookie: adminCookie }, body: fd3,
+      }),
+      neither,
+      { waitUntil() {}, passThroughOnException() {} }
+    );
+    check("with both gates shut the upload is refused with 503", r3.status, 503);
+    const r3err = String((await r3.json()).error);
+    check("and the binding is named ahead of the switch",
+      [r3err.includes("R2 `MEDIA` binding"), r3err.includes("media_store_r2")],
+      [true, false]);
+
+    // Leave the site as it was found. The row is this suite's own fixture, and
+    // a leftover `{"media_store_r2":true}` would change what the next run of
+    // section 11 sees.
+    sqlite.exec(`DELETE FROM settings WHERE site_id='${SITE_A}' AND key LIKE 'cfpress.features%'`);
   });
 
   console.log(`\n${pass} passed, ${fail} failed`);

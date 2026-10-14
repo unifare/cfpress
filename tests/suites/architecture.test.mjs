@@ -703,7 +703,12 @@ const EXPECTED_SCREENS = [
 
 /** The switch keys the platform ships. Pinned so deleting or renaming one is a
  *  deliberate edit here rather than a silent removal from the admin. */
-const FEATURE_SWITCH_KEYS_EXPECTED = ["cache_mirror_kv", "theme_runtime_worker", "ui_locale_follow_site"];
+const FEATURE_SWITCH_KEYS_EXPECTED = [
+  "cache_mirror_kv",
+  "theme_runtime_worker",
+  "ui_locale_follow_site",
+  "media_store_r2",
+];
 check(
   "ALLOWED_ADMIN_SCREENS contains exactly the pinned set",
   JSON.stringify([...allowedScreens].sort()) === JSON.stringify([...EXPECTED_SCREENS].sort()),

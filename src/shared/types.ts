@@ -8,8 +8,14 @@ export interface Env {
    * render path does not need it: a bundled theme's files come from `ASSETS`,
    * and `activeTheme` probes both sources. Declaring it required made the whole
    * site answer `1101` on a deploy that omitted the bucket, for a capability the
-   * renderer never used. Uploads are the part that genuinely needs it, and they
-   * fail with a named error rather than a TypeError.
+   * renderer never used.
+   *
+   * Having the binding is not the same as using it. `media_store_r2` — a feature
+   * switch, off by default and per site — decides whether this deployment's
+   * storage is actually wired up; see `shared/media-store.ts`. A deployment that
+   * declares the bucket but leaves the switch off behaves exactly like one that
+   * never had it, which is what lets the switch be the operator's answer rather
+   * than the config file's.
    */
   MEDIA?: R2Bucket;
   CACHE: KVNamespace;
@@ -36,6 +42,7 @@ export interface Env {
   CFPRESS_CACHE_MIRROR_KV?: string;
   CFPRESS_THEME_RUNTIME_WORKER?: string;
   CFPRESS_UI_LOCALE_FOLLOW_SITE?: string;
+  CFPRESS_MEDIA_STORE_R2?: string;
 
   /**
    * How often a deployment that has declared itself a public demo restores its

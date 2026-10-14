@@ -205,6 +205,10 @@ function makeEnv(sqlite, loader, worker) {
     CACHE: { async get(k) { return kv.has(k) ? kv.get(k) : null; }, async put(k, v) { kv.set(k, v); }, async delete(k) { kv.delete(k); } },
     ASSETS: assetsStub(),
     CFPRESS_THEME_RUNTIME_WORKER: "true",
+    // Uploading a theme writes to R2, and storing is behind a **default-off**
+    // switch (`media_store_r2`). This suite exercises the upload, so its deploy
+    // has the switch on; the switch itself, both ways, is media.test.mjs §12.
+    CFPRESS_MEDIA_STORE_R2: "true",
   };
   if (loader) env.LOADER = loader;
   env.THEME_HOST = {

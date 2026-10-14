@@ -1,18 +1,25 @@
 /**
  * Screen: Features — platform capability switches.
  *
- * Three switches, all **off by default**:
+ * Four switches, all **off by default**:
  *
  *   cache_mirror_kv         mirror the content-cache version into KV
  *   theme_runtime_worker    run `runtime: "worker"` themes in the sandbox
  *                           (needs a paid plan + the `worker_loaders` binding)
  *   ui_locale_follow_site   offer only this site's languages in the admin
  *                           interface-language menu
+ *   media_store_r2          store media and uploaded themes in R2
+ *                           (needs the `MEDIA` bucket binding)
  *
  * The first two gate a paid Cloudflare feature; the third changes a documented
  * default (§2.4 decouples the interface language from the site's languages, so
  * an English-only site whose owner reads Chinese still offers Chinese).
  * Turning it on is how an operator says "not here".
+ *
+ * The fourth is the one an operator is most likely to reach for, because it is
+ * the only switch that changes what the product *refuses to do* rather than how
+ * it behaves: with it off, media and theme uploads answer 503. Everything
+ * already stored keeps working — see the note under the rows.
  *
  * Three things this screen refuses to hide:
  *
@@ -26,10 +33,11 @@
  *     degrades to a working fallback. The description says which fallback,
  *     because a switch whose consequence is invisible gets flipped blindly.
  *
- *  3. **Consequences that cost money.** `theme_runtime_worker` needs
- *     `worker_loaders` configured on the account. Turning it on without the
- *     binding changes nothing, and saying so here is cheaper than the support
- *     question later.
+ *  3. **Consequences that cost money, or need a binding.** `theme_runtime_worker`
+ *     needs `worker_loaders` configured on the account; `media_store_r2` needs
+ *     the `MEDIA` R2 bucket declared in the deploy config. Turning either on
+ *     without its prerequisite changes nothing, and saying so here is cheaper
+ *     than the support question later.
  *
  * Requires `settings.manage`; the write goes through the normal settings row,
  * so it is per-site and takes effect on the next request with no redeploy.
@@ -94,7 +102,8 @@ export default async function features(c) {
   </div>
   ${rows || `<div class="panel"><div class="empty">No feature switches are declared.</div></div>`}
   <p class="muted text-sm">Turning <code>cache_mirror_kv</code> off stops the mirror being written. Values already mirrored stay readable, so switching it off never orphans cached entries — and switching it on cannot resurrect a stale one, because the authoritative version lives in the database either way.</p>
-  <p class="muted text-sm"><code>ui_locale_follow_site</code> off is the platform default: the interface-language menu offers every language the platform knows, so an English-only site whose owner reads Chinese can still read the admin in Chinese. Turning it on narrows that menu to the languages this site serves — and with it the set the server will accept, because the menu and the validation set are one definition.</p>`;
+  <p class="muted text-sm"><code>ui_locale_follow_site</code> off is the platform default: the interface-language menu offers every language the platform knows, so an English-only site whose owner reads Chinese can still read the admin in Chinese. Turning it on narrows that menu to the languages this site serves — and with it the set the server will accept, because the menu and the validation set are one definition.</p>
+  <p class="muted text-sm"><code>media_store_r2</code> is the one switch here that makes the product <b>refuse</b> something. Off, the media upload and the theme/plugin upload answer <code>503</code> — there is nowhere to put the bytes. Everything already stored keeps being served, and the media library keeps listing and deleting, because switching storage off must never blank a site or strand a file that is still reachable. It also needs the <code>MEDIA</code> R2 bucket declared in the deploy config: with the bucket absent, turning this on changes nothing, and the refusal says so instead of naming this switch.</p>`;
 }
 
 async function saveFeature(key, value) {

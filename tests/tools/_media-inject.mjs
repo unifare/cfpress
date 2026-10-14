@@ -3,11 +3,14 @@
  *
  * ## What this proves
  *
- * `tests/suites/media.test.mjs` and the "media read path" section of
- * `architecture.test.mjs` now assert that `media_files`' two axes — tenant and
- * owner — are enforced on **both** doors. A guard that has never been seen to
- * fail is indistinguishable from no guard at all, and this repo has shipped
- * thirteen of those.
+ * `tests/suites/media.test.mjs`, the "media read path" section of
+ * `architecture.test.mjs`, and the media-library section of
+ * `admin-spa.test.mjs` now assert that `media_files`' two axes — tenant and
+ * owner — are enforced on **both** doors, that a deploy with no R2 bucket
+ * renders and refuses to store, and that the `media_store_r2` switch gates
+ * storing while the screen says which of the two refusals it is looking at. A
+ * guard that has never been seen to fail is indistinguishable from no guard at
+ * all, and this repo has shipped thirteen of those.
  *
  * The specific trap here is that **three independent gates all answer 404**.
  * An assertion that reads only the status passes with any one of them still
@@ -44,8 +47,11 @@ const sha = (s) => createHash("sha256").update(s, "utf8").digest("hex").slice(0,
 const POLICY = join(ROOT, "src/platform/media-policy.ts");
 const API = join(ROOT, "src/api.ts");
 const INDEX = join(ROOT, "src/index.ts");
+const STORE = join(ROOT, "src/shared/media-store.ts");
 const MEDIA_SUITE = "tests/suites/media.test.mjs";
 const ARCH_SUITE = "tests/suites/architecture.test.mjs";
+const SPA_SUITE = "tests/suites/admin-spa.test.mjs";
+const MEDIA_SCREEN = join(ROOT, "public/admin/js/screens/media.js");
 
 /**
  * One scenario per guard. `runs` pins the **named** assertion that must flip —
@@ -108,6 +114,95 @@ const SCENARIOS = [
     before: [" resetSiteListMemo(env);resetAdminPathMemo(env);\n"],
     after: [' resetSiteListMemo(env);resetAdminPathMemo(env);\n if(u.pathname.startsWith("/media/"))return media(env,request,u.pathname,resolved.siteId);\n'],
     runs: [[ARCH_SUITE, "the /media/ branch is matched after the site is resolved"]],
+  },
+
+  // --- The feature switch (`media_store_r2`) ---------------------------------
+  //
+  // `mediaStorageState` has two clauses and section 12 asserts a *different*
+  // named assertion for each, plus one that only the clause **order** can move.
+  // Removing a clause has to flip its own assertion and no other — otherwise the
+  // suite is reading the neighbours, which is the trap described in the header.
+  {
+    // Both doors — the media upload and the extension upload — go through this
+    // one helper, so both are pinned: a later refactor that inlines the check
+    // into only one of them must be caught here, not discovered in production.
+    label: "the media switch stops being consulted",
+    file: STORE,
+    before: [
+      '  if (!(await featureEnabled(env, siteId, MEDIA_STORE_SWITCH)))\n    return { available: false, code: "switch_off", reason: MEDIA_DISABLED };\n',
+    ],
+    after: [""],
+    runs: [
+      [MEDIA_SUITE, "and then storing is refused"],
+      [MEDIA_SUITE, "an extension upload is refused with 503"],
+    ],
+  },
+  {
+    label: "the missing binding stops being named",
+    file: STORE,
+    before: [
+      '  if (!hasMediaStore(env)) return { available: false, code: "no_binding", reason: MEDIA_UNAVAILABLE };\n',
+    ],
+    after: [""],
+    runs: [[MEDIA_SUITE, "an upload without a bucket is refused with 503"]],
+  },
+  {
+    // The only case that can see the order: with the switch on, either order
+    // gives the same answer, so §11 and §12's earlier checks are blind to it.
+    // Swapping the clauses makes the both-gates-shut case name the switch —
+    // advice that cannot work, since flipping a switch does not create a bucket.
+    label: "the two clauses are checked in the wrong order",
+    file: STORE,
+    before: [
+      '  if (!hasMediaStore(env)) return { available: false, code: "no_binding", reason: MEDIA_UNAVAILABLE };\n  if (!(await featureEnabled(env, siteId, MEDIA_STORE_SWITCH)))\n    return { available: false, code: "switch_off", reason: MEDIA_DISABLED };\n',
+    ],
+    after: [
+      '  if (!(await featureEnabled(env, siteId, MEDIA_STORE_SWITCH)))\n    return { available: false, code: "switch_off", reason: MEDIA_DISABLED };\n  if (!hasMediaStore(env)) return { available: false, code: "no_binding", reason: MEDIA_UNAVAILABLE };\n',
+    ],
+    runs: [[MEDIA_SUITE, "and the binding is named ahead of the switch"]],
+  },
+  {
+    // The library is not refused when storage is off — it reports the state so
+    // the admin screen can explain itself, and the `code` in that state is what
+    // lets the screen say *which* fix applies (turn the switch on vs add the
+    // binding) in the operator's own language. Dropping the field leaves the
+    // screen silently showing a working-looking library whose uploads all fail.
+    label: "the library stops reporting the storage state",
+    file: API,
+    before: ["    storage: await mediaStorageState(env, siteId),\n"],
+    after: [""],
+    runs: [[MEDIA_SUITE, "and reports storage as unavailable"]],
+  },
+  {
+    // The screen's half of the same promise: the server can report the state
+    // correctly and the screen can still ignore it, leaving a working-looking
+    // library whose every upload fails.
+    //
+    // `mediaStorageOff` is the single decision point both consumers read — the
+    // banner and the header control — so neutralising *it* is what turns both
+    // dark. (The first version of this scenario injected at one consumer, the
+    // local `off` binding, and the banner stayed green: the tool reported
+    // "expected assertion never went red", which is exactly the "you tested the
+    // neighbour" signal it exists to give.)
+    label: "the media screen stops believing storage is off",
+    file: MEDIA_SCREEN,
+    before: ["  return storage && storage.available === false ? storage : null;\n"],
+    after: ["  return null; // injected: the screen never believes storage is off\n"],
+    runs: [
+      [SPA_SUITE, "the screen explains why uploads are off"],
+      [SPA_SUITE, "and stops offering a picker whose every file would fail"],
+    ],
+  },
+  {
+    // A typo in the code comparison, which is the shape this kind of branch
+    // actually rots into: the branch is still there and still reads correctly,
+    // it just never matches — so every refusal advises the switch, including on
+    // a deploy where no switch can help.
+    label: "the refusal code comparison stops matching",
+    file: MEDIA_SCREEN,
+    before: ['  if (state?.code === "no_binding") {\n'],
+    after: ['  if (state?.code === "no_binding_disabled") {\n'],
+    runs: [[SPA_SUITE, "and the binding code advises the binding, never the switch"]],
   },
 ];
 
@@ -234,7 +329,7 @@ async function main() {
   }
 
   console.log(`\n${"=".repeat(64)}`);
-  for (const suite of [MEDIA_SUITE, ARCH_SUITE]) {
+  for (const suite of [MEDIA_SUITE, ARCH_SUITE, SPA_SUITE]) {
     const final = await runSuite(suite);
     console.log(`post-restore: ${suite} ${final.passed}p/${final.failed}f`);
     if (final.aborted) problems.push(`${suite} produced no readable verdict after restore`);

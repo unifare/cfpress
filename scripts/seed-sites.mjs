@@ -32,6 +32,10 @@
 const BASE = process.env.CFP_BASE || "http://127.0.0.1:47913";
 const USER = process.env.CFP_USER || "admin";
 const PASS = process.env.CFP_PASS || "change-me-now";
+// The admin API lives under the configurable admin prefix (default `/admin`).
+// The absolute `/api/v1/...` surface is not the admin one — a login posted
+// there answers 404, which is what this script used to do.
+const ADMIN = (process.env.CFP_ADMIN || "/admin").replace(/\/+$/, "");
 
 /**
  * ⚠️ `default` gets a host too. Without it, `resolveSite()` answers *every*
@@ -48,7 +52,7 @@ const SITES = [
 
 let cookie = "";
 async function api(path, init = {}) {
-  const res = await fetch(`${BASE}/api/v1/${path}`, {
+  const res = await fetch(`${BASE}${ADMIN}/api/v1/${path}`, {
     ...init,
     headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}), ...(init.headers || {}) },
   });

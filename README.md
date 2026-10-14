@@ -7,10 +7,43 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](tsconfig.json)
 [![Tests](https://img.shields.io/badge/tests-28%20suites-brightgreen.svg)](package.json)
 
+![The CFPress front page, running the shipped 墨白 MOBAI theme](assets/screenshots/hero.jpg)
+
 CFPress is a self-hosted content management system built on Cloudflare Workers, D1, R2 and KV.
 It gives you what you expect from WordPress — themes, plugins, multi-site, multilingual
 content, members, a media library, a block editor — without a server to maintain, and
 without the extension model that makes WordPress installs a standing security target.
+
+---
+
+## What it looks like
+
+Every screenshot in this README is a real capture of a local `wrangler dev` run: 24 migrations
+applied, demo content seeded in two languages, five images uploaded into R2, three sites served
+from one Worker. Nothing here is a mockup.
+
+**Dark mode is not a second set of pages.** The theme declares its colours once, as tokens; the
+whole site — front page, article, admin-adjacent surfaces — follows.
+
+![The same front page in dark mode](assets/screenshots/hero-dark.jpg)
+
+**Articles are rendered server-side, in a single pass.** Code blocks, pull quotes, images and
+tags all come out of the same declarative template. The engine has no way to run anything else —
+which is the point.
+
+![A rendered article](assets/screenshots/post.jpg)
+
+**The admin is sixteen modules in one Worker.** Content, media, themes, plugins, languages,
+sites, users, SEO, menus, widgets, redirects, activity — no separate service, no build step in
+the repository.
+
+![The admin dashboard](assets/screenshots/admin-dashboard.png)
+
+**One row, two languages.** The switcher at the top of the editor is the post's language
+versions. Each locale gets its own slug, its own URL, its own feed entry — not a translated
+copy stored in a plugin's side table.
+
+![The block editor, with the language-version switcher at the top](assets/screenshots/admin-editor.png)
 
 ---
 
@@ -30,6 +63,12 @@ The cost is real and worth stating plainly: declarative theming is less expressi
 arbitrary PHP. If you need a plugin to do something the manifest vocabulary cannot express,
 CFPress will not let you hack it in. That is the trade being made, on purpose.
 
+A theme can also declare the *business capabilities* it needs — custom post types, routes,
+custom fields, blocks — and CFPress materialises them at install time. The theme describes
+what the site is; it does not run code to make it so.
+
+![A theme declaring custom post types, routes, fields and blocks](assets/screenshots/admin-themes.png)
+
 ### Multi-site and multilingual are built in, not bolted on
 
 In WordPress, multilingual sites need a third-party plugin and multi-site needs a network
@@ -42,6 +81,18 @@ configuration. In CFPress both are first-class at the database level:
 - `hreflang` alternates, per-locale feeds and per-locale sitemaps are emitted by the platform.
 - **Sites** are isolated at the storage layer: every table carries an ownership declaration,
   every query is scoped by `site_id`, and deleting a site leaves no registry residue.
+
+Three sites, one Worker. Routing matches a request by path prefix first (longest match wins),
+then by host; content, settings, menus, media and the active theme are all stored per site.
+
+![Three sites on one Worker](assets/screenshots/admin-sites.png)
+
+Four language layers, kept independent on purpose: the languages the *site* serves, the
+languages a *piece of content* is written in, the language of the *admin interface*, and the
+languages a *theme's business data* is translated into. Running an English-only site with a
+Chinese admin is a normal configuration here, not a workaround.
+
+![The four language layers](assets/screenshots/admin-languages.png)
 
 ### A complete CMS inside Cloudflare's free tier
 

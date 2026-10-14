@@ -1,5 +1,7 @@
 # CFPress
 
+**English** · [简体中文](README.zh-CN.md)
+
 **A WordPress-style CMS that runs entirely on Cloudflare's edge — and never executes third-party code.**
 
 [![License: AGPL-3.0 + Commercial](https://img.shields.io/badge/license-AGPL--3.0%20%2B%20Commercial-blue.svg)](LICENSE)

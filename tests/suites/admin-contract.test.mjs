@@ -1588,6 +1588,101 @@ async function main() {
     }
   }
 
+  console.log("\n22. Scheduled demo reset: a public sandbox restores itself");
+  // `maybeResetDemoContent` hangs off the `*/5` cron, so no route reaches it
+  // and no request can probe it. Every claim about it is therefore one that
+  // only a direct call can falsify — which is why it is driven here, and why
+  // the first assertion is the one that matters most: on an install that has
+  // not declared itself a demo, the function must be inert. A reset that fires
+  // on somebody's real site is the worst possible bug in this feature.
+  {
+    const envOff = { ...env, CFPRESS_DEMO_RESET_MINUTES: undefined };
+    const envOn = { ...env, CFPRESS_DEMO_RESET_MINUTES: "60" };
+    const demoRows = () => sqlite.prepare("SELECT COUNT(*) AS n FROM posts WHERE id LIKE 'demo_admdemo_%'").get()?.n;
+    const resetStamp = () => sqlite.prepare("SELECT value FROM settings WHERE site_id='admdemo' AND key='demo.resetAt'").get()?.value ?? null;
+    const mediaPolicy = () => sqlite.prepare("SELECT value FROM settings WHERE site_id='admdemo' AND key='cfpress.media'").get()?.value ?? null;
+    const wipeDemo = () => {
+      sqlite.exec("DELETE FROM post_translations WHERE post_id LIKE 'demo_admdemo_%'");
+      sqlite.exec("DELETE FROM post_meta WHERE post_id LIKE 'demo_admdemo_%'");
+      sqlite.exec("DELETE FROM posts WHERE id LIKE 'demo_admdemo_%'");
+    };
+    const backdate = () => sqlite.prepare("UPDATE settings SET value=? WHERE site_id='admdemo' AND key='demo.resetAt'")
+      .run(String(Math.floor(Date.now() / 1000) - 3601));
+
+    // ── (a) Inert without the var ──
+    wipeDemo();
+    await mod.maybeResetDemoContent(envOff, "admdemo");
+    check("no interval var → nothing is restored", demoRows(), 0);
+    check("and no stamp is written", resetStamp(), null);
+
+    // ── (b) With the var: the content comes back and the time is recorded ──
+    await mod.maybeResetDemoContent(envOn, "admdemo");
+    check("the reset restores every demo piece", demoRows(), 6);
+    checkTruthy("and stamps when it ran", Number(resetStamp()) > 0);
+
+    // ── (c) Inside the interval a second call must not re-seed ──
+    wipeDemo();
+    await mod.maybeResetDemoContent(envOn, "admdemo");
+    check("a call inside the interval is a no-op", demoRows(), 0);
+
+    // ── (d) Past the interval: re-armed ──
+    backdate();
+    await mod.maybeResetDemoContent(envOn, "admdemo");
+    check("once the interval has elapsed it runs again", demoRows(), 6);
+
+    // ── (e) The media policy is restored, not only the content ──
+    // This is the failure that makes a demo *look* broken rather than merely
+    // untidy: the shipped default demands a session while the admin cookie is
+    // scoped to `Path=/admin`, so flipping it back 404s every image on the
+    // site. A visitor with admin access can reach that setting, so the reset
+    // has to be able to undo it.
+    sqlite.prepare(
+      "INSERT INTO settings (id, site_id, key, value, autoload) VALUES (?,?,?,?,1) ON CONFLICT(site_id, key) DO UPDATE SET value=excluded.value"
+    ).run("t22_media", "admdemo", "cfpress.media", JSON.stringify({ isolation: "owner", require_session: true }));
+    check("the fixture policy starts closed", JSON.parse(mediaPolicy()).require_session, true);
+
+    backdate();
+    await mod.maybeResetDemoContent(envOn, "admdemo");
+    check("the reset reopens the media policy",
+      JSON.parse(mediaPolicy()), { isolation: "site", require_session: false });
+  }
+
+  console.log("\n23. The demo reset rides on requests, not only on cron");
+  // The cron trigger is best-effort. On the deployment this was written for, a
+  // trigger the API reported as registered never arrived at all — while a
+  // sibling Worker's every-minute trigger on the same account fired normally —
+  // so the reset is also driven from the request path. These assertions pin the
+  // two properties that make riding on every request affordable, neither of
+  // which is visible from outside the Worker: a non-demo install must never
+  // reach the database, and a demo must reach it at most once a minute.
+  //
+  // Both are driven through the gate rather than through the wrapper. The
+  // wrapper's happy path calls `maybeResetDemoContent`, which would perform a
+  // real reset against whichever site this suite has open — a side effect a
+  // test about *scheduling* has no business causing.
+  {
+    const envOff = { ...env, CFPRESS_DEMO_RESET_MINUTES: undefined };
+    const envOn = { ...env, CFPRESS_DEMO_RESET_MINUTES: "1440" };
+
+    // ── (a) The env read comes first, and it must not consume the throttle ──
+    // This is the assertion that catches the ordering bug. Were the throttle
+    // read before the env, a request to a non-demo install would burn the rate
+    // limit, and the second check below would come back false — turning "free
+    // for every install that is not a demo" into a lie that only shows up as a
+    // reset that never happens.
+    check("an install that is not a demo is never due", mod.demoResetCheckDue(envOff), false);
+    check("and it did not consume the throttle", mod.demoResetCheckDue(envOn), true);
+
+    // ── (b) A demo is due once, then throttled for the rest of the minute ──
+    check("a demo is throttled after the first check", mod.demoResetCheckDue(envOn), false);
+    check("and stays throttled", mod.demoResetCheckDue(envOn), false);
+
+    // ── (c) The wrapper schedules no work when the gate says no ──
+    const scheduled = [];
+    mod.resetDemoOnRequest(envOff, { waitUntil: (p) => { scheduled.push(p); return p; } });
+    check("a non-demo request schedules nothing", scheduled.length, 0);
+  }
+
   // End-of-suite sweep, **here** rather than mid-file. It tears down this
   // suite's own fixtures (`adm`, `admtheme`, the `adm_*`/`widget_*` posts) so
   // the shared local D1 is left as the suite found it. It has to run after

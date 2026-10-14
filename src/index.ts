@@ -1,4 +1,4 @@
-import{Env}from "./shared/types";import{handleApi,handleFrontApi,maybeSeedDemoContent}from "./api";import{findContent,contentAlternates,siteInfo,locales,defaultLocale}from "./platform/frontend";import{robots,sitemap,feed}from "./platform/seo";import{seedBundledExtensions,bootPluginRuntime,doAction,applyFilters,renderShortcodes}from "./extensions/plugin/runtime";import{setPluginTableSync}from "./extensions/plugin/menus";import{syncOwnerTables}from "./extensions/theme/tables";import{setHostHooks}from "./extensions/contract/hooks";import{renderThemePage,runThemeQuery,activeTheme,type ThemeRenderOptions}from "./extensions/theme/runtime-declarative";import{tryRenderWithThemeWorker,handleThemeApi}from "./extensions/theme/runtime-worker";import{processScheduled}from "./shared/scheduler";import{resolveSite,siteListMemo,listSites,resetSiteListMemo}from "./platform/sites";
+import{Env}from "./shared/types";import{handleApi,handleFrontApi,maybeSeedDemoContent,maybeResetDemoContent}from "./api";import{findContent,contentAlternates,siteInfo,locales,defaultLocale}from "./platform/frontend";import{robots,sitemap,feed}from "./platform/seo";import{seedBundledExtensions,bootPluginRuntime,doAction,applyFilters,renderShortcodes}from "./extensions/plugin/runtime";import{setPluginTableSync}from "./extensions/plugin/menus";import{syncOwnerTables}from "./extensions/theme/tables";import{setHostHooks}from "./extensions/contract/hooks";import{renderThemePage,runThemeQuery,activeTheme,type ThemeRenderOptions}from "./extensions/theme/runtime-declarative";import{tryRenderWithThemeWorker,handleThemeApi}from "./extensions/theme/runtime-worker";import{processScheduled}from "./shared/scheduler";import{resolveSite,siteListMemo,listSites,resetSiteListMemo}from "./platform/sites";
 // The media read path's three gates (tenant / session / owner) live in one
 // module so this route and the admin media API cannot answer differently.
 import{currentUser,loginRequest}from "./platform/auth";import{adminPath,resetAdminPathMemo}from "./platform/settings";import{readMediaPolicy,mediaReadDecision}from "./platform/media-policy";import{listRoutes,findPostTypeBySlug,listPostTypes}from "./extensions/theme/capabilities";
@@ -17,6 +17,62 @@ import{resolveLocale,langFromUrl,langFromCookie,langCookie}from "./platform/i18n
 import{resolveTableForSite,tableBySlug,tableById,tableList}from "./extensions/theme/table-facade";
 
 let booted=false;
+
+/**
+ * The last time this isolate asked whether a demo reset is due (see
+ * `resetDemoOnRequest`). Module scope, like `booted`: this is per-isolate state
+ * that has to survive across requests, which is exactly what makes it a
+ * throttle.
+ */
+let demoCheckedAt=0;
+
+/**
+ * Should this request check whether a demo reset is due? Pure apart from the
+ * throttle it owns, and deliberately separate from the effect it gates: a test
+ * can pin the decision without performing a reset against whatever database
+ * happens to be to hand.
+ *
+ * The order of the two guards is the whole point. The env read is first, so an
+ * install that is not a demo — the overwhelming majority — never consumes the
+ * throttle and never reaches the database. Reading the throttle first would
+ * still be correct, but it would spend a demo's rate limit on non-demo
+ * installs and make "free for everyone else" untrue.
+ */
+function demoResetCheckDue(env:Env):boolean{
+  if(!env.CFPRESS_DEMO_RESET_MINUTES)return false;
+  const t=Date.now();
+  if(t-demoCheckedAt<60000)return false;
+  demoCheckedAt=t;
+  return true;
+}
+
+/**
+ * Reset a public demo from the request path, not only from cron.
+ *
+ * `maybeResetDemoContent` is the implementation, and the cron trigger is the
+ * tidier way to reach it — but scheduled delivery is best-effort, and it is not
+ * something this feature can rest on. Trigger changes take up to fifteen
+ * minutes to propagate, cron runs "on underutilized machines", and on the
+ * deployment this was written for a trigger that the API reported as registered
+ * never arrived at all, while a sibling Worker's every-minute trigger on the
+ * same account fired normally. A demo that quietly stops resetting is the one
+ * failure the whole feature exists to prevent.
+ *
+ * Requests, unlike cron ticks, are guaranteed — this demo sees one every few
+ * seconds. So the check rides on them. It runs in `waitUntil` so it can never
+ * delay a response, and it is gated by `demoResetCheckDue` so a busy demo does
+ * at most one row read a minute while a normal install does nothing at all.
+ *
+ * Two requests that both see the reset as due will both run it — deliberately
+ * unguarded, because `seedDemoContent` writes fixed per-site ids and is
+ * idempotent, so the second run rewrites the same rows. A lock would add a
+ * failure mode of its own to prevent duplicated work that has no visible
+ * effect.
+ */
+function resetDemoOnRequest(env:Env,ctx:ExecutionContext):void{
+  if(!demoResetCheckDue(env))return;
+  ctx.waitUntil(maybeResetDemoContent(env));
+}
 
 /**
  * Render a page, preferring the theme's own Worker when it ships one.
@@ -194,6 +250,10 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
  // otherwise a site created in the admin never resolves on the front end until
  // the isolate recycles (see `resetSiteListMemo`).
  resetSiteListMemo(env);resetAdminPathMemo(env);
+ // Restore a public demo's content if the interval has elapsed. Free on an
+ // install that is not a demo, and never on the response's critical path — see
+ // `resetDemoOnRequest`.
+ resetDemoOnRequest(env,ctx);
  if(!booted){booted=true;ctx.waitUntil((async()=>{
    try{
      // Register the bundled themes, *then* install their declarations. The
@@ -600,10 +660,36 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
 
  const r=await renderPage(env,{siteId,locale,path:u.pathname,kind:"404",title:"Not Found"},request);
  return respond(r.html,r.template,r.status===200?404:r.status);
-},async scheduled(_event:ScheduledController,env:Env,_ctx:ExecutionContext){await processScheduled(env)}};
+},async scheduled(event:ScheduledController,env:Env,_ctx:ExecutionContext){
+  // A cron tick is the one code path with no request to trace, which makes it
+  // the one path where "did nothing" and "never arrived" look identical from
+  // the outside — the D1 rows either side of it are the only evidence, and
+  // they cannot tell the two apart. `wrangler tail` can, so the tick announces
+  // itself and reports what it did.
+  console.log(`cfpress scheduled: tick cron="${event.cron}"`);
+  // Publishing first: a scheduled post going live is the job the trigger
+  // exists for. The demo reset is a no-op on any install that has not set
+  // CFPRESS_DEMO_RESET_MINUTES, so it costs those installs one env read.
+  const published=await processScheduled(env);
+  await maybeResetDemoContent(env);
+  console.log(`cfpress scheduled: done published=${published} resetMinutes=${Number(env.CFPRESS_DEMO_RESET_MINUTES??0)}`);
+}};
 
 export{listPostTypes};
 // Test surface: the boot hook is exercised directly by `admin-contract` (the
 // stamp / empty-site / non-empty-site predicate cannot be reached through any
 // HTTP route — by design, it runs once per install, not per request).
 export{maybeSeedDemoContent};
+// Same reason: both callers are internal wiring, so nothing a test can reach
+// from outside runs this. Its guard is a var rather than a route, which is
+// exactly the kind of thing that must be pinned by a test instead of by reading
+// the code.
+export{maybeResetDemoContent};
+// The request-side entry to the same reset, plus the decision that gates it.
+// Exported so a test can pin the two properties that make riding on every
+// request affordable — that a non-demo install never reaches the database, and
+// that a demo does so at most once a minute — neither of which is observable
+// from outside the Worker. The gate is exported rather than only the wrapper
+// because asserting the wrapper's happy path would perform a real reset against
+// whichever database the suite has open.
+export{demoResetCheckDue,resetDemoOnRequest};

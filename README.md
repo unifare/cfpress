@@ -11,8 +11,14 @@
 
 Front end and admin, both running on Cloudflare's free tier — no server, no container, no
 build step. The [admin](https://cfpress-demo.2aass.workers.dev/admin/) signs in with the
-first-login default described under [Quick start](#quick-start). It is a public sandbox:
-everything in it is demo content and may be reset without notice.
+first-login default described under [Quick start](#quick-start).
+
+It is a public sandbox, so go ahead and break it: the site restores its demo content and
+reopens its media policy every 24 hours. That is `CFPRESS_DEMO_RESET_MINUTES` — a var this
+deployment sets and a normal install does not, which is the only thing that separates the two.
+The check rides on ordinary requests rather than on the cron trigger, because scheduled
+delivery is best-effort: a demo that silently stops resetting is the one failure this feature
+exists to prevent, and resetting a few seconds late costs nothing.
 
 ![The CFPress front page, running the shipped 墨白 MOBAI theme](assets/screenshots/hero.jpg)
 

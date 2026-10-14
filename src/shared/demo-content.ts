@@ -35,6 +35,15 @@ export const DEMO_LOCALES = ["en", "zh-CN"] as const;
  */
 export const DEMO_SEED_STAMP = "demo.seeded";
 
+/**
+ * The settings key holding the unix-seconds timestamp of the last scheduled
+ * demo reset. Declared in `SETTING_DEFS` (site-scoped string): it is a
+ * timestamp, not a boolean, because the reset interval is a var the operator
+ * may change and a stored "was it long enough ago" answer would go stale the
+ * moment they did. Only `maybeResetDemoContent` reads or writes it.
+ */
+export const DEMO_RESET_STAMP = "demo.resetAt";
+
 const b = (type: string, text: string) => ({ type, attrs: { text } as { text: string } | { url: string; alt: string } });
 // `core/image` is the one block whose attrs are not `{text}` — the renderer
 // reads `url`/`alt`. The theme derives a post's cover from the first image in

@@ -36,6 +36,8 @@ export const SETTING_DEFS = [
     note: "whether the front end accepts new member registrations on this site. Off by default: a registration form that appears without being switched on is an open door nobody chose to open (batch D)" },
   { key: "demo.seeded", scope: "site", type: "boolean", default: "0", sensitive: false, inherit: false,
     note: "the boot-time demo-seed decision (see shared/demo-content.ts): set once per install, so a user who deletes their content never finds the demo resurrected on the next boot. Clearing it re-arms the one-time seed" },
+  { key: "demo.resetAt", scope: "site", type: "string", default: "0", sensitive: false, inherit: false,
+    note: "unix seconds of the last scheduled demo reset (see maybeResetDemoContent). Written only on a deployment that sets CFPRESS_DEMO_RESET_MINUTES, i.e. one that has declared itself a public sandbox; a normal install never touches it" },
   // -- platform: install-wide ------------------------------------------------
   { key: "admin.path", scope: "platform", type: "string", default: "/admin", sensitive: false, inherit: false,
     note: "the backend's own path prefix (SPA + its API). Changing it hides the admin from scanners; the old path answers 404, never a redirect" },

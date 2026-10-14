@@ -25,6 +25,20 @@ export interface Env {
   CFPRESS_CACHE_MIRROR_KV?: string;
   CFPRESS_THEME_RUNTIME_WORKER?: string;
   CFPRESS_UI_LOCALE_FOLLOW_SITE?: string;
+
+  /**
+   * How often a deployment that has declared itself a public demo restores its
+   * demo content, in minutes.
+   *
+   * Deliberately **not** a feature switch, and deliberately not a key in
+   * `wrangler.jsonc`. A switch is a capability the admin can also toggle per
+   * site; this is a property of the *deployment*, and it is the one setting a
+   * visitor with admin access must not be able to switch off — an interval
+   * stored as a site setting would be editable by the very people it exists to
+   * clean up after. Absent on every normal install, which is exactly what keeps
+   * the reset dormant (see `maybeResetDemoContent` in `api.ts`).
+   */
+  CFPRESS_DEMO_RESET_MINUTES?: string;
 }
 export interface User {
   id: string;

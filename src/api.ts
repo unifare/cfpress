@@ -15,7 +15,7 @@ import { requirePermission, can, accessibleSiteIds, SITE_ROLES, SUPERADMIN_ROLE 
 import { bumpContentCache } from "./shared/cache";
 import { BUNDLED_THEMES } from "./shared/bundled";
 import { featureSnapshot, inheritedValue, truthy, FEATURE_SETTINGS_KEY, FEATURE_SWITCHES, type FeatureSwitch } from "./shared/features";
-import { DEMO_CONTENTS, DEMO_LOCALES, DEMO_SEED_STAMP } from "./shared/demo-content";
+import { DEMO_CONTENTS, DEMO_LOCALES, DEMO_RESET_STAMP, DEMO_SEED_STAMP } from "./shared/demo-content";
 import { clearOwnerMenusAllSites, listAdminMenuGroups } from "./platform/admin-menus";
 import { clearPluginMenus } from "./extensions/plugin/menus";
 import { createSite, updateSite, deleteSite, listSites, DEFAULT_SITE_ID } from "./platform/sites";
@@ -30,7 +30,7 @@ import { resolveMetaByPost } from "./platform/post-meta";
 import { defaultLocale } from "./platform/frontend";
 // Media access policy — the same module the front-end `/media/<key>` read path
 // uses, so the library a user can list is the library they can fetch.
-import { readMediaPolicy, mediaOwnerClause } from "./platform/media-policy";
+import { readMediaPolicy, mediaOwnerClause, MEDIA_POLICY_SETTINGS_KEY } from "./platform/media-policy";
 import { invalidateThemeWorker } from "./extensions/theme/runtime-worker";
 import {applyThemeCapabilities, clearThemeCapabilities, listPostTypes, listTaxonomies, listRoutes, listThemeAdminMenus, listThemeBlocks, listFieldDefs, themeSettings, parseSettingOptions} from "./extensions/theme/capabilities";
 import {
@@ -184,6 +184,95 @@ export async function maybeSeedDemoContent(env: Env, siteId?: string): Promise<v
   // The boot chain's own try/catch keeps a throw from failing the request.
   const res = await seedDemoContent(env, site.id, String(admin.id));
   if (res.status < 400) await setSetting(env, site.id, DEMO_SEED_STAMP, "1");
+}
+
+/**
+ * Restore a public demo install to a known-good state, on a timer.
+ *
+ * ## Why a demo needs this and a normal install does not
+ *
+ * A demo is the one deployment where "somebody edited the content" is the
+ * expected outcome rather than an incident: the admin is reachable with the
+ * documented first-login credentials, so visitors will write posts, delete
+ * pages, and change settings. Without a reset the sandbox converges on
+ * whatever the last visitor left behind, and every later visitor judges the
+ * project by that. `maybeSeedDemoContent` cannot cover this — it fires exactly
+ * once per install, by design, so that a real user who deletes their content
+ * never finds it resurrected.
+ *
+ * ## Off unless the deployment says otherwise
+ *
+ * `CFPRESS_DEMO_RESET_MINUTES` is read from `env`. A normal install never sets
+ * it, so this function runs on every cron tick and returns on the first line.
+ * The interval is a var rather than a site setting because a visitor with
+ * admin access must not be able to switch off the thing that cleans up after
+ * them — see the note on the field in `shared/types.ts`.
+ *
+ * ## Two callers, one implementation
+ *
+ * `index.ts` reaches this from two places, because neither alone is enough.
+ * The request path is the one that has to work: it is where a demo's traffic is
+ * guaranteed, and it is what makes the reset happen within seconds of becoming
+ * due. The cron trigger that already exists for scheduled publishing calls it
+ * too — it costs no extra trigger and no extra binding, and where scheduled
+ * delivery behaves it is the tidier mechanism. Where it does not, nothing
+ * depends on it: a trigger that is registered and never delivered cannot leave
+ * the demo unreset.
+ *
+ * The stamp is kept in `settings` rather than KV because a KV write is
+ * eventually consistent: a second caller could read a stale value and reset
+ * twice in a row.
+ *
+ * ## What it restores, and what it deliberately does not
+ *
+ * Content, via the same `seedDemoContent` the admin button and the terminal
+ * script call — the demo rows carry fixed per-site ids, so a reset updates
+ * them in place and never duplicates. Media policy too: the shipped default
+ * requires a session while the admin cookie is scoped to `Path=/admin`, so a
+ * visitor who flips that back makes every image on the site 404, and a demo
+ * that looks broken is the one failure a demo cannot afford.
+ *
+ * It does **not** delete content a visitor created. A sandbox that silently
+ * eats what somebody typed is a worse surprise than one with a few extra
+ * posts in it, and the demo rows are restored regardless, so the front page
+ * reads correctly either way.
+ */
+export async function maybeResetDemoContent(env: Env, siteId?: string): Promise<void> {
+  const minutes = Number(env.CFPRESS_DEMO_RESET_MINUTES ?? 0);
+  if (!Number.isFinite(minutes) || minutes <= 0) return;
+
+  // The same resolution `maybeSeedDemoContent` uses: an explicit id when the
+  // caller has one, otherwise the default site — the one a visitor lands on,
+  // and therefore the only one whose state the demo's first impression rests
+  // on.
+  const sites = await listSites(env);
+  const site = siteId
+    ? sites.find((s) => s.id === siteId)
+    : (sites.find((s) => Number(s.is_default) === 1) ?? sites[0]);
+  if (!site) return;
+
+  // Not yet due. `0`/absent reads as "never reset", so the first tick after a
+  // deploy does the work rather than waiting out a full interval.
+  const last = Number((await getSetting(env, site.id, DEMO_RESET_STAMP)) ?? 0);
+  if (Number.isFinite(last) && last > 0 && now() - last < minutes * 60) return;
+
+  const admin = await env.DB.prepare(
+    "SELECT id FROM site_users WHERE role='superadmin' ORDER BY created_at LIMIT 1"
+  ).first<any>();
+  if (!admin?.id) return;
+
+  const res = await seedDemoContent(env, site.id, String(admin.id));
+  // No stamp on failure: a partial restore is retried on the next tick rather
+  // than being recorded as done.
+  if (res.status >= 400) return;
+
+  await setSetting(
+    env,
+    site.id,
+    MEDIA_POLICY_SETTINGS_KEY,
+    JSON.stringify({ isolation: "site", require_session: false })
+  );
+  await setSetting(env, site.id, DEMO_RESET_STAMP, String(now()));
 }
 
 /**

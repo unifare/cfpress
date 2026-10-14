@@ -34,6 +34,11 @@ wrangler.local.jsonc
 # hand-edited file in the chain and the only one that must stay off the remote.
 wrangler.ids.json
 
+# The demo deployment's config. Same reason as wrangler.local.jsonc — it is a
+# wrangler.jsonc with one account's D1 / KV ids written into it, plus a Worker
+# name that belongs to a particular deployment rather than to the project.
+wrangler.demo.jsonc
+
 # Editor / OS noise
 .vscode/
 .idea/

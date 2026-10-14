@@ -30,9 +30,9 @@ themselves are what actually govern.
 
 ## How to obtain one
 
-Contact **`licensing@<your-domain>`** with a short description of your intended use. Pricing is
-sized to the use — a small managed service and a large platform are not the same license, and
-the goal is not to make the small ones unaffordable.
+Open an issue on the repository describing your intended use, and the licensing terms will be
+arranged from there. Pricing is sized to the use — a small managed service and a large platform
+are not the same license, and the goal is not to make the small ones unaffordable.
 
 ## Why the project can offer this at all
 

@@ -11,14 +11,6 @@
 
 **在线 Demo → [cfpress-demo.2aass.workers.dev](https://cfpress-demo.2aass.workers.dev)**
 
-前台和后台都在 Cloudflare 免费额度内运行 —— 没有服务器，没有容器，没有构建步骤。
-[后台](https://cfpress-demo.2aass.workers.dev/admin/) 用[快速开始](#快速开始)里说明的首次登录默认密码进入。
-
-这是一个公开沙盒，尽管去把它弄坏：站点每 24 小时恢复一次演示内容，并重新打开媒体策略。
-控制它的就是 `CFPRESS_DEMO_RESET_MINUTES` —— 这个部署设了它，普通安装不设，这也是两者唯一的区别。
-这个检查搭在普通请求上，而不是 cron 触发器上，因为定时投递是尽力而为的：
-**这个功能存在的唯一目的，就是防止 Demo 悄悄停止重置**，而晚几秒重置没有任何代价。
-
 ![CFPress 首页，运行内置的墨白 MOBAI 主题](assets/screenshots/hero.jpg)
 
 CFPress 是一个自托管内容管理系统，构建在 Cloudflare Workers、D1、R2 和 KV 之上。

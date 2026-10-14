@@ -10,7 +10,8 @@
 [![Tests](https://img.shields.io/badge/tests-28%20suites-brightgreen.svg)](package.json)
 
 **在线 Demo → [demo.cfpress.cc](https://demo.cfpress.cc)**
-**→ 后台 [demo.cfpress.cc/admin](https://demo.cfpress.cc/admin)**
+**→ 后台 [demo.cfpress.cc/admin](https://demo.cfpress.cc/admin)** — 演示账号：`admin` / `change-me-now`
+> Demo 每小时自动还原内容。以上账号仅用于演示；真实部署必须在站点可从公网访问前修改密码。
 ![CFPress 首页，运行内置的墨白 MOBAI 主题](assets/screenshots/hero.jpg)
 
 CFPress 是一个自托管内容管理系统，构建在 Cloudflare Workers、D1、R2 和 KV 之上。
@@ -142,10 +143,10 @@ npm run dev
 项目撞车，而两个 `wrangler dev` 实例抢同一个本地 D1，正是你得到毫无头绪的 `SQLITE_BUSY`
 的原因）。可用 `CFP_PORT` 覆盖。
 
-打开 `http://localhost:47913/admin/` 登录。
+打开 `http://localhost:47913/admin/`，使用 `admin` / `change-me-now` 登录。
 
-> **Worker 首次启动时会创建一个管理员账号，其默认密码是公开已知的。
-> 请立刻改掉它 —— 在站点能从公网访问之前。**
+> **Worker 首次启动时会创建一个管理员账号——`admin`，密码 `change-me-now`，两者都是公开已知的。
+> 请立刻修改密码——在站点能从公网访问之前。**
 > 密码以 PBKDF2 哈希存储，明文从不落盘，但一个写在公开仓库里的默认值不是秘密。
 > 会话是带签名的 Cookie，有效期 14 天。
 

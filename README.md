@@ -10,7 +10,9 @@
 [![Tests](https://img.shields.io/badge/tests-28%20suites-brightgreen.svg)](package.json)
 
 **Live demo → [demo.cfpress.cc](https://demo.cfpress.cc)**
-**admin → [demo.cfpress.cc/admin](https://demo.cfpress.cc/admin)**
+**admin → [demo.cfpress.cc/admin](https://demo.cfpress.cc/admin)** — demo sign-in: `admin` / `change-me-now`
+> The demo restores its content hourly. The credentials above are for the demo only; a real
+> deployment must change the password before it is reachable from the internet.
 ![The CFPress front page, running the shipped 墨白 MOBAI theme](assets/screenshots/hero.jpg)
 
 CFPress is a self-hosted content management system built on Cloudflare Workers, D1, R2 and KV.
@@ -154,10 +156,11 @@ The dev server listens on **47913** (not wrangler's default 8787 — 8787 collid
 other Wrangler project on the machine, and two `wrangler dev` instances fighting over one
 local D1 is how you get `SQLITE_BUSY` with no obvious cause). Override with `CFP_PORT`.
 
-Open `http://localhost:47913/admin/` and sign in.
+Open `http://localhost:47913/admin/` and sign in as `admin` / `change-me-now`.
 
-> **On first boot the Worker creates a single administrator account with a publicly known
-> default password. Change it immediately — before the site is reachable from the internet.**
+> **On first boot the Worker creates a single administrator account — `admin` with the password
+> `change-me-now`, both publicly known. Change the password immediately — before the site is
+> reachable from the internet.**
 > Passwords are stored as PBKDF2 hashes and the plaintext is never persisted, but a default
 > that is written in a public repository is not a secret. Sessions are signed cookies with a
 > 14-day TTL.

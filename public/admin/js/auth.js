@@ -12,16 +12,19 @@ import { alertDialog, esc, setTheme } from "../ui.js";
 import { loadMessages, t } from "./i18n.js";
 
 export function renderLogin() {
+  // No prefilled credentials. A login box that ships "admin" and the default
+  // password pre-typed invites a one-click sign-in on any deploy whose operator
+  // never changed them — the credentials are documented in the README, where a
+  // person reads them, not here, where a bot does.
   app.innerHTML = `<div class="login"><div class="loginbox">
     <span class="brand-mark">${icon("layers")}</span>
     <h1>${esc(t("core.auth.title", "Sign in to CFPress"))}</h1>
     <p class="muted">${esc(t("core.auth.subtitle", "Manage content, themes and sites."))}</p>
     <div class="login-shell">
-      <div class="field"><label for="u">${esc(t("core.auth.username", "Username"))}</label><input id="u" value="admin" autocomplete="username"></div>
-      <div class="field" style="margin-bottom:0"><label for="p">${esc(t("core.auth.password", "Password"))}</label><input id="p" type="password" value="change-me-now" autocomplete="current-password"></div>
+      <div class="field"><label for="u">${esc(t("core.auth.username", "Username"))}</label><input id="u" autocomplete="username"></div>
+      <div class="field" style="margin-bottom:0"><label for="p">${esc(t("core.auth.password", "Password"))}</label><input id="p" type="password" autocomplete="current-password"></div>
     </div>
     <button class="btn primary" style="width:100%" id="signin">${esc(t("core.action.login", "Sign in"))}</button>
-    <p class="muted text-sm" style="margin-top:1rem">${esc(t("core.auth.defaultHint", "First login default: admin / change-me-now. Change it before production use."))}</p>
   </div></div>`;
 
   const submit = () => doLogin();

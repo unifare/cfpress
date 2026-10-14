@@ -10,7 +10,7 @@
 [![Tests](https://img.shields.io/badge/tests-28%20suites-brightgreen.svg)](package.json)
 
 **在线 Demo → [cfpress-demo.2aass.workers.dev](https://cfpress-demo.2aass.workers.dev)**
-
+**→ 后台 [cfpress-demo.2aass.workers.dev/admin](https://cfpress-demo.2aass.workers.dev/admin)**
 ![CFPress 首页，运行内置的墨白 MOBAI 主题](assets/screenshots/hero.jpg)
 
 CFPress 是一个自托管内容管理系统，构建在 Cloudflare Workers、D1、R2 和 KV 之上。

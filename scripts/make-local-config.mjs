@@ -32,8 +32,15 @@
  *   node scripts/make-local-config.mjs            write if changed, else no-op
  *   node scripts/make-local-config.mjs --check    exit 1 if the file is stale
  *   node scripts/make-local-config.mjs --print    write the result to stdout
-+ *   node scripts/make-local-config.mjs --no-r2 --out <file>
-+ *                                                write the R2-less variant
+ *   node scripts/make-local-config.mjs --no-r2 [--ids <file>] --out <file>
+ *                                                write the R2-less variant,
+ *                                                optionally from another
+ *                                                account's ids file
+ *
+ * `--ids` exists so a second deployment (another account, another D1/KV) does
+ * not require swapping the shared `wrangler.ids.json` back and forth: point it
+ * at that account's own ids file. A hand-swapped shared file is the drift the
+ * rest of this chain exists to prevent.
  *
  * Exit codes: 0 ok · 1 stale (--check only) · 2 missing/unusable input.
  */
@@ -179,9 +186,18 @@ if (invokedDirectly) {
   if (process.argv.includes("--no-r2")) {
     const outIdx = process.argv.indexOf("--out");
     const outPath = outIdx >= 0 && process.argv[outIdx + 1] ? join(ROOT, process.argv[outIdx + 1]) : join(ROOT, "wrangler.demo.jsonc");
+    // `--ids` points at another account's ids file, so the shared
+    // `wrangler.ids.json` never has to be swapped back and forth.
+    const idsIdx = process.argv.indexOf("--ids");
+    const idsPath = idsIdx >= 0 && process.argv[idsIdx + 1] ? join(ROOT, process.argv[idsIdx + 1]) : IDS_PATH;
+    const demoIds = idsPath === IDS_PATH ? ids : readIds(idsPath);
+    if (!demoIds) {
+      console.error(`make-local-config: ${relative(ROOT, idsPath).split("\\").join("/")} not found (--ids)`);
+      process.exit(2);
+    }
     let demo;
     try {
-      demo = renderNoR2Config(readFileSync(TEMPLATE_PATH, "utf8"), ids);
+      demo = renderNoR2Config(readFileSync(TEMPLATE_PATH, "utf8"), demoIds);
     } catch (e) {
       console.error(`make-local-config: ${e.message}`);
       process.exit(2);

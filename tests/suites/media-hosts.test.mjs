@@ -482,6 +482,24 @@ async function main() {
     check("empty write preserves the stored key", again.storage?.imgbbKey, true);
     const r2 = await withStubFetch(imgbbOkStub([]), () => upload(SITE_A, "site-key-shot-2.png"));
     check("uploads still work after the empty write", r2.status, 201);
+    // An explicit `null` is the clear signal (the SPA's Clear button), and it
+    // is the *only* thing that removes the row: "I never saw the secret" and
+    // "delete it" must not share a spelling.
+    await req(`/api/v1/settings?site=${SITE_A}`, {
+      method: "POST", headers: json(adminCookie()),
+      body: JSON.stringify({ key: "cfpress.media.imgbb_key", value: null }),
+    });
+    const cleared = await (await req(`/api/v1/media?site=${SITE_A}`, { headers: { Cookie: adminCookie() } })).json();
+    check("an explicit null clears the key", cleared.storage?.imgbbKey, false);
+    const keyRowGone = sqlite.prepare("SELECT COUNT(*) AS n FROM settings WHERE site_id=? AND key='cfpress.media.imgbb_key'").get(SITE_A).n;
+    check("and the row is gone, not blanked", keyRowGone, 0);
+    const noKey = await upload(SITE_A, "after-clear.png");
+    check("uploads then refuse, naming the secret", noKey.status, 400);
+    // Restore one for the later sections.
+    await req(`/api/v1/settings?site=${SITE_A}`, {
+      method: "POST", headers: json(adminCookie()),
+      body: JSON.stringify({ key: "cfpress.media.imgbb_key", value: "site-key-2" }),
+    });
   });
 
   await section("14. env keys are the fallback when the site has none", async () => {

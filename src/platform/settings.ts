@@ -95,16 +95,30 @@ export async function getSetting(
  * is shown instead), so a form round-trip arrives here with `""` meaning "I
  * never saw it". Overwriting the stored secret with that blank would delete
  * the key the moment anyone saves an unrelated setting on the same screen —
- * so an empty write to a sensitive key keeps the stored value. To *clear* a
- * key, delete its row (there is deliberately no "clear" spelling: an explicit
- * delete is auditable, a blank string is ambiguous).
+ * so an empty write to a sensitive key keeps the stored value.
+ *
+ * Clearing is therefore a **distinct signal**, not a spelling of empty:
+ * `value === null` deletes the row (for any key), and the SPA's per-key
+ * "Clear" button is the only thing that sends it. A blank string keeps, an
+ * explicit null clears — one spelling each, so neither can be mistaken for
+ * the other.
  */
 export async function setSetting(env: Env, siteId: string, key: string, value: string | null): Promise<void> {
   const def = settingDef(key);
   if (!def) throw new Error(`undeclared setting key: ${key}`);
   if (def.scope !== "site") throw new Error(`setting ${key} is ${def.scope}-scoped, not site-scoped`);
 
-  if (def.sensitive && (value === null || String(value) === "")) {
+  // Explicit clear: the row goes, so the key falls back to its declared
+  // default (the effective key for a sensitive value is then whatever the
+  // environment secret is, or none). Deleting is the auditable spelling.
+  if (value === null) {
+    await env.DB.prepare("DELETE FROM settings WHERE site_id=? AND key=?").bind(siteId, key).run();
+    return;
+  }
+  // Blank from a form round-trip: the SPA never saw the stored value (the
+  // read redacts it), so this must not overwrite it. Applies to any key that
+  // is declared sensitive.
+  if (def.sensitive && String(value) === "") {
     const existing = await env.DB.prepare("SELECT id FROM settings WHERE site_id=? AND key=?").bind(siteId, key).first<any>();
     if (existing) return;
   }

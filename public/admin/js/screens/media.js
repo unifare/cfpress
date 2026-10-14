@@ -178,8 +178,11 @@ function storagePanelHtml(storage) {
   // the key itself is never in the DOM except while being typed.
   const keyField = (id, key) => `<div class="field" style="margin-bottom:.5rem">
       <label for="storage-key-${attr(id)}">${esc(t(`core.media.storage${id === "imgbb" ? "Imgbb" : "Postimages"}Key`, id))}</label>
-      <input id="storage-key-${attr(id)}" type="password" data-storage-key="${attr(key)}" autocomplete="off"
-        placeholder="${attr(keyed(id) ? t("core.media.storageKeySet", "Saved — leave blank to keep it") : t("core.media.storageKeyEmpty", "Paste the API key here"))}">
+      <div style="display:flex;gap:.5rem;align-items:center">
+        <input id="storage-key-${attr(id)}" type="password" data-storage-key="${attr(key)}" autocomplete="off" style="flex:1"
+          placeholder="${attr(keyed(id) ? t("core.media.storageKeySet", "Saved — leave blank to keep it") : t("core.media.storageKeyEmpty", "Paste the API key here"))}">
+        ${keyed(id) ? `<button type="button" class="btn outline sm" data-storage-clear="${attr(key)}">${esc(t("core.media.storageKeyClear", "Clear"))}</button>` : ""}
+      </div>
     </div>`;
   const keyed = (id) => id === "imgbb" ? s.imgbbKey === true : s.postimagesKey === true;
   return `<div class="panel" style="margin-bottom:.75rem" data-storage-panel="1">
@@ -344,6 +347,29 @@ document.addEventListener("click", async (e) => {
   }
   const saveStorageBtn = e.target.closest("[data-storage-save]");
   if (saveStorageBtn) { await saveStorage(); return; }
+
+  // Clearing is its own action, not "save an empty field": a blank input keeps
+  // the key (the read never echoed it), so removing one needs an explicit
+  // signal. The server implements this as `value: null` -> delete the row.
+  const clearBtn = e.target.closest("[data-storage-clear]");
+  if (clearBtn) {
+    const key = clearBtn.dataset.storageClear;
+    const sure = await confirmDialog({
+      title: t("core.media.storageKeyClearTitle", "Remove this API key?"),
+      description: t("core.media.storageKeyClearDesc", "Uploads to this host will stop working until a key is entered again. Files already uploaded stay where they are."),
+      confirmLabel: t("core.media.storageKeyClear", "Clear"),
+    });
+    if (!sure) return;
+    try {
+      await api(scoped("settings"), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, value: null }),
+      });
+      toast(t("core.media.storageKeyCleared", "Key removed"));
+      render();
+    } catch (err) { toast(err.message || "Could not clear the key", "error"); }
+    return;
+  }
 
   // The upload tile is part of the grid, so it survives "load more" without a
   // rebind — a delegated click just presses the header's hidden input.

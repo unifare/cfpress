@@ -176,20 +176,23 @@ check(
 );
 
 // -- 6. the R2-less variant, when present --------------------------------------
-// `wrangler.demo.jsonc` is opt-in (only installs without an R2 subscription
-// generate it), so absence is n/a — never a pass, same discipline as §2. When
-// present it must be exactly what `--no-r2` derives: a hand-maintained second
-// config is the drift this whole tool exists to prevent.
+// `wrangler.demo.jsonc` belongs to a *second* deployment (another account,
+// another D1/KV), so it is derived from that account's own ids file
+// (`wrangler.ids.demo.json`) rather than the shared one — otherwise it could
+// only exist while the shared ids were hand-swapped, which is the drift this
+// whole chain exists to prevent. Absence on either side is n/a, never a pass.
 const DEMO_PATH = join(ROOT, "wrangler.demo.jsonc");
-if (existsSync(DEMO_PATH)) {
+const DEMO_IDS_PATH = join(ROOT, "wrangler.ids.demo.json");
+const demoIds = existsSync(DEMO_IDS_PATH) ? readIds(DEMO_IDS_PATH) : null;
+if (existsSync(DEMO_PATH) && demoIds) {
   let demoRendered = null;
   try {
-    demoRendered = renderNoR2Config(templateSrc, ids);
+    demoRendered = renderNoR2Config(templateSrc, demoIds);
   } catch (e) {
     demoRendered = `<generation failed: ${e.message}>`;
   }
   check(
-    "wrangler.demo.jsonc is exactly what --no-r2 derives",
+    "wrangler.demo.jsonc is exactly what --no-r2 derives from its own ids",
     readFileSync(DEMO_PATH, "utf8") === demoRendered,
     true
   );
@@ -201,9 +204,14 @@ if (existsSync(DEMO_PATH)) {
       Object.keys(demo).sort(),
       Object.keys(template).filter((k) => k !== "r2_buckets").sort()
     );
+    check(
+      "the R2-less variant fills its own ids (no placeholder left)",
+      stringValues(demo).filter((v) => v.includes("REPLACE_WITH_")),
+      []
+    );
   }
 } else {
-  console.log("  n/a  wrangler.demo.jsonc is absent — no R2-less variant to compare");
+  console.log("  n/a  wrangler.demo.jsonc / wrangler.ids.demo.json absent — no R2-less variant to compare");
 }
 console.log("");
 console.log(`${pass} passed, ${fail} failed`);

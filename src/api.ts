@@ -913,9 +913,13 @@ async function saveSetting(env: Env, userId: string, body: any, siteId: string) 
   if (settingDef(key)!.scope !== "site") {
     return ok({ error: `setting ${key} is not site-scoped (use the platform settings endpoint)` }, 400);
   }
-  const value = String(body.value ?? "");
+  // `value: null` is the explicit "clear this key" signal (the SPA's per-key
+  // Clear button), which `setSetting` implements as a row delete; a missing
+  // `value` is a blank string, which keeps a sensitive value. Keeping the two
+  // apart is what stops "I never saw the secret" from meaning "delete it".
+  const value = body.value === null ? null : String(body.value ?? "");
   await setSetting(env, siteId, key, value);
-  await activity(env, userId, "update", "setting", key, { siteId });
+  await activity(env, userId, "update", "setting", key, { siteId, cleared: value === null });
   return ok({ ok: true });
 }
 

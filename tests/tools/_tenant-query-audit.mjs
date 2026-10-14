@@ -148,25 +148,32 @@ const REVIEWED = {
   // any statement whose own window contains `site_id`, and that one selects
   // `site_id` itself — so it is no longer a hit, and a verdict that is no
   // longer needed should be deleted, not left to rot.)
-  "src/api.ts:719": "UPDATE settings … WHERE id=? — `saveFeature` writes back the row its own `SELECT id FROM settings WHERE site_id=? AND key=?` just read; `id` is the PK of a site-scoped read, same shape as platform/settings.ts:100",
+  // Re-keyed a fifth time (719→867, 959→1174, 965→1180, 2548→2782): the media
+  // remote-storage batch added the provider branch to `mediaUpload` above the
+  // uninstall block. Same statements, new lines. A sixth time for the retry
+  // batch (867→874, 1174→1188, 1180→1194, 2782→2796): same reason, smaller
+  // diff. The file:line keys drift by design; the verdicts do not.
+  "src/api.ts:874": "UPDATE settings … WHERE id=? — `saveFeature` writes back the row its own `SELECT id FROM settings WHERE site_id=? AND key=?` just read; `id` is the PK of a site-scoped read, same shape as platform/settings.ts:100",
   "src/platform/settings.ts:100": "UPDATE settings … WHERE id=? — `setSetting` writes back the row its own `SELECT id FROM settings WHERE site_id=? AND key=?` just read; the tenant was established by the read",
   "src/extensions/theme/runtime-declarative.ts:300": "FROM posts p JOIN post_translations — `runThemeQuery` assembles its WHERE from the `conditions` array, whose first element is always `p.site_id = ?` (line 277); the predicate is real but constructed, so a line scanner cannot see it — assembled-statement limitation, judged correct",
   "src/shared/scheduler.ts:39": "UPDATE posts … WHERE id=? — the orphan-queue branch: the post row is gone (no tenant left to scope), so the queue row is marked done so it drains instead of retrying forever. The live branch above carries AND site_id=?",
-  "src/api.ts:2548": "UPDATE theme_installs … WHERE name IN (SELECT value FROM settings WHERE key='theme.active') — theme_installs is PLATFORM-GLOBAL; `active` means 'some site uses it', so the cross-site subquery is the intent",
+  "src/api.ts:2796": "UPDATE theme_installs … WHERE name IN (SELECT value FROM settings WHERE key='theme.active') — theme_installs is PLATFORM-GLOBAL; `active` means 'some site uses it', so the cross-site subquery is the intent",
   "src/extensions/plugin/notify.ts:108": "UPDATE notification_log … WHERE id=? — the row is this send's own claim, addressed by the PK minted a few lines above for this siteId; ok/error are not identity",
   "src/extensions/theme/runtime-worker.ts:411": "menu_items … WHERE menu_id=? AND site_id=? — ⚠️ rewritten in batch 16: `menu_id` is only unique per site (menus is UNIQUE(site_id,id)), so the earlier `WHERE menu_id=?` leaked another tenant's items onto this site's nav; `site_id` is required, not optional",
   "src/extensions/theme/tables.ts:383": "UPDATE theme_table_defs WHERE id=? — registry row addressed by its own PK",
   "src/extensions/theme/tables.ts:404": "SELECT theme_table_defs … WHERE site_id=? AND owner_type=? AND owner_name=? AND logical_name=? — reads back the mapping this same call just wrote, to repair a recorded i18n_table whose table is gone; fully site-scoped",
   "src/platform/frontend.ts:186": "menu_items … WHERE menu_id=? AND site_id=? — ⚠️ rewritten in batch 16 (see runtime-worker:411): `menu_id` is only unique per site, so the earlier site-blind filter rendered the shop site's nav item on the default site's front page",
-  "src/api.ts:959": "SELECT theme_table_defs … WHERE owner_type='theme' AND owner_name=? — theme uninstall gathers every site's generated tables for a theme being removed entirely; owner-scoped by design, no site_id on purpose",
-  "src/api.ts:965": "DELETE FROM theme_table_defs WHERE owner_name=? — same uninstall: the theme is leaving the platform, so every site's mapping goes with it",
+  "src/api.ts:1188": "SELECT theme_table_defs … WHERE owner_type='theme' AND owner_name=? — theme uninstall gathers every site's generated tables for a theme being removed entirely; owner-scoped by design, no site_id on purpose",
+  "src/api.ts:1194": "DELETE FROM theme_table_defs WHERE owner_name=? — same uninstall: the theme is leaving the platform, so every site's mapping goes with it",
   "src/platform/admin-menus.ts:268": "DELETE FROM admin_menu_registry WHERE owner_type=? AND owner_name=? — this is `clearOwnerMenusAllSites`, and install-wide is its *name*: an activation interrupted before it wrote `theme.active` leaves menus on sites that no longer select the theme, pointing at tables an uninstall is about to drop. Owner-scoped by design",
   // Re-keyed 166→205: the theme-batch added `memberScope()` (~39 lines) above
   // `logoutMember` in the same file. The statement is unchanged — only its line
   // number moved. (This is the third time a `file:line` key has drifted; the
   // keys are load-bearing, so a shift is a re-key, never a silent NEW.)
   "src/platform/members.ts:205": "DELETE FROM member_sessions WHERE id=? — the logout row is addressed by the session id read from the caller's own cookie (`cookieValue(request, MEMBER_COOKIE)`), which is the PK; there is no site dimension to add, and deleting someone else's id is impossible without already holding it",
-  "src/platform/auth.ts:252": "DELETE FROM site_users_sites WHERE user_id=? — `deleteUser` removing *all* of one person's memberships as part of deleting that person. `user_id` is the PK half, and install-wide is the intent: the identity is going away, so every site's grant for it must go too. Adding a site filter here would leave the other memberships orphaned, which is the very defect rule 80 exists to prevent",
+  // Re-keyed 252→293 alongside the fifth api.ts drift (unrelated edits above
+  // `deleteUser` in the same file moved it; the statement is unchanged).
+  "src/platform/auth.ts:293": "DELETE FROM site_users_sites WHERE user_id=? — `deleteUser` removing *all* of one person's memberships as part of deleting that person. `user_id` is the PK half, and install-wide is the intent: the identity is going away, so every site's grant for it must go too. Adding a site filter here would leave the other memberships orphaned, which is the very defect rule 80 exists to prevent",
 };
 
 const unreviewed = hits.filter((h) => !(h.where in REVIEWED));

@@ -25,6 +25,27 @@ export interface Env {
   CFPRESS_CACHE_MIRROR_KV?: string;
   CFPRESS_THEME_RUNTIME_WORKER?: string;
   CFPRESS_UI_LOCALE_FOLLOW_SITE?: string;
+
+  /**
+   * Third-party image-host ("图床") API keys, one per vendor for the whole
+   * install — exactly like the R2 bucket they replace is install-wide. They
+   * are the *fallback*: a site key entered on the Media screen
+   * (`cfpress.media.imgbb_key` / `cfpress.media.postimages_key`) wins for
+   * that site, because one operator's key must not be every site's key.
+   * A key in a site `settings` row would be readable by every site member
+   * (`GET settings` returns raw values to anyone passing the site gate), so
+   * the read path redacts sensitive values and the write path keeps a blank
+   * write — see `sensitive` in `platform/setting-defs.ts`.
+   *
+   * Configure locally in `.dev.vars` (gitignored), in production with
+   * `wrangler secret put IMGBB_API_KEY` / `wrangler secret put
+   * POSTIMAGES_API_KEY`. Deliberately **not** in `wrangler.jsonc` `vars`:
+   * that file is committed, and `architecture.test.mjs` fails a var no
+   * switch declares. Absent means "that provider is not configured" — an
+   * upload naming it answers 400 naming the missing secret, never a 500.
+   */
+  IMGBB_API_KEY?: string;
+  POSTIMAGES_API_KEY?: string;
 }
 export interface User {
   id: string;

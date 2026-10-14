@@ -17,6 +17,7 @@ because they age differently.
 | [`THEME-DEV.md`](guides/THEME-DEV.md) | you are writing or debugging a theme |
 | [`PLUGIN-DEV.md`](guides/PLUGIN-DEV.md) | you are writing a plugin |
 | [`I18N.md`](guides/I18N.md) | you are changing content or UI languages |
+| [`MEDIA-STORAGE.md`](guides/MEDIA-STORAGE.md) | you are storing uploads on imgbb / postimages.org instead of R2 |
 
 These are kept current: they describe the system as it is, not as it was planned.
 

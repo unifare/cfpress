@@ -129,8 +129,114 @@ async function load({ append = false } = {}) {
   const d = await api(scoped(`media?${mediaQuery({ q: view.q, type: view.type, page })}`));
   const items = d.items || [];
   const info = mediaPageInfo({ ...d, page });
-  view = { ...view, page: info.page, total: info.total, items: append ? [...view.items, ...items] : items };
+  // `storage` rides the same payload (`{provider, imgbbKey, postimagesKey}` —
+  // booleans, never the keys themselves), so the storage panel below needs no
+  // second fetch and no new endpoint. Absent on old responses: default site.
+  view = { ...view, page: info.page, total: info.total, items: append ? [...view.items, ...items] : items, storage: d.storage ?? { provider: "r2", imgbbKey: false, postimagesKey: false } };
   return info;
+}
+
+/**
+ * Where this site's new uploads go — the one screen that can answer it.
+ *
+ * Three options, one choice, stored per site in `cfpress.media` → `provider`
+ * (the secrets themselves live in the environment and never transit this
+ * screen). Files already in the library stay where they are: the choice only
+ * governs the next upload, so flipping it cannot strand anything.
+ *
+ * The pending choice lives in module state, not in the DOM: the screen
+ * re-renders on every filter change, and a selection kept in an element would
+ * be the thing that gets forgotten on the next keystroke. It is keyed by site,
+ * because the choice is per site — a pending imgbb for site A must not leak
+ * into site B's panel after a switch.
+ */
+let pendingProvider = null; // { site, value } | null
+const PROVIDERS = ["r2", "imgbb", "postimages"];
+
+function pendingFor(site) {
+  return pendingProvider && pendingProvider.site === site ? pendingProvider.value : null;
+}
+
+function storagePanelHtml(storage) {
+  const s = storage ?? { provider: "r2", imgbbKey: false, postimagesKey: false };
+  const current = pendingFor(state.site) ?? s.provider ?? "r2";
+  const card = (id) => {
+    const selected = current === id;
+    const keyed = id === "imgbb" ? s.imgbbKey === true : id === "postimages" ? s.postimagesKey === true : null;
+    return `<button type="button" class="media-storage-opt${selected ? " is-selected" : ""}"
+      data-storage-pick="${attr(id)}" aria-pressed="${selected ? "true" : "false"}">
+      <span class="media-storage-name">${esc(t(`core.media.storage${id === "r2" ? "R2" : id === "imgbb" ? "Imgbb" : "Postimages"}`, id))}</span>
+      <span class="media-storage-desc">${esc(t(`core.media.storage${id === "r2" ? "R2" : id === "imgbb" ? "Imgbb" : "Postimages"}Desc`, ""))}</span>
+      <span class="media-storage-state">${selected
+        ? `<span class="badge default">${esc(t("core.media.storageActive", "In use"))}</span>`
+        : keyed === false ? `<span class="badge warn">${esc(t("core.media.storageKeyMissing", "Server key missing"))}</span>` : ""}</span>
+    </button>`;
+  };
+  // Key fields are `type=password` and round-trip redacted: the server never
+  // echoes a stored key (the read answers `""`), and an empty write keeps the
+  // stored value — so "save" with untouched fields cannot delete a key, and
+  // the key itself is never in the DOM except while being typed.
+  const keyField = (id, key) => `<div class="field" style="margin-bottom:.5rem">
+      <label for="storage-key-${attr(id)}">${esc(t(`core.media.storage${id === "imgbb" ? "Imgbb" : "Postimages"}Key`, id))}</label>
+      <input id="storage-key-${attr(id)}" type="password" data-storage-key="${attr(key)}" autocomplete="off"
+        placeholder="${attr(keyed(id) ? t("core.media.storageKeySet", "Saved — leave blank to keep it") : t("core.media.storageKeyEmpty", "Paste the API key here"))}">
+    </div>`;
+  const keyed = (id) => id === "imgbb" ? s.imgbbKey === true : s.postimagesKey === true;
+  return `<div class="panel" style="margin-bottom:.75rem" data-storage-panel="1">
+    <div class="card-title">${esc(t("core.media.storageTitle", "Storage"))}</div>
+    <div class="muted text-sm" style="margin-bottom:.75rem">${esc(t("core.media.storageDesc", "Where new uploads go. This site only — files already in the library stay where they are."))}</div>
+    <div class="media-storage-grid" role="group" aria-label="${attr(t("core.media.storageTitle", "Storage"))}">${PROVIDERS.map(card).join("")}</div>
+    <div class="media-storage-keys">
+      ${keyField("imgbb", "cfpress.media.imgbb_key")}
+      ${keyField("postimages", "cfpress.media.postimages_key")}
+    </div>
+    <div style="margin-top:.75rem">
+      <button type="button" class="btn primary sm" data-storage-save="1">${esc(t("core.media.storageSave", "Save storage"))}</button>
+    </div>
+  </div>`;
+}
+
+async function saveStorage() {
+  // The provider falls back to what the server reports: saving only keys
+  // (without touching the choice) must keep the current provider, not reset
+  // it to r2.
+  const provider = pendingFor(state.site) ?? view.storage?.provider ?? "r2";
+  // Keys are write-only here: only non-empty inputs travel. An untouched
+  // (empty) field is omitted, and the server additionally preserves on empty —
+  // so saving the provider choice alone can never delete a stored key.
+  const keys = {};
+  for (const el of document.querySelectorAll("[data-storage-key]")) {
+    const v = String(el.value ?? "").trim();
+    if (v) keys[el.dataset.storageKey] = v;
+  }
+  try {
+    // Read-modify-write on the `cfpress.media` JSON: the blob also carries
+    // `isolation` / `require_session`, and a blind write of `{provider}` alone
+    // would silently drop the policy. Two admins racing here last-writer-wins;
+    // that is the same contract every other JSON-blob setting in this admin
+    // already has.
+    const d = await api(scoped("settings"));
+    const row = (d.items || []).find((x) => x.key === "cfpress.media");
+    let merged = {};
+    try { merged = row?.value ? JSON.parse(row.value) : {}; } catch { merged = {}; }
+    if (!merged || typeof merged !== "object" || Array.isArray(merged)) merged = {};
+    merged.provider = provider;
+    await api(scoped("settings"), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "cfpress.media", value: JSON.stringify(merged) }),
+    });
+    for (const [key, value] of Object.entries(keys)) {
+      await api(scoped("settings"), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, value }),
+      });
+    }
+    pendingProvider = null;
+    toast(t("core.media.storageSaved", "Storage saved"));
+    render();
+  } catch (err) {
+    toast(err.message || "Could not save storage", "error");
+  }
 }
 
 export default async function media(c) {
@@ -160,6 +266,7 @@ export default async function media(c) {
       ${filter("application/", t("core.media.filterDocuments", "Documents"))}
     </select>
   </div>
+  ${storagePanelHtml(view.storage)}
   <div id="media-drop" class="media-drop">
     <div class="media-drop-hint muted text-sm">${esc(t("core.media.dropHint", "Drop files here to upload"))}</div>
     ${mediaBodyHtml(view.items, info)}
@@ -220,6 +327,24 @@ async function uploadFiles(files) {
 // ---------------------------------------------------------------------------
 
 document.addEventListener("click", async (e) => {
+  // Storage choice: one panel, no form submit. The pending value lives in
+  // module state (see above), so this only flips the ring and the Save
+  // button — the write happens in `saveStorage()`.
+  const pick = e.target.closest("[data-storage-pick]");
+  if (pick) {
+    pendingProvider = { site: state.site, value: pick.dataset.storagePick };
+    document.querySelectorAll("[data-storage-pick]").forEach((b) => {
+      const on = b === pick;
+      b.classList.toggle("is-selected", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    const save = document.querySelector("[data-storage-save]");
+    if (save) save.disabled = false;
+    return;
+  }
+  const saveStorageBtn = e.target.closest("[data-storage-save]");
+  if (saveStorageBtn) { await saveStorage(); return; }
+
   // The upload tile is part of the grid, so it survives "load more" without a
   // rebind — a delegated click just presses the header's hidden input.
   const up = e.target.closest("[data-media-upload]");

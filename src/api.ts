@@ -31,6 +31,10 @@ import { defaultLocale } from "./platform/frontend";
 // Media access policy — the same module the front-end `/media/<key>` read path
 // uses, so the library a user can list is the library they can fetch.
 import { readMediaPolicy, mediaOwnerClause } from "./platform/media-policy";
+// Third-party image hosts: the upload half of the storage choice. This module
+// only speaks vendor APIs (bytes in, URLs out); the tenant check, the row and
+// the policy stay here, so no caller can upload without recording.
+import { mediaProviderOf, isMediaStorageProvider, remoteObjectKey, readMediaStorage, readMediaKeys, uploadToImgbb, uploadToPostimages, deleteRemoteImage, type MediaStorageProvider } from "./platform/media-hosts";
 import { invalidateThemeWorker } from "./extensions/theme/runtime-worker";
 import {applyThemeCapabilities, clearThemeCapabilities, listPostTypes, listTaxonomies, listRoutes, listThemeAdminMenus, listThemeBlocks, listFieldDefs, themeSettings, parseSettingOptions} from "./extensions/theme/capabilities";
 import {
@@ -786,7 +790,14 @@ function normaliseMenuCustom(b: unknown): { items: Record<string, unknown>; grou
 
 async function settings(env: Env, siteId: string) {
   const rows = await env.DB.prepare("SELECT key, value, autoload FROM settings WHERE site_id=? ORDER BY key").bind(siteId).all();
-  return ok({ items: rows.results, site: siteId });
+  // Sensitive values (today the two image-host API keys) are never echoed:
+  // every site member passes the read gate, and a key in many hands is quota
+  // abuse waiting to happen. The write path keeps a blank write (`setSetting`
+  // preserves on empty), so a redacted value round-trips safely through any
+  // form that saves what it displayed.
+  const items = ((rows.results as any[]) ?? []).map((r) =>
+    settingDef(String(r.key))?.sensitive ? { ...r, value: "" } : r);
+  return ok({ items, site: siteId });
 }
 
 /**
@@ -983,7 +994,11 @@ async function mediaList(env: Env, url: URL, siteId: string, userId: string) {
   ).bind(...binds, limit, offset).all();
   const total = await env.DB.prepare(`SELECT COUNT(*) AS count FROM media_files WHERE site_id = ?${tail}`)
     .bind(...binds).first<any>();
-  return ok({ items: rows.results, page, limit, total: total?.count ?? 0, isolation: policy.isolation, site: siteId });
+  // `storage` tells the Media screen where new uploads go and whether each
+  // vendor key is configured — as booleans, because the keys themselves must
+  // never leave the server. Additive: existing readers ignore unknown fields.
+  const storage = await readMediaStorage(env, siteId);
+  return ok({ items: rows.results, page, limit, total: total?.count ?? 0, isolation: policy.isolation, site: siteId, storage });
 }
 
 async function mediaUpload(env: Env, userId: string, request: Request, siteId: string) {
@@ -1000,23 +1015,74 @@ async function mediaUpload(env: Env, userId: string, request: Request, siteId: s
   if (file.size > 25 * 1024 * 1024) return ok({ error: "max file size is 25MB" }, 413);
   const id = await randomId();
   const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const key = `uploads/${siteId}/${new Date().toISOString().slice(0,10)}/${id}-${safe}`;
-  // The bytes go in as a buffer, not a `File.stream()`: a stream body is only
-  // consumed by whatever reads it, and the local R2 shim accepts the handle
-  // without draining it — the row then exists with no object behind it, and
-  // the read path answers 404 forever after. Buffering makes the write
-  // complete before the row claims it does.
-  const bytes = await file.arrayBuffer();
-  await env.MEDIA.put(key, bytes, {
-    httpMetadata: { contentType: file.type || "application/octet-stream", cacheControl: "public, max-age=31536000, immutable" }
-  });
+  // Where the bytes go is the site's `cfpress.media` → `provider`: "r2" when
+  // the site never chose (every existing install), anything else only when it
+  // names a real provider. A present-but-unknown value answers 400 rather
+  // than silently landing in R2 — the operator believes imgbb has the bytes,
+  // and "answered success, stored elsewhere" is the defect this file will not
+  // reintroduce.
+  let provider: MediaStorageProvider = "r2";
+  try {
+    const raw = await getSetting(env, siteId, "cfpress.media").catch(() => "{}");
+    const parsed = raw ? JSON.parse(String(raw)) : {};
+    const p = mediaProviderOf(parsed && typeof parsed === "object" ? parsed : {});
+    if (isMediaStorageProvider(p)) provider = p;
+    else return ok({ error: `unknown media provider "${p}" (use r2, imgbb or postimages)` }, 400);
+  } catch {
+    provider = "r2";
+  }
+  let key: string;
+  let remoteUrl: string | null = null;
+  let remoteDeleteUrl: string | null = null;
+  if (provider === "r2") {
+    key = `uploads/${siteId}/${new Date().toISOString().slice(0,10)}/${id}-${safe}`;
+    // The bytes go in as a buffer, not a `File.stream()`: a stream body is only
+    // consumed by whatever reads it, and the local R2 shim accepts the handle
+    // without draining it — the row then exists with no object behind it, and
+    // the read path answers 404 forever after. Buffering makes the write
+    // complete before the row claims it does.
+    const bytes = await file.arrayBuffer();
+    await env.MEDIA.put(key, bytes, {
+      httpMetadata: { contentType: file.type || "application/octet-stream", cacheControl: "public, max-age=31536000, immutable" }
+    });
+  } else {
+    // Remote rows keep a namespaced key (`uploads/{site}/remote/…`) so the
+    // tenant gate keeps answering from the key alone, and the content keeps
+    // storing `/media/<key>` URLs: the read path 302s to the vendor after the
+    // same policy decision, so the picker, the renderer and rule 60b need no
+    // new URL shape. The vendor answers first — a row is only inserted once
+    // there are bytes (a URL) to point at.
+    key = remoteObjectKey(siteId, provider, id, safe);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const input = { bytes, filename: file.name, mimeType: file.type || "application/octet-stream" };
+    // Effective keys: the site's own setting first, the install secret as
+    // fallback (`readMediaKeys`). Either layer empty still refuses below.
+    const keys = await readMediaKeys(env, siteId);
+    try {
+      const remote = provider === "imgbb"
+        ? await uploadToImgbb(input, { apiKey: keys.imgbb })
+        : await uploadToPostimages(input, { apiKey: keys.postimages });
+      remoteUrl = remote.url;
+      remoteDeleteUrl = remote.deleteUrl;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      // A missing key is operator configuration (400 with the fix attached);
+      // a vendor refusal is upstream (502 with their message, truncated).
+      // Log it server-side too: the UI toast shows the operator one failure,
+      // but only the log shows the *pattern* (every failure at 400-forbidden
+      // reads very differently from a mix of 429s and timeouts).
+      if (!/missing API key/.test(message)) console.error(`media remote upload refused: provider=${provider} site=${siteId}: ${message}`);
+      const missingKey = /missing API key/.test(message);
+      return ok({ error: missingKey ? message : `remote host refused the upload: ${message}` }, missingKey ? 400 : 502);
+    }
+  }
   // `uploaded_by` is what the owner axis reads. Leaving it NULL here would make
   // every new upload fall into the grandfathered "visible site-wide" bucket,
   // which is the opposite of what recording an owner is for.
   await env.DB.prepare(
-    "INSERT INTO media_files (id, site_id, object_key, filename, mime_type, size, alt_text, title, uploaded_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-  ).bind(id, siteId, key, file.name, file.type || "application/octet-stream", file.size, String(form.get("alt") ?? ""), String(form.get("title") ?? file.name), userId, now()).run();
-  await activity(env, userId, "upload", "media", id, { filename: file.name, size: file.size, siteId });
+    "INSERT INTO media_files (id, site_id, object_key, filename, mime_type, size, alt_text, title, uploaded_by, created_at, storage, remote_url, remote_delete_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(id, siteId, key, file.name, file.type || "application/octet-stream", file.size, String(form.get("alt") ?? ""), String(form.get("title") ?? file.name), userId, now(), provider, remoteUrl, remoteDeleteUrl).run();
+  await activity(env, userId, "upload", "media", id, { filename: file.name, size: file.size, siteId, storage: provider });
   return ok({ id, url: `/media/${encodeURIComponent(key)}`, site: siteId }, 201);
 }
 
@@ -1184,11 +1250,21 @@ async function mediaDelete(env: Env, userId: string, id: string, siteId: string)
   const found = await mediaRowForWrite(env, id, siteId, userId);
   if ("error" in found) return ok({ error: found.error }, found.error === "not_found" ? 404 : 403);
   const key = String(found.row.object_key ?? "");
-  try {
-    if (key) await env.MEDIA.delete(key);
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    return ok({ error: "object delete failed", detail: message }, 502);
+  const storage = String(found.row.storage ?? "r2");
+  if (storage !== "r2" && isMediaStorageProvider(storage)) {
+    // Remote bytes belong to the vendor: ask them to delete (best-effort —
+    // `deleteRemoteImage` never throws), skip the R2 delete (there is no
+    // object under this key), then drop the row either way. The row is ours;
+    // a down vendor must not veto the local delete.
+    const gone = await deleteRemoteImage(storage, found.row.remote_delete_url ?? null);
+    if (!gone) console.error(`media remote delete unconfirmed: provider=${storage} id=${id}`);
+  } else {
+    try {
+      if (key) await env.MEDIA.delete(key);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      return ok({ error: "object delete failed", detail: message }, 502);
+    }
   }
   await env.DB.prepare("DELETE FROM media_files WHERE id=? AND site_id=?").bind(id, siteId).run();
   await activity(env, userId, "delete", "media", id, { key, siteId });

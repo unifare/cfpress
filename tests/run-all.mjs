@@ -55,6 +55,11 @@ const suites = [
   // The one media control, and the loop it closes with the renderer: library
   // row → picker item → block attribute → real renderer markup.
   ["media picker", "suites/media-picker.test.mjs"],
+  // Third-party image hosts (imgbb, postimages.org): the provider contract
+  // against stubbed vendors, plus the full worker loop (refusals store
+  // nothing, happy paths record redirectable rows, deletes never touch R2).
+  // Runs next to the other media suites so the shared-fixture order holds.
+  ["media hosts (imgbb, postimages)", "suites/media-hosts.test.mjs"],
   // The block attribute contract, walked end to end: declaration → the control
   // the editor draws → the key it writes → the markup the real renderer
   // produces. Six of twelve block types used to render empty at HTTP 200.

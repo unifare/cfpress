@@ -69,6 +69,7 @@ const SHARED_D1_SUITES = [
   "i18n",
   "locale-url",
   "media",
+  "media-hosts",
   "menu-custom",
   "multisite",
   "plugin-channels",

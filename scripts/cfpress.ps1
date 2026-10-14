@@ -331,6 +331,7 @@ $Script:Suites = [ordered]@{
     'admin-contract'     = 'tests/suites/admin-contract.test.mjs'
     'media'              = 'tests/suites/media.test.mjs'
     'media-picker'       = 'tests/suites/media-picker.test.mjs'
+    'media-hosts'        = 'tests/suites/media-hosts.test.mjs'
     'editor-blocks'      = 'tests/suites/editor-blocks.test.mjs'
     'account'            = 'tests/suites/account.test.mjs'
     'menu-custom'        = 'tests/suites/menu-custom.test.mjs'

@@ -89,12 +89,25 @@ export async function getSetting(
 /**
  * Write one site-scoped setting. Rejects an undeclared key, and refuses to
  * write a `platform`-scoped key here — that would silently make it per site.
+ *
+ * Sensitive keys (`sensitive: true`, today the two image-host API keys) have
+ * write-keep semantics: the read path never echoes them back (a placeholder
+ * is shown instead), so a form round-trip arrives here with `""` meaning "I
+ * never saw it". Overwriting the stored secret with that blank would delete
+ * the key the moment anyone saves an unrelated setting on the same screen —
+ * so an empty write to a sensitive key keeps the stored value. To *clear* a
+ * key, delete its row (there is deliberately no "clear" spelling: an explicit
+ * delete is auditable, a blank string is ambiguous).
  */
 export async function setSetting(env: Env, siteId: string, key: string, value: string | null): Promise<void> {
   const def = settingDef(key);
   if (!def) throw new Error(`undeclared setting key: ${key}`);
   if (def.scope !== "site") throw new Error(`setting ${key} is ${def.scope}-scoped, not site-scoped`);
 
+  if (def.sensitive && (value === null || String(value) === "")) {
+    const existing = await env.DB.prepare("SELECT id FROM settings WHERE site_id=? AND key=?").bind(siteId, key).first<any>();
+    if (existing) return;
+  }
   // Match on the **business key**, never on `id`: seeded rows can carry a NULL
   // id (a migration's bare INSERT), and `UPDATE … WHERE id=NULL` affects zero
   // rows without raising — so the write answers 200 and changes nothing. That

@@ -1,7 +1,7 @@
 import{Env}from "./shared/types";import{handleApi,handleFrontApi,maybeSeedDemoContent}from "./api";import{findContent,contentAlternates,siteInfo,locales,defaultLocale}from "./platform/frontend";import{robots,sitemap,feed}from "./platform/seo";import{seedBundledExtensions,bootPluginRuntime,doAction,applyFilters,renderShortcodes}from "./extensions/plugin/runtime";import{setPluginTableSync}from "./extensions/plugin/menus";import{syncOwnerTables}from "./extensions/theme/tables";import{setHostHooks}from "./extensions/contract/hooks";import{renderThemePage,runThemeQuery,activeTheme,type ThemeRenderOptions}from "./extensions/theme/runtime-declarative";import{tryRenderWithThemeWorker,handleThemeApi}from "./extensions/theme/runtime-worker";import{processScheduled}from "./shared/scheduler";import{resolveSite,siteListMemo,listSites,resetSiteListMemo}from "./platform/sites";
 // The media read path's three gates (tenant / session / owner) live in one
 // module so this route and the admin media API cannot answer differently.
-import{currentUser,loginRequest}from "./platform/auth";import{adminPath,resetAdminPathMemo}from "./platform/settings";import{readMediaPolicy,mediaReadDecision}from "./platform/media-policy";import{listRoutes,findPostTypeBySlug,listPostTypes}from "./extensions/theme/capabilities";
+import{currentUser,loginRequest}from "./platform/auth";import{adminPath,resetAdminPathMemo}from "./platform/settings";import{readMediaPolicy,mediaReadDecision}from "./platform/media-policy";import{isRemoteObjectKey}from "./platform/media-hosts";import{listRoutes,findPostTypeBySlug,listPostTypes}from "./extensions/theme/capabilities";
 // Rule 4 forbids `plugin/` from importing `theme/`, so the bundled-theme
 // seeder cannot install what it registers. This module is the one place
 // allowed to know both layers, so the boot sequence chains them: register the
@@ -84,6 +84,19 @@ async function media(env:Env,request:Request,path:string,siteId:string){
  const user=needUser?await currentUser(env,request).catch(()=>null):null;
  const decision=await mediaReadDecision(env,siteId,key,user?.id??null,policy);
  if(!decision.allow)return new Response("Not found",{status:404});
+ // Third-party bytes: the row (not R2) knows the vendor URL. The redirect
+ // happens *after* the same three gates above, so a remote file is exactly
+ // as reachable as an R2 file — no more, no less (rule 60b). Only remote
+ // keys pay for the row lookup; the R2 hot path below is untouched.
+ if(isRemoteObjectKey(key,siteId)){
+ const row=await env.DB.prepare("SELECT remote_url FROM media_files WHERE site_id=? AND object_key=? LIMIT 1").bind(siteId,key).first<any>();
+ const target=String(row?.remote_url??"");
+ // Never redirect to a non-https target: the column is written from vendor
+ // responses, and an open redirector here would launder any URL through
+ // this install's domain.
+ if(!/^https:\/\//.test(target))return new Response("Not found",{status:404});
+ return new Response(null,{status:302,headers:{Location:target,"Cache-Control":"public, max-age=3600"}});
+ }
  const o=await env.MEDIA.get(key);
  if(!o)return new Response("Not found",{status:404});
  const h=new Headers();o.writeHttpMetadata(h);h.set("ETag",o.httpEtag);

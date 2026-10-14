@@ -45,6 +45,7 @@ const POLICY = join(ROOT, "src/platform/media-policy.ts");
 const API = join(ROOT, "src/api.ts");
 const INDEX = join(ROOT, "src/index.ts");
 const MEDIA_SUITE = "tests/suites/media.test.mjs";
+const MEDIA_HOSTS_SUITE = "tests/suites/media-hosts.test.mjs";
 const ARCH_SUITE = "tests/suites/architecture.test.mjs";
 
 /**
@@ -83,8 +84,8 @@ const SCENARIOS = [
   {
     label: "an upload stops recording who uploaded it",
     file: API,
-    before: ['String(form.get("title") ?? file.name), userId, now()).run();'],
-    after: ['String(form.get("title") ?? file.name), null, now()).run();'],
+    before: ['String(form.get("title") ?? file.name), userId, now(), provider, remoteUrl, remoteDeleteUrl).run();'],
+    after: ['String(form.get("title") ?? file.name), null, now(), provider, remoteUrl, remoteDeleteUrl).run();'],
     runs: [[MEDIA_SUITE, "row carries the uploader (not NULL)"]],
   },
   {
@@ -93,6 +94,20 @@ const SCENARIOS = [
     before: ["    if (key) await env.MEDIA.delete(key);\n"],
     after: ["    if (key) { /* injected: object left behind */ }\n"],
     runs: [[MEDIA_SUITE, "and so is the object"]],
+  },
+  {
+    label: "the remote redirect stops checking the target scheme",
+    file: INDEX,
+    before: [' if(!/^https:\\/\\//.test(target))return new Response("Not found",{status:404});\n'],
+    after: ["\n"],
+    runs: [[MEDIA_HOSTS_SUITE, "a non-https target is a 404, never a redirect"]],
+  },
+  {
+    label: "an unknown provider silently falls back to R2",
+    file: API,
+    before: ['    else return ok({ error: `unknown media provider "${p}" (use r2, imgbb or postimages)` }, 400);\n'],
+    after: ['    else provider = "r2";\n'],
+    runs: [[MEDIA_HOSTS_SUITE, "unknown provider is a 400, not a silent R2 upload"]],
   },
   {
     // The original defect, put back: a media branch matched above site

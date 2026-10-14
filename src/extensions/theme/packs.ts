@@ -19,6 +19,7 @@ import { Env } from "../../shared/types";
 import { parsePack, type Pack } from "../../platform/i18n/translate";
 import { activeTheme, themeFilePrefix } from "./runtime-declarative";
 import { bundledThemeFile } from "../../shared/bundled";
+import { mediaStoreGet } from "../../shared/media-store";
 
 /** R2 key holding a theme version's pack for `locale`. */
 export function themePackKey(theme: { name: string; version: string }, locale: string): string {
@@ -28,7 +29,7 @@ export function themePackKey(theme: { name: string; version: string }, locale: s
 export async function themePackProvider(env: Env, siteId: string, locale: string): Promise<Pack | null> {
   const theme = await activeTheme(env, siteId);
   if (!theme?.name) return null;
-  const obj = await env.MEDIA.get(themePackKey(theme, locale));
+  const obj = await mediaStoreGet(env, themePackKey(theme, locale));
   // Uploaded themes keep their pack in R2; bundled themes ship `langs/` inside
   // the worker assets (same two-source rule as template loading).
   const raw = obj ? await obj.text() : await bundledThemeFile(env, theme.name, `langs/${locale}.json`);

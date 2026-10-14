@@ -56,17 +56,30 @@ async function section(title, fn) {
   }
 }
 
-async function compileWorker() {
+/**
+ * Bundle one entry point and import it.
+ *
+ * Parameterised rather than hard-coded to `src/index.ts` because section 11
+ * needs `shared/media-store.ts` on its own: the contract being pinned there —
+ * "a missing bucket reads as an empty store, not as a throw" — is invisible from
+ * the outside wherever a caller has a fallback, which is every caller on the
+ * render path.
+ */
+async function compileEntry(rel) {
   const esbuild = require("esbuild");
   const out = await esbuild.build({
-    entryPoints: [join(root, "src/index.ts")],
+    entryPoints: [join(root, rel)],
     bundle: true, format: "esm", target: "es2022", write: false,
     platform: "neutral", external: ["cloudflare:workers"], logLevel: "silent",
   });
-  const tmp = join(root, ".wrangler", "media-bundle.mjs");
+  const tmp = join(root, ".wrangler", `bundle-${rel.replace(/[^A-Za-z0-9]/g, "_")}.mjs`);
   mkdirSync(dirname(tmp), { recursive: true });
   writeFileSync(tmp, out.outputFiles[0].text);
   return import(pathToFileURL(tmp).href + "?t=" + Date.now());
+}
+
+async function compileWorker() {
+  return compileEntry("src/index.ts");
 }
 
 function makeD1(sqlite) {
@@ -461,6 +474,78 @@ async function main() {
     check("and still refuses a non-owner", (await readMedia(key, HOST_A, editorCookie)).status, 404);
     check("while the owner is unaffected", (await readMedia(key, HOST_A, adminCookie)).status, 200);
     sqlite.exec(`DELETE FROM settings WHERE site_id='${SITE_A}' AND key LIKE '${POLICY_KEY}%'`);
+  });
+
+  // -------------------------------------------------------------------------
+  // Section 11 guards the *deployment* shape, not a media rule.
+  //
+  // `MEDIA` is optional in `Env`, and every R2 access goes through
+  // `shared/media-store.ts`. Before that it was required, and a deploy which
+  // omitted the bucket answered `1101` on every page: `env.MEDIA.get(...)` threw
+  // inside template loading, above the assets fallback that exists precisely to
+  // make "nothing was ever uploaded" work. No suite noticed, because every suite
+  // builds its env with `makeR2()` — the absent binding was unrepresentable in
+  // the harness, which is why the failure only ever appeared in production.
+  // -------------------------------------------------------------------------
+  await section("11. a deploy with no R2 bucket renders, and refuses to store", async () => {
+    // 11a — the helper contract, asserted directly. The render path cannot show
+    // it: every one of its callers has a fallback, so once the callers are
+    // fixed a throw and an empty store both end in a rendered page. The
+    // difference only exists at this layer.
+    const store = await compileEntry("src/shared/media-store.ts");
+    const bucketless = makeEnv(sqlite);
+    delete bucketless.MEDIA;
+
+    check("hasMediaStore is false with no binding", store.hasMediaStore(bucketless), false);
+    check("reading a key is null, not a throw", await store.mediaStoreGet(bucketless, "uploads/x/y.png"), null);
+    check("listing is empty, not a throw", (await store.mediaStoreList(bucketless)).objects.length, 0);
+    let deleteThrew = false;
+    try { await store.mediaStoreDelete(bucketless, "uploads/x/y.png"); } catch { deleteThrew = true; }
+    check("deleting is a no-op, not a throw", deleteThrew, false);
+    let putError = null;
+    try { await store.mediaStorePut(bucketless, "uploads/x/y.png", new Uint8Array([1])); }
+    catch (e) { putError = e; }
+    check("writing refuses, and says which binding is missing",
+      [putError?.name, String(putError?.message).includes("R2 `MEDIA` binding")],
+      ["MediaStoreUnavailable", true]);
+
+    // 11b — the same bucketless env through the real Worker. This is the shape
+    // the production deploy actually had, and the page is what was 1101.
+    const reqNoBucket = (path, init = {}, host = "localhost") =>
+      worker.fetch(new Request(`http://${host}${path}`, init), bucketless, { waitUntil() {}, passThroughOnException() {} });
+
+    // A thrown exception is reported as data rather than allowed to abort the
+    // section. Without this the guard for a throwing render path reads as
+    // "section 11 threw", which names no assertion and hides every check below
+    // it — and a throwing render path is exactly the defect being guarded.
+    const attempt = async (path, init = {}) => {
+      try {
+        const r = await reqNoBucket(path, init, HOST_A);
+        return { status: r.status, body: await r.text() };
+      } catch (e) {
+        return { status: 0, body: "", threw: String((e && e.message) || e) };
+      }
+    };
+
+    const home = await attempt("/");
+    check("the front page does not throw out of fetch", home.threw ?? null, null);
+    check("the front page still renders", home.status, 200);
+    check("and it is a page, not a Worker exception", /<!doctype html/i.test(home.body), true);
+    check("with no 1101 anywhere in it", /error code: 1101/.test(home.body), false);
+
+    // Storing is the case that genuinely needs the bucket, and it has to name
+    // the missing binding rather than surface a TypeError as a 500.
+    const fd = new FormData();
+    fd.append("file", new File([new Uint8Array([137, 80, 78, 71])], "no-bucket.png", { type: "image/png" }));
+    const up = await attempt(`/api/v1/media?site=${SITE_A}`, { method: "POST", headers: { Cookie: adminCookie }, body: fd });
+    check("an upload without a bucket is refused with 503", up.status, 503);
+    check("and the refusal names the missing binding",
+      String(up.body).includes("R2 `MEDIA` binding"), true);
+
+    // The read door cannot become a 200 (nowhere for an object to have come
+    // from) and must not become a 500.
+    const read = await attempt(`/media/${encodeURIComponent(`uploads/${SITE_A}/2026-01-01/none.png`)}`);
+    check("and the media read path answers 404, not 500", read.status, 404);
   });
 
   console.log(`\n${pass} passed, ${fail} failed`);

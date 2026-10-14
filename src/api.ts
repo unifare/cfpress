@@ -14,6 +14,7 @@ import { createRevision, autosave } from "./platform/revisions";
 import { requirePermission, can, accessibleSiteIds, SITE_ROLES, SUPERADMIN_ROLE } from "./platform/permissions";
 import { bumpContentCache } from "./shared/cache";
 import { BUNDLED_THEMES } from "./shared/bundled";
+import { hasMediaStore, MEDIA_UNAVAILABLE, mediaStorePut, mediaStoreDelete, mediaStoreList } from "./shared/media-store";
 import { featureSnapshot, inheritedValue, truthy, FEATURE_SETTINGS_KEY, FEATURE_SWITCHES, type FeatureSwitch } from "./shared/features";
 import { DEMO_CONTENTS, DEMO_LOCALES, DEMO_RESET_STAMP, DEMO_SEED_STAMP } from "./shared/demo-content";
 import { clearOwnerMenusAllSites, listAdminMenuGroups } from "./platform/admin-menus";
@@ -674,6 +675,9 @@ async function postMetaRows(env: Env, postId: string): Promise<{ post_id: string
 }
 
 async function uploadExtension(env:Env,userId:string,request:Request,type:"plugin"|"theme"){
+  // Checked before the form is read, so a bucketless deploy does not spend a
+  // 20MB unzip finding out that there is nowhere to put the result.
+  if(!hasMediaStore(env))return ok({error:MEDIA_UNAVAILABLE},503);
   const form=await request.formData();
   const file=form.get("file");
   if(!(file instanceof File))return ok({error:"file required"},400);
@@ -695,14 +699,14 @@ async function uploadExtension(env:Env,userId:string,request:Request,type:"plugi
   if(type==="theme"&&(BUNDLED_THEMES as readonly string[]).includes(String(meta.name)))return ok({error:`"${meta.name}" ships with the product; upload your variant under a different name`},400);
   const checksum=await sha256(await file.arrayBuffer());
   const packageKey=`extensions/${type}s/${meta.name}/${meta.version}/${checksum}.zip`;
-  await env.MEDIA.put(packageKey,file.stream(),{httpMetadata:{contentType:"application/zip",cacheControl:"private, max-age=0"},customMetadata:{type,name:meta.name,version:meta.version}});
+  await mediaStorePut(env,packageKey,file.stream(),{httpMetadata:{contentType:"application/zip",cacheControl:"private, max-age=0"},customMetadata:{type,name:meta.name,version:meta.version}});
   if(type==="theme") {
     for(const [entry,bytes] of entries) {
       if(entry.endsWith("/") || entry.length>200) continue;
       const normalized=entry.replace(/^\.\//,"");
       const key=`extensions/themes/${meta.name}/${meta.version}/files/${normalized}`;
       const contentType=normalized.endsWith(".html")?"text/html;charset=UTF-8":normalized.endsWith(".css")?"text/css;charset=UTF-8":normalized.endsWith(".json")?"application/json":normalized.endsWith(".js")?"text/javascript;charset=UTF-8":"application/octet-stream";
-      await env.MEDIA.put(key,bytes,{httpMetadata:{contentType,cacheControl:"public,max-age=300"}});
+      await mediaStorePut(env,key,bytes,{httpMetadata:{contentType,cacheControl:"public,max-age=300"}});
     }
   }
   const nowTs=now();
@@ -1076,6 +1080,9 @@ async function mediaList(env: Env, url: URL, siteId: string, userId: string) {
 }
 
 async function mediaUpload(env: Env, userId: string, request: Request, siteId: string) {
+  // Before the form is read and before the site is resolved: with nowhere to
+  // put the bytes, neither the tenant nor the payload can change the answer.
+  if (!hasMediaStore(env)) return ok({ error: MEDIA_UNAVAILABLE }, 503);
   // The tenant a file is filed under comes from `?site=`, which the client
   // controls and `requestSiteId()` only shape-checks. A write is the one place
   // that mints a tenant, so it is the one place that must confirm the site
@@ -1096,7 +1103,7 @@ async function mediaUpload(env: Env, userId: string, request: Request, siteId: s
   // the read path answers 404 forever after. Buffering makes the write
   // complete before the row claims it does.
   const bytes = await file.arrayBuffer();
-  await env.MEDIA.put(key, bytes, {
+  await mediaStorePut(env, key, bytes, {
     httpMetadata: { contentType: file.type || "application/octet-stream", cacheControl: "public, max-age=31536000, immutable" }
   });
   // `uploaded_by` is what the owner axis reads. Leaving it NULL here would make
@@ -1232,8 +1239,8 @@ async function uninstallTheme(env: Env, userId: string, name: string, force: boo
   let files=0;
   let cursor: string|undefined;
   do {
-    const list=await env.MEDIA.list({prefix:`extensions/themes/${name}/`,cursor});
-    for(const o of list.objects){ await env.MEDIA.delete(o.key).catch(()=>{}); files++; }
+    const list=await mediaStoreList(env,{prefix:`extensions/themes/${name}/`,cursor});
+    for(const o of list.objects){ await mediaStoreDelete(env,o.key).catch(()=>{}); files++; }
     cursor=list.truncated?list.cursor:undefined;
   } while(cursor);
 
@@ -1274,7 +1281,7 @@ async function mediaDelete(env: Env, userId: string, id: string, siteId: string)
   if ("error" in found) return ok({ error: found.error }, found.error === "not_found" ? 404 : 403);
   const key = String(found.row.object_key ?? "");
   try {
-    if (key) await env.MEDIA.delete(key);
+    if (key) await mediaStoreDelete(env, key);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return ok({ error: "object delete failed", detail: message }, 502);

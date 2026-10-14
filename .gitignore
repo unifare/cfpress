@@ -39,6 +39,10 @@ wrangler.ids.json
 # name that belongs to a particular deployment rather than to the project.
 wrangler.demo.jsonc
 
+# The same, for the second account's demo. One file per deployment target; the
+# glob keeps this list from growing a line every time a demo is stood up.
+wrangler.acct*.jsonc
+
 # Editor / OS noise
 .vscode/
 .idea/

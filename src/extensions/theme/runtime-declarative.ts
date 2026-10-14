@@ -9,6 +9,7 @@
  */
 import { Env } from "../../shared/types";
 import { bundledThemeFile } from "../../shared/bundled";
+import { mediaStoreGet } from "../../shared/media-store";
 import { esc, setting, siteInfo, menusForLocation, widgetGroups, locales, renderBlocks, formatDate, coverFrom, langNav, defaultLocale, readingTime } from "../../platform/frontend";
 import { resolveMetaByPost } from "../../platform/post-meta";
 import { parsePack } from "../../platform/i18n/translate";
@@ -157,7 +158,7 @@ export async function activeTheme(env: Env, siteId: string): Promise<ActiveTheme
     ).all<any>();
     for (const c of (candidates.results as any[]) ?? []) {
       const probe = `extensions/themes/${c.name}/${c.version}/files/templates/index.html`;
-      const obj = await env.MEDIA.get(probe);
+      const obj = await mediaStoreGet(env, probe);
       // Bundled themes have no R2 package at all — their index.html ships in
       // the worker assets. Probing both keeps "can really render" true on a
       // fresh install where nothing was ever uploaded to R2.
@@ -212,7 +213,7 @@ export async function loadThemeTemplate(
 ): Promise<string | null> {
   if (cache?.has(name)) return cache.get(name)!;
   const key = `${themeFilePrefix(theme)}/templates/${name}.html`;
-  const obj = await env.MEDIA.get(key);
+  const obj = await mediaStoreGet(env, key);
   // R2 only ever holds uploaded themes; a bundled theme's files ship inside
   // the worker assets, so a miss here is normal for them, not an error.
   const text = obj ? await obj.text() : await bundledThemeFile(env, theme.name, `templates/${name}.html`);
@@ -510,7 +511,7 @@ function nestThemeStrings(messages: Record<string, string>, themeName: string): 
 
 async function loadThemeStrings(env: Env, theme: ActiveTheme, locale: string): Promise<Record<string, unknown>> {
   try {
-    const obj = await env.MEDIA.get(themePackKey(theme as any, locale));
+    const obj = await mediaStoreGet(env, themePackKey(theme as any, locale));
     // Same two-source rule as templates: uploaded themes live in R2, bundled
     // themes ship their `langs/` inside the worker assets.
     const raw = obj ? await obj.text() : await bundledThemeFile(env, theme.name, `langs/${locale}.json`);

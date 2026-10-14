@@ -90,7 +90,7 @@ const SCENARIOS = [
   {
     label: "delete removes the row but leaves the bytes in R2",
     file: API,
-    before: ["    if (key) await env.MEDIA.delete(key);\n"],
+    before: ["    if (key) await mediaStoreDelete(env, key);\n"],
     after: ["    if (key) { /* injected: object left behind */ }\n"],
     runs: [[MEDIA_SUITE, "and so is the object"]],
   },

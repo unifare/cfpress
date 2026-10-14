@@ -15,6 +15,9 @@ import{resolveLocale,langFromUrl,langFromCookie,langCookie}from "./platform/i18n
 // generated admin list cannot disagree about which physical table a logical
 // name means — see the comment on it in `table-facade.ts`.
 import{resolveTableForSite,tableBySlug,tableById,tableList}from "./extensions/theme/table-facade";
+// R2 is read through this helper, never `env.MEDIA.…` directly: the binding is
+// optional and a direct call throws when it is absent. See `media-store.ts`.
+import{mediaStoreGet}from "./shared/media-store";
 
 let booted=false;
 
@@ -140,7 +143,7 @@ async function media(env:Env,request:Request,path:string,siteId:string){
  const user=needUser?await currentUser(env,request).catch(()=>null):null;
  const decision=await mediaReadDecision(env,siteId,key,user?.id??null,policy);
  if(!decision.allow)return new Response("Not found",{status:404});
- const o=await env.MEDIA.get(key);
+ const o=await mediaStoreGet(env,key);
  if(!o)return new Response("Not found",{status:404});
  const h=new Headers();o.writeHttpMetadata(h);h.set("ETag",o.httpEtag);
  return new Response(o.body,{headers:h});

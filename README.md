@@ -106,6 +106,13 @@ no paid binding is required, and the one optional capability that needs a paid p
 when absent. A free-plan deploy is a working CMS that declines that one theme flavour —
 not a broken one.
 
+The same holds one layer down. R2 is where uploaded media and uploaded themes live, and a
+deploy that omits the bucket still renders — a bundled theme reads its templates and its
+strings from the worker assets, so `MEDIA` is optional and a bucketless install is a CMS
+with an empty media library rather than one that answers `1101` on every page. Uploading
+is the part that genuinely needs the bucket, and it is refused with a `503` that names
+the binding instead of failing obscurely.
+
 ---
 
 ## Quick start

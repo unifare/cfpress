@@ -1,6 +1,17 @@
 export interface Env {
   DB: D1Database;
-  MEDIA: R2Bucket;
+  /**
+   * Object storage for the media library and for uploaded themes/plugins.
+   *
+   * Optional, and read through `shared/media-store.ts` rather than directly.
+   * `wrangler.jsonc` declares it, so every normal install has one — but the
+   * render path does not need it: a bundled theme's files come from `ASSETS`,
+   * and `activeTheme` probes both sources. Declaring it required made the whole
+   * site answer `1101` on a deploy that omitted the bucket, for a capability the
+   * renderer never used. Uploads are the part that genuinely needs it, and they
+   * fail with a named error rather than a TypeError.
+   */
+  MEDIA?: R2Bucket;
   CACHE: KVNamespace;
   ASSETS: Fetcher;
   /** Worker Loader — loads L3 theme Workers at runtime. Optional: absent on

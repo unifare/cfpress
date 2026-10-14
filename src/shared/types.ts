@@ -1,6 +1,14 @@
 export interface Env {
   DB: D1Database;
-  MEDIA: R2Bucket;
+  /**
+   * This install's object bucket. **Optional**: an install without R2 serves
+   * third-party-hosted media and bundled themes only. Every reader already
+   * treats a miss as "fall through to the next source" (bundled assets), so
+   * `?.` slots into the existing shape — but every *writer* must refuse
+   * loudly instead (see `mediaUpload` / `uploadExtension`): silently dropping
+   * bytes the row claims exist is the defect this repo keeps paying for.
+   */
+  MEDIA?: R2Bucket;
   CACHE: KVNamespace;
   ASSETS: Fetcher;
   /** Worker Loader — loads L3 theme Workers at runtime. Optional: absent on

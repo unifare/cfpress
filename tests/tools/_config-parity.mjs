@@ -45,6 +45,8 @@
  * Usage: node tests/tools/_config-parity.mjs
  */
 import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   IDS_PATH,
   LOCAL_PATH,
@@ -52,7 +54,10 @@ import {
   placeholdersIn,
   readIds,
   renderLocalConfig,
+  renderNoR2Config,
 } from "../../scripts/make-local-config.mjs";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 let pass = 0;
 let fail = 0;
@@ -170,6 +175,36 @@ check(
   Object.keys(template).sort()
 );
 
+// -- 6. the R2-less variant, when present --------------------------------------
+// `wrangler.demo.jsonc` is opt-in (only installs without an R2 subscription
+// generate it), so absence is n/a — never a pass, same discipline as §2. When
+// present it must be exactly what `--no-r2` derives: a hand-maintained second
+// config is the drift this whole tool exists to prevent.
+const DEMO_PATH = join(ROOT, "wrangler.demo.jsonc");
+if (existsSync(DEMO_PATH)) {
+  let demoRendered = null;
+  try {
+    demoRendered = renderNoR2Config(templateSrc, ids);
+  } catch (e) {
+    demoRendered = `<generation failed: ${e.message}>`;
+  }
+  check(
+    "wrangler.demo.jsonc is exactly what --no-r2 derives",
+    readFileSync(DEMO_PATH, "utf8") === demoRendered,
+    true
+  );
+  if (typeof demoRendered === "string" && !demoRendered.startsWith("<generation")) {
+    const demo = JSON.parse(demoRendered.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, ""));
+    check("the R2-less variant carries no r2_buckets block", "r2_buckets" in demo, false);
+    check(
+      "the R2-less variant keeps every other top-level key",
+      Object.keys(demo).sort(),
+      Object.keys(template).filter((k) => k !== "r2_buckets").sort()
+    );
+  }
+} else {
+  console.log("  n/a  wrangler.demo.jsonc is absent — no R2-less variant to compare");
+}
 console.log("");
 console.log(`${pass} passed, ${fail} failed`);
 if (fail) {

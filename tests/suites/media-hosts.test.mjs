@@ -420,6 +420,42 @@ async function main() {
     check("bytes served, not redirected", hit.status, 200);
   });
 
+  await section("15. without an R2 binding the install still works", async () => {
+    // The demo install has no R2 subscription: delete the binding the way a
+    // binding-less deploy does (the field is optional on Env), and prove the
+    // remote paths never touch it while the R2 paths refuse legibly.
+    const r2 = env.MEDIA;
+    delete env.MEDIA;
+    try {
+      await setProvider(SITE_A, {});
+      const r2up = await upload(SITE_A, "no-bucket.png");
+      check("r2 upload without a binding is a 400, not a TypeError 500", r2up.status, 400);
+      checkTruthy("naming the remedy", String(r2up.body.error || "").includes("imgbb"));
+      await setProvider(SITE_A, { provider: "imgbb" });
+      env.IMGBB_API_KEY = "test-key";
+      const r = await withStubFetch(imgbbOkStub([]), () => upload(SITE_A, "nobucket-remote.png"));
+      check("remote upload needs no bucket", r.status, 201);
+      const key = decodeURIComponent(r.body.url.slice("/media/".length));
+      const hit = await readMedia(key, HOST_A, adminCookie());
+      check("remote reads redirect with no bucket", hit.status, 302);
+      const del = await req(`/api/v1/media/${r.body.id}?site=${SITE_A}`, { method: "DELETE", headers: { Cookie: adminCookie() } });
+      check("remote delete works with no bucket", del.status, 200);
+      // A well-formed theme zip, so the request survives validation and dies
+      // exactly at the missing bucket (an empty body would 500 in formData
+      // instead, proving nothing about the guard).
+      const { zipSync } = require("fflate");
+      const zip = zipSync({ "theme.json": new TextEncoder().encode(JSON.stringify({ name: "no-r2-theme", title: "No R2", version: "1.0.0" })) });
+      const zfd = new FormData();
+      zfd.append("file", new File([zip], "no-r2-theme.zip", { type: "application/zip" }));
+      const ext = await req(`/api/v1/extensions/themes/upload?site=${SITE_A}`, { method: "POST", headers: { Cookie: adminCookie() }, body: zfd });
+      check("extension upload refuses legibly without a bucket", ext.status, 400);
+    } finally {
+      env.MEDIA = r2;
+      delete env.IMGBB_API_KEY;
+      await setProvider(SITE_A, {});
+    }
+  });
+
   await section("13. site keys win, are never echoed, and survive empty writes", async () => {
     await setProvider(SITE_A, { provider: "imgbb" });
     // No env keys in this suite's stub env: the site key alone must suffice.

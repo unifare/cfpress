@@ -608,6 +608,11 @@ async function uploadExtension(env:Env,userId:string,request:Request,type:"plugi
   // the upload had won. Refuse rather than pretend — the fork should ship under
   // its own name.
   if(type==="theme"&&(BUNDLED_THEMES as readonly string[]).includes(String(meta.name)))return ok({error:`"${meta.name}" ships with the product; upload your variant under a different name`},400);
+  // Extension packages live in R2, full stop: there is no third-party host
+  // for them (unlike media library files). Without a binding there is nowhere
+  // to put the bytes, so refuse with the remedy instead of recording an
+  // install whose files do not exist.
+  if(!env.MEDIA)return ok({error:"R2 is not configured on this install — extension upload needs it (media library uploads can use imgbb/postimages instead)"},400);
   const checksum=await sha256(await file.arrayBuffer());
   const packageKey=`extensions/${type}s/${meta.name}/${meta.version}/${checksum}.zip`;
   await env.MEDIA.put(packageKey,file.stream(),{httpMetadata:{contentType:"application/zip",cacheControl:"private, max-age=0"},customMetadata:{type,name:meta.name,version:meta.version}});
@@ -1035,6 +1040,11 @@ async function mediaUpload(env: Env, userId: string, request: Request, siteId: s
   let remoteUrl: string | null = null;
   let remoteDeleteUrl: string | null = null;
   if (provider === "r2") {
+    // Without an R2 binding this branch has nowhere to put bytes: refuse with
+    // the remedy attached, instead of inserting a row that points at nothing
+    // (or throwing a TypeError off an undefined binding, which the error
+    // wrapper would report as an opaque 500).
+    if (!env.MEDIA) return ok({ error: "R2 is not configured on this install — pick imgbb or postimages on the Media screen, or enable R2" }, 400);
     key = `uploads/${siteId}/${new Date().toISOString().slice(0,10)}/${id}-${safe}`;
     // The bytes go in as a buffer, not a `File.stream()`: a stream body is only
     // consumed by whatever reads it, and the local R2 shim accepts the handle
@@ -1205,14 +1215,17 @@ async function uninstallTheme(env: Env, userId: string, name: string, force: boo
 
   // R2 files: every version, not only the installed one — re-uploading a theme
   // leaves the previous version's prefix behind, and an uninstall that keeps
-  // those bytes is a leak nobody can list.
+  // those bytes is a leak nobody can list. Without a binding there is nothing
+  // to list, so the loop below is skipped whole (not half-guarded per key).
   let files=0;
   let cursor: string|undefined;
+  if(env.MEDIA){
   do {
     const list=await env.MEDIA.list({prefix:`extensions/themes/${name}/`,cursor});
     for(const o of list.objects){ await env.MEDIA.delete(o.key).catch(()=>{}); files++; }
     cursor=list.truncated?list.cursor:undefined;
   } while(cursor);
+  }
 
   await env.DB.prepare("DELETE FROM theme_installs WHERE name=?").bind(name).run();
   invalidateThemeWorker(env,name);
@@ -1260,7 +1273,9 @@ async function mediaDelete(env: Env, userId: string, id: string, siteId: string)
     if (!gone) console.error(`media remote delete unconfirmed: provider=${storage} id=${id}`);
   } else {
     try {
-      if (key) await env.MEDIA.delete(key);
+      // No R2 here either: without a binding there are no bytes to strand,
+      // so the row delete below is the whole delete (and must not throw).
+      if (key) await env.MEDIA?.delete(key);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       return ok({ error: "object delete failed", detail: message }, 502);

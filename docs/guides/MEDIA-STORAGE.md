@@ -103,3 +103,21 @@ node tests/tools/_media-inject.mjs       # 9 场景含新增的两条
 
 密钥只在媒体屏输入框（写进 site settings，读永脱敏）/ 本地 `.dev.vars` /
 线上 secret 里出现；任何测试都不需要真 key（厂商一侧全用桩）。
+
+## 7. 部署到没有 R2 的账户（`--no-r2`）
+
+R2 在代码里是可选绑定（`MEDIA?`）：读不到就 404，写（媒体 R2 分支、
+扩展包上传）就 400 点名，主题/语言包走自带 assets  fallback，远端
+图床全程不碰 R2。所以没开 R2 订阅的账户也能部署——只要配一个不含
+`r2_buckets` 的配置文件（wrangler 会在部署时校验 binding，声明了不
+存在的桶就直接失败）：
+
+```bash
+node scripts/make-local-config.mjs --no-r2 --out wrangler.demo.jsonc
+npx wrangler deploy --name cfpress-demo -c wrangler.demo.jsonc
+```
+
+`wrangler.demo.jsonc` 是 gitignore 的生成物（和 `wrangler.local.jsonc`
+一样），`_config-parity.mjs` 在它存在时校验，不存在时报 n/a。
+注意它和 `wrangler.ids.json` 当前指向的 D1/KV 配套使用；切账户部署
+时先换 ids（备份好原文件），部署完换回来。

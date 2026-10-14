@@ -28,7 +28,7 @@ export function themePackKey(theme: { name: string; version: string }, locale: s
 export async function themePackProvider(env: Env, siteId: string, locale: string): Promise<Pack | null> {
   const theme = await activeTheme(env, siteId);
   if (!theme?.name) return null;
-  const obj = await env.MEDIA.get(themePackKey(theme, locale));
+  const obj = await env.MEDIA?.get(themePackKey(theme, locale));
   // Uploaded themes keep their pack in R2; bundled themes ship `langs/` inside
   // the worker assets (same two-source rule as template loading).
   const raw = obj ? await obj.text() : await bundledThemeFile(env, theme.name, `langs/${locale}.json`);

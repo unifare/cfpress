@@ -32,6 +32,8 @@
  *   node scripts/make-local-config.mjs            write if changed, else no-op
  *   node scripts/make-local-config.mjs --check    exit 1 if the file is stale
  *   node scripts/make-local-config.mjs --print    write the result to stdout
++ *   node scripts/make-local-config.mjs --no-r2 --out <file>
++ *                                                write the R2-less variant
  *
  * Exit codes: 0 ok · 1 stale (--check only) · 2 missing/unusable input.
  */
@@ -89,8 +91,7 @@ const HEADER = [
  * placeholder was renamed away. Both are the "declared but never consumed"
  * family, and both are invisible in a deploy that otherwise looks fine.
  */
-export function renderLocalConfig(templateSrc, ids) {
-  const wanted = placeholdersIn(templateSrc);
+export function renderLocalConfig(templateSrc, ids) {  const wanted = placeholdersIn(templateSrc);
   const missing = wanted.filter((p) => !(p in ids));
   if (missing.length) {
     throw new Error(
@@ -109,6 +110,30 @@ export function renderLocalConfig(templateSrc, ids) {
   let out = templateSrc;
   for (const p of wanted) out = out.split(p).join(String(ids[p]));
   return HEADER + out;
+}
+
+/**
+ * The R2-less variant, for installs whose account has no R2 subscription
+ * (the whole point of third-party image hosts). Same derivation, then the
+ * `r2_buckets` block is dropped as JSON — not by hand-editing the output,
+ * which would be a second, unreviewed description of the config.
+ *
+ * Why a variant at all: wrangler validates bindings at deploy time, and a
+ * declared bucket that does not exist fails the deploy (code 10085) before
+ * anything ships. The code treats a missing binding as a normal state
+ * (`MEDIA?` on Env; writers refuse legibly, readers fall through), so the
+ * config is the only remaining R2 requirement, and this is where it goes.
+ */
+export function renderNoR2Config(templateSrc, ids) {
+  const full = renderLocalConfig(templateSrc, ids);
+  const parsed = JSON.parse(
+    full.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "")
+  );
+  delete parsed.r2_buckets;
+  return HEADER.replace("wrangler.local.jsonc", "wrangler.demo.jsonc") +
+    "// R2-less variant (`--no-r2`): no r2_buckets block, for accounts\n" +
+    "// without an R2 subscription. Recomputed, never hand-edited.\n" +
+    JSON.stringify(parsed, null, 2) + "\n";
 }
 
 // --- CLI --------------------------------------------------------------------
@@ -146,6 +171,29 @@ if (invokedDirectly) {
   } catch (e) {
     console.error(`make-local-config: ${e.message}`);
     process.exit(2);
+  }
+
+  // R2-less variant for accounts without an R2 subscription. Same derivation,
+  // minus the binding block — see `renderNoR2Config` for why the variant
+  // exists rather than a hand edit.
+  if (process.argv.includes("--no-r2")) {
+    const outIdx = process.argv.indexOf("--out");
+    const outPath = outIdx >= 0 && process.argv[outIdx + 1] ? join(ROOT, process.argv[outIdx + 1]) : join(ROOT, "wrangler.demo.jsonc");
+    let demo;
+    try {
+      demo = renderNoR2Config(readFileSync(TEMPLATE_PATH, "utf8"), ids);
+    } catch (e) {
+      console.error(`make-local-config: ${e.message}`);
+      process.exit(2);
+    }
+    const current = existsSync(outPath) ? readFileSync(outPath, "utf8") : null;
+    if (current === demo) {
+      console.log(`make-local-config: ${relative(ROOT, outPath).split("\\").join("/")} already up to date`);
+    } else {
+      writeFileSync(outPath, demo);
+      console.log(`make-local-config: wrote ${relative(ROOT, outPath).split("\\").join("/")}`);
+    }
+    process.exit(0);
   }
 
   if (mode === "--print") {

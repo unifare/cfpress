@@ -28,6 +28,9 @@ theme-previews/
 # The committed wrangler.jsonc keeps REPLACE_WITH_* placeholders so a public
 # clone does not publish account-scoped resource ids. Deploy with `-c`.
 wrangler.local.jsonc
+# R2-less variant for accounts without an R2 subscription
+# (`make-local-config.mjs --no-r2`). Same derivation, same gitignore reason.
+wrangler.demo.jsonc
 
 # The real ids themselves. `scripts/make-local-config.mjs` substitutes these
 # into wrangler.jsonc to produce wrangler.local.jsonc, so this is the only

@@ -97,7 +97,7 @@ async function media(env:Env,request:Request,path:string,siteId:string){
  if(!/^https:\/\//.test(target))return new Response("Not found",{status:404});
  return new Response(null,{status:302,headers:{Location:target,"Cache-Control":"public, max-age=3600"}});
  }
- const o=await env.MEDIA.get(key);
+ const o=await env.MEDIA?.get(key);
  if(!o)return new Response("Not found",{status:404});
  const h=new Headers();o.writeHttpMetadata(h);h.set("ETag",o.httpEtag);
  return new Response(o.body,{headers:h});

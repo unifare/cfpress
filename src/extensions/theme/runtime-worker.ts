@@ -96,7 +96,7 @@ export async function loadThemeWorkerSource(
   theme: ActiveTheme,
   entry = DEFAULT_THEME_ENTRY
 ): Promise<string | null> {
-  const obj = await env.MEDIA.get(themeWorkerKey(theme, entry));
+  const obj = await env.MEDIA?.get(themeWorkerKey(theme, entry));
   return obj ? await obj.text() : null;
 }
 

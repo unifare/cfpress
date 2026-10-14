@@ -93,12 +93,22 @@ export function mediaTileHtml(row) {
   </figure>`;
 }
 
-export function mediaGridHtml(items) {
+/** The empty state, or the tiles.
+ *
+ *  `hint` is the line under the empty state. Omitted, it is the usual "drop
+ *  files here" invitation; **`null` renders no line at all**, which is what a
+ *  deploy with storage off needs — an empty library that cannot accept an upload
+ *  must not keep asking for one. (The banner above already says why, so the
+ *  honest empty state is just "no media yet".) */
+export function mediaGridHtml(items, hint) {
   const list = items ?? [];
   if (!list.length) {
+    const line = hint === null
+      ? ""
+      : `<span class="text-sm">${esc(hint ?? t("core.media.dropHint", "Drop files here to upload"))}</span>`;
     return `<div class="media-empty">${icon("image")}
       <div>${esc(t("core.media.empty", "No media uploaded yet."))}</div>
-      <span class="text-sm">${esc(t("core.media.dropHint", "Drop files here to upload"))}</span>
+      ${line}
     </div>`;
   }
   return list.map(mediaTileHtml).join("");
@@ -122,7 +132,7 @@ export function mediaBodyHtml(items, info, storage = null) {
     ${canUpload
       ? `<button type="button" class="media-tile media-upload-tile" data-media-upload="1" title="${attr(add)}" aria-label="${attr(add)}">${icon("upload")}<span>${esc(add)}</span></button>`
       : ""}
-    ${mediaGridHtml(items)}
+    ${mediaGridHtml(items, canUpload ? undefined : null)}
   </div>
   <div class="toolbar" style="margin-top:1rem;align-items:center">
     <span class="muted text-sm">${esc(t("core.media.showing", "Showing {shown} of {total}", { shown, total: info.total }))}</span>

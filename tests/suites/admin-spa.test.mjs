@@ -923,6 +923,14 @@ if (modules && !bootError) {
     !mediaBodyHtml([row], { total: 1, hasMore: false }, { available: false, code: "switch_off" }).includes("media-upload-tile"));
   check("but kept when storage is fine (non-vacuity)",
     mediaBodyHtml([row], { total: 1, hasMore: false }, { available: true }).includes("media-upload-tile"));
+  // The empty state is the other place the screen invites an upload. With
+  // storage off it must stop asking: a library that cannot accept a file and
+  // still says "drop files here" is telling the operator something untrue.
+  check("the empty state still invites a drop when storage is fine",
+    mediaGridHtml([]).includes("Drop files here to upload"));
+  check("and stops inviting one when it is not",
+    !mediaGridHtml([], null).includes("Drop files here to upload") &&
+      mediaGridHtml([], null).includes("No media uploaded yet."));
 
   // The screen itself, against a payload that refuses uploads.
   routeTable.set("/api/v1/media", {
@@ -937,6 +945,8 @@ if (modules && !bootError) {
     offHtml.slice(0, 260));
   check("and stops offering a picker whose every file would fail",
     !offHtml.includes('id="upload"') && !offHtml.includes("media-upload-tile"));
+  check("and the empty state stops inviting a drop",
+    !offHtml.includes("Drop files here to upload"), offHtml.slice(offHtml.indexOf("media-empty"), offHtml.indexOf("media-empty") + 200));
   check("while the library and its filters still work",
     offHtml.includes('id="media-q"') && offHtml.includes('id="media-drop"'));
 

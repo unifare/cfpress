@@ -191,6 +191,7 @@ const SCENARIOS = [
     runs: [
       [SPA_SUITE, "the screen explains why uploads are off"],
       [SPA_SUITE, "and stops offering a picker whose every file would fail"],
+      [SPA_SUITE, "and the empty state stops inviting a drop"],
     ],
   },
   {

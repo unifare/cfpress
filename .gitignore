@@ -32,6 +32,9 @@ wrangler.local.jsonc
 # its own ids file, so the shared ids above never get hand-swapped.
 wrangler.demo.jsonc
 wrangler.ids.demo.json
+# Production deployment on the R2-less account: same treatment, own files.
+wrangler.prod.jsonc
+wrangler.ids.prod.json
 
 # The real ids themselves. `scripts/make-local-config.mjs` substitutes these
 # into wrangler.jsonc to produce wrangler.local.jsonc, so this is the only

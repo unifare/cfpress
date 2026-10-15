@@ -149,3 +149,20 @@ cd ../cfpress-demo-frozen && npm run deploy:demo
 注意冻的是**代码**，不是数据：演示站 D1 里管理员改的东西（文章、
 设置、key）照常读写。想要连数据一起定格，得另行备份 D1，那是另一
 件事。
+
+## 9. 正式站（`cfpress-prod`，同一 R2-less 账户）
+
+演示是冻结的，正式站是跟着 `main` 走的——同一账户（`98b315ef…`）、
+另一套资源、另一个 worker：
+
+- D1 `cfpress-prod`（`b9829d9c…`）+ KV `cfpress-prod-cache`（`cb7443fa…`），
+  与演示的 `cfpress-demo` / `cfpress-demo-cache` 完全隔离；
+- ids 与配置也是独立文件：`wrangler.ids.prod.json` +
+  `wrangler.prod.jsonc`（同样 gitignore，同样 `--no-r2` 生成）；
+- 部署：`npx wrangler deploy --name cfpress-prod -c wrangler.prod.jsonc`
+  （token 与 `CLOUDFLARE_ACCOUNT_ID=98b315ef…` 走环境变量）；
+- 线上：https://cfpress-prod.cfpress-demo.workers.dev，后台
+  `admin` / `change-me-now`（首次登录后请改掉）。
+
+之前误打到 2aass 账户的 `cfpress` worker 已删除（`wrangler delete`，
+只删 worker，D1/R2 数据保留）。

@@ -47,11 +47,13 @@
   var btn = document.getElementById("themeBtn");
   if (!btn) return;
   function paint() {
+    // NOTE: no `querySelector("[…]")` here — the template engine eats square
+    // brackets inside inline scripts (served as `querySelector("")`), so the
+    // icons are addressed by tag order instead.
+    var svgs = btn.getElementsByTagName("svg");
     var dark = document.documentElement.dataset.theme === "dark";
-    var moon = btn.querySelector("[data-icon-moon]");
-    var sun = btn.querySelector("[data-icon-sun]");
-    if (moon) moon.style.display = dark ? "none" : "";
-    if (sun) sun.style.display = dark ? "" : "none";
+    if (svgs[0]) svgs[0].style.display = dark ? "none" : "";
+    if (svgs[1]) svgs[1].style.display = dark ? "" : "none";
   }
   btn.addEventListener("click", function () {
     var dark = document.documentElement.dataset.theme !== "dark";

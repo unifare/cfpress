@@ -145,6 +145,22 @@ export async function findContent(env:Env,type:string,slug:string,locale:string,
   }
   return row;
 }
+
+export async function findContentById(env:Env,type:string,id:string,locale:string,siteId:string){
+  const row=await env.DB.prepare(`SELECT p.*,t.locale,t.title,t.excerpt,t.content,t.slug AS slug_own FROM posts p JOIN post_translations t ON t.post_id=p.id WHERE p.site_id=? AND p.type=? AND p.id=? AND t.locale=? AND p.status='published' LIMIT 1`).bind(siteId,type,id,locale).first<any>();
+  if(row){
+    row.slug=row.slug_own||row.slug;
+    row.html=row.content?renderBlocks(String(row.content)):"";
+    row.reading_time=readingTime(row.html,220,locale);
+    row.date_display=formatDate(row.created_at,locale);
+    row.cover=coverFrom(row.content);
+    row.alternates=await contentAlternates(env,siteId,row.id,row.type);
+    const dflt=await defaultLocale(env,siteId);
+    const mr=await env.DB.prepare("SELECT post_id, meta_key, locale, meta_value FROM post_meta WHERE post_id=?").bind(row.id).all().catch(()=>({results:[] as any[]}));
+    row.meta=resolveMetaByPost((mr.results as any[])??[],locale,dflt).get(row.id)??{};
+  }
+  return row;
+}
 /**
  * The other language versions of the same piece of content, for `hreflang`.
  *

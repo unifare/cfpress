@@ -257,6 +257,7 @@ plugin-channels|tests/suites/plugin-channels.test.mjs
 plugin-pages|tests/suites/plugin-pages.test.mjs
 theme-worker|tests/suites/theme-worker.test.mjs
 features|tests/suites/features.test.mjs
+permalink|tests/suites/permalink.test.mjs
 
 launcher-parity|tests/suites/launcher-parity.test.mjs"
 

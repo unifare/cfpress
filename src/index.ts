@@ -1,4 +1,4 @@
-import{Env}from "./shared/types";import{handleApi,handleFrontApi,maybeSeedDemoContent}from "./api";import{findContent,contentAlternates,siteInfo,locales,defaultLocale}from "./platform/frontend";import{robots,sitemap,feed}from "./platform/seo";import{seedBundledExtensions,bootPluginRuntime,doAction,applyFilters,renderShortcodes}from "./extensions/plugin/runtime";import{setPluginTableSync}from "./extensions/plugin/menus";import{syncOwnerTables}from "./extensions/theme/tables";import{setHostHooks}from "./extensions/contract/hooks";import{renderThemePage,runThemeQuery,activeTheme,type ThemeRenderOptions}from "./extensions/theme/runtime-declarative";import{tryRenderWithThemeWorker,handleThemeApi}from "./extensions/theme/runtime-worker";import{processScheduled}from "./shared/scheduler";import{resolveSite,siteListMemo,listSites,resetSiteListMemo,type ResolvedSite}from "./platform/sites";
+import{Env}from "./shared/types";import{handleApi,handleFrontApi,maybeSeedDemoContent}from "./api";import{findContent,findContentById,contentAlternates,siteInfo,locales,defaultLocale}from "./platform/frontend";import{robots,sitemap,feed}from "./platform/seo";import{seedBundledExtensions,bootPluginRuntime,doAction,applyFilters,renderShortcodes}from "./extensions/plugin/runtime";import{setPluginTableSync}from "./extensions/plugin/menus";import{syncOwnerTables}from "./extensions/theme/tables";import{setHostHooks}from "./extensions/contract/hooks";import{renderThemePage,runThemeQuery,activeTheme,type ThemeRenderOptions}from "./extensions/theme/runtime-declarative";import{tryRenderWithThemeWorker,handleThemeApi}from "./extensions/theme/runtime-worker";import{processScheduled}from "./shared/scheduler";import{resolveSite,siteListMemo,listSites,resetSiteListMemo,type ResolvedSite}from "./platform/sites";import{buildPermalink,matchPermalink,PRESET_PERMALINKS}from "./platform/permalink";import{getSetting}from "./platform/settings";
 // The media read path's three gates (tenant / session / owner) live in one
 // module so this route and the admin media API cannot answer differently.
 import{currentUser,loginRequest}from "./platform/auth";import{adminPath,resetAdminPathMemo}from "./platform/settings";import{readMediaPolicy,mediaReadDecision}from "./platform/media-policy";import{isRemoteObjectKey}from "./platform/media-hosts";import{listRoutes,findPostTypeBySlug,listPostTypes}from "./extensions/theme/capabilities";
@@ -419,6 +419,25 @@ async function handleFrontRequest(env:Env,request:Request,ctx:ExecutionContext,u
  // fired from `buildScope`, which has the fully-built render scope in hand.
  ctx.waitUntil(bootPluginRuntime(env).catch(()=>[]));
 
+ // Plain post permalink query support: /?p=123 or /{locale}/?p=123
+ const pQuery = u.searchParams.get("p");
+ if (!rest && pQuery) {
+   const postObj = await findContentById(env, "post", pQuery, locale, siteId);
+   if (postObj) {
+     const permalinkSetting = (await getSetting(env, siteId, "permalink.structure")) || "/posts/%postname%/";
+     if (permalinkSetting !== PRESET_PERMALINKS.PLAIN) {
+       const dfltLocale = await defaultLocale(env, siteId);
+       const targetUrl = buildPermalink(permalinkSetting, postObj, {
+         locale,
+         isDefaultLocale: locale === dfltLocale,
+       });
+       return Response.redirect(new URL(targetUrl, request.url).href, 301);
+     }
+     const r = await render({ siteId, locale, path: u.pathname, kind: "single", postType: "post", slug: postObj.slug, title: postObj.title, description: postObj.excerpt, post: postObj });
+     return respond(r.html, r.template, r.status);
+   }
+ }
+
  // Home
  // Sits AFTER the theme-route loop, not before it: a theme may declare
  // `path: "/"` and take over the front page (a shop whose home page IS the
@@ -579,13 +598,29 @@ async function handleFrontRequest(env:Env,request:Request,ctx:ExecutionContext,u
  // falls back to the built-in home.
  if(!rest)return home();
 
- // Built-in post permalink
- if(rest.startsWith("blog/")){
-   const slug=rest.slice(5);
-   const x=await findContent(env,"post",slug,locale,siteId);
-   if(x){
-     const r=await render({siteId,locale,path:u.pathname,kind:"single",postType:"post",slug,title:x.title,description:x.excerpt,post:x});
-     return respond(r.html,r.template,r.status);
+ // Built-in & dynamic post permalink matching
+ const permalinkPattern = (await getSetting(env, siteId, "permalink.structure")) || "/posts/%postname%/";
+ const permMatch = matchPermalink(permalinkPattern, "/" + rest);
+ if (permMatch.matched) {
+   let x: any = null;
+   if (permMatch.params.post_id) {
+     x = await findContentById(env, "post", permMatch.params.post_id, locale, siteId);
+   } else if (permMatch.params.postname) {
+     x = await findContent(env, "post", permMatch.params.postname, locale, siteId);
+   }
+   if (x) {
+     const r = await render({ siteId, locale, path: u.pathname, kind: "single", postType: "post", slug: x.slug, title: x.title, description: x.excerpt, post: x });
+     return respond(r.html, r.template, r.status);
+   }
+ }
+
+ // Built-in post permalink fallback (legacy /blog/:slug and /posts/:slug)
+ if (rest.startsWith("blog/") || rest.startsWith("posts/")) {
+   const slug = rest.replace(/^(blog|posts)\//, "");
+   const x = await findContent(env, "post", slug, locale, siteId);
+   if (x) {
+     const r = await render({ siteId, locale, path: u.pathname, kind: "single", postType: "post", slug, title: x.title, description: x.excerpt, post: x });
+     return respond(r.html, r.template, r.status);
    }
  }
 

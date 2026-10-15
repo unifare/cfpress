@@ -21,6 +21,13 @@ export const SETTING_DEFS = [
     note: "default meta description" },
   { key: "seo.robots", scope: "site", type: "string", default: "index,follow", sensitive: false, inherit: false,
     note: "robots directive for the site's pages" },
+  // -- site: permalinks -------------------------------------------------------
+  { key: "permalink.structure", scope: "site", type: "string", default: "/posts/%postname%/", sensitive: false, inherit: false,
+    note: "permalink structure pattern for posts (e.g. /posts/%postname%/, /%year%/%monthnum%/%postname%/, etc.)" },
+  { key: "permalink.category_base", scope: "site", type: "string", default: "category", sensitive: false, inherit: false,
+    note: "base prefix for category archive URLs" },
+  { key: "permalink.tag_base", scope: "site", type: "string", default: "tag", sensitive: false, inherit: false,
+    note: "base prefix for tag archive URLs" },
   // -- site: platform behaviour ----------------------------------------------
   { key: "theme.active", scope: "site", type: "string", default: "default", sensitive: false, inherit: false,
     note: "which theme this site renders; written by activate, read by activeTheme()" },

@@ -480,7 +480,7 @@ function Test-DeployPrecheck {
         Write-Line ''
         foreach ($m in $missing) { Write-Line "    $m" }
         Write-Line ''
-        Write-Line "  This file is generated. Put the real ids in $IdsFile:"
+        Write-Line "  This file is generated. Put the real ids in ${IdsFile}:"
         Write-Line ''
         Write-Line "    npx wrangler d1 create $DbName        # -> database_id"
         Write-Line '    npx wrangler kv namespace create CACHE # -> id'

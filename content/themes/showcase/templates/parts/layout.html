@@ -47,13 +47,17 @@
   var btn = document.getElementById("themeBtn");
   if (!btn) return;
   function paint() {
-    // NOTE: no `querySelector("[…]")` here — the template engine eats square
-    // brackets inside inline scripts (served as `querySelector("")`), so the
-    // icons are addressed by tag order instead.
-    var svgs = btn.getElementsByTagName("svg");
+    // NOTE: no square brackets anywhere in here — not selectors, not even
+    // array indices. The template engine eats `[...]` groups inside inline
+    // scripts (`svgs[0]` arrives as `svgs`, `querySelector("[…]")` as
+    // `querySelector("")`); CSS selectors are unaffected. The two icons are
+    // the button's first and last element children, so they are addressed
+    // structurally instead.
     var dark = document.documentElement.dataset.theme === "dark";
-    if (svgs[0]) svgs[0].style.display = dark ? "none" : "";
-    if (svgs[1]) svgs[1].style.display = dark ? "" : "none";
+    var moon = btn.firstElementChild;
+    var sun = btn.lastElementChild;
+    if (moon) moon.style.display = dark ? "none" : "";
+    if (sun) sun.style.display = dark ? "" : "none";
   }
   btn.addEventListener("click", function () {
     var dark = document.documentElement.dataset.theme !== "dark";

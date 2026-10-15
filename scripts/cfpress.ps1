@@ -150,11 +150,10 @@ function Invoke-Npx {
             $rest = @()
             if ($Arguments.Length -gt 1) { $rest = $Arguments[1..($Arguments.Length - 1)] }
             & 'node_modules\.bin\wrangler.cmd' @rest
-            return $LASTEXITCODE
+            return
         }
     }
     & npx @Arguments
-    return $LASTEXITCODE
 }
 
 # --- deploy config -----------------------------------------------------------
@@ -187,8 +186,9 @@ function Test-ConfigOk {
 function Invoke-EnsureConfig {
     Assert-Node
     if (-not (Test-Path $TemplateFile)) { Die "$TemplateFile missing — are you in the project root?" }
-    & node scripts/make-local-config.mjs
+    $out = & node scripts/make-local-config.mjs 2>&1
     if ($LASTEXITCODE -ne 0) {
+        $out | ForEach-Object { Write-Line "  $_" }
         Write-Err2 "could not generate $ConfigFile (see the message above)"
         return 3
     }
@@ -231,7 +231,7 @@ function Invoke-Typecheck {
 function Invoke-Types {
     Assert-Deps
     Write-Head 'wrangler types (regenerate binding types)'
-    $null = Invoke-Npx wrangler types
+    Invoke-Npx wrangler types
     return $LASTEXITCODE
 }
 
@@ -240,7 +240,7 @@ function Invoke-MigrateLocal {
     $rc = Invoke-EnsureConfig
     if ($rc -ne 0) { return $rc }
     Write-Head 'apply migrations to the LOCAL database'
-    $null = Invoke-Npx wrangler d1 migrations apply $DbName --local -c $ConfigFile
+    Invoke-Npx wrangler d1 migrations apply $DbName --local -c $ConfigFile
     return $LASTEXITCODE
 }
 
@@ -250,7 +250,7 @@ function Invoke-MigrateRemote {
     if ($rc -ne 0) { return $rc }
     Write-Head 'apply migrations to the REMOTE database'
     Write-Warn2 'this touches the production D1 database'
-    $null = Invoke-Npx wrangler d1 migrations apply $DbName --remote -c $ConfigFile
+    Invoke-Npx wrangler d1 migrations apply $DbName --remote -c $ConfigFile
     return $LASTEXITCODE
 }
 
@@ -261,10 +261,13 @@ function Invoke-Dev {
     Write-Head "wrangler dev  ($DevUrl)"
     Write-Dim 'Ctrl-C to stop. First run: apply local migrations first (menu 2) or tables will be missing.'
     Write-Dim 'Bundled themes ship via Worker assets — syncing them into public/themes first.'
-    & node scripts/sync-bundled-themes.mjs
-    if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
+    $out = & node scripts/sync-bundled-themes.mjs 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $out | ForEach-Object { Write-Line "  $_" }
+        return $LASTEXITCODE
+    }
     Write-Line ''
-    $null = Invoke-Npx wrangler dev --port $DevPort --ip $DevHost -c $ConfigFile
+    Invoke-Npx wrangler dev --port $DevPort --ip $DevHost -c $ConfigFile
     return $LASTEXITCODE
 }
 
@@ -504,7 +507,7 @@ function Invoke-Deploy {
     & node scripts/sync-bundled-themes.mjs
     if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
     Write-Head 'wrangler deploy'
-    $null = Invoke-Npx wrangler deploy -c $ConfigFile
+    Invoke-Npx wrangler deploy -c $ConfigFile
     return $LASTEXITCODE
 }
 
@@ -695,31 +698,31 @@ function Start-MenuLoop {
             return 0
         }
         switch -Regex ($choice.Trim()) {
-            '^1$' { $null = Invoke-Dev }
-            '^2$' { $null = Invoke-MigrateLocal }
+            '^1$' { Invoke-Dev }
+            '^2$' { Invoke-MigrateLocal }
             '^3$' {
                 $t = Read-MenuInput '  theme dir [content/themes/default]: '
                 if (-not $t) { $t = 'content/themes/default' }
-                $null = Invoke-ThemeDeploy $t
+                Invoke-ThemeDeploy $t
             }
-            '^4$' { $null = Invoke-Test }
-            '^5$' { $null = Invoke-Typecheck }
-            '^6$' { $null = Invoke-Audit }
+            '^4$' { Invoke-Test }
+            '^5$' { Invoke-Typecheck }
+            '^6$' { Invoke-Audit }
             '^7$' {
-                if (Confirm-Yes '  confirm deploy to production? [y/N] ') { $null = Invoke-Deploy }
+                if (Confirm-Yes '  confirm deploy to production? [y/N] ') { Invoke-Deploy }
                 else { Write-Warn2 'aborted.' }
             }
             '^8$' {
-                if (Confirm-Yes '  confirm deploy + remote migrations? [y/N] ') { $null = Invoke-DeployFull }
+                if (Confirm-Yes '  confirm deploy + remote migrations? [y/N] ') { Invoke-DeployFull }
                 else { Write-Warn2 'aborted.' }
             }
-            '^9$' { $null = Invoke-Doctor }
-            '^cfg$|^config$' { $null = Invoke-EnsureConfig }
-            '^v$' { $null = Invoke-Version }
+            '^9$' { Invoke-Doctor }
+            '^cfg$|^config$' { Invoke-EnsureConfig }
+            '^v$' { Invoke-Version }
             '^h$|^help$|^$|^\?$' { Write-Help }
             '^q$|^quit$|^exit$' { Write-Line 'bye.'; return 0 }
-            '^t2\s+(\S+)$' { $null = Invoke-Test $Matches[1] }
-            '^mk\s+(\S+)\s+(\S+)$' { $null = Invoke-Make $Matches[1] $Matches[2] }
+            '^t2\s+(\S+)$' { Invoke-Test $Matches[1] }
+            '^mk\s+(\S+)\s+(\S+)$' { Invoke-Make $Matches[1] $Matches[2] }
             default { Write-Warn2 "unknown choice: $choice" }
         }
     }

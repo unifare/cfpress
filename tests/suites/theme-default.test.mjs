@@ -95,6 +95,7 @@ async function main() {
   // The *real* member projection, so the signed-in fixture cannot drift from
   // what the runtime hands a template. See section 8b.
   const { memberScope } = await bundle("src/platform/members.ts", "default-members.mjs");
+  const { readingTime } = await bundle("src/platform/frontend.ts", "default-frontend.mjs");
 
   // The theme's own dictionaries, nested exactly as `buildScope` nests them.
   const zhPack = nest(JSON.parse(read("langs/zh-CN.json")), THEME);
@@ -387,6 +388,15 @@ async function main() {
     if (read(`templates/${f}`).includes("/admin")) adminRefs.push(f);
   }
   check("no template references /admin", adminRefs, []);
+
+  // -- 10. readingTime localization & fallback -----------------------------
+  section("10. readingTime follows content locale with family fallback");
+  const enRead = readingTime("<p>Hello world of web development and testing</p>", 200, "en");
+  check("en locale uses English format", enRead, "1 min read");
+  const zhRead = readingTime("<p>你好世界这是一篇用于测试中文阅读时长的文章内容</p>", 200, "zh-CN");
+  check("zh-CN locale uses Chinese format", zhRead, "1 分钟阅读");
+  const twRead = readingTime("<p>你好世界這是一篇用於測試中文閱讀時長的文章內容</p>", 200, "zh-TW");
+  check("zh-TW falls back to Chinese language family pack", twRead, "1 分钟阅读");
 
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail) console.log("failures:\n  " + failures.join("\n  "));

@@ -148,7 +148,7 @@ async function openItemDialog(sel, existing) {
   try {
     const locResp = await api(scoped("i18n/locales"));
     locales = locResp.enabled || [];
-    dfltLocale = locResp.default || locales[0] || "";
+    dfltLocale = locResp.default || "";
   } catch { /* locale select degrades to All languages */ }
 
   const parentOptions = [{ value: "", label: t("core.menus.parentTop", "Top level") }];
@@ -165,7 +165,7 @@ async function openItemDialog(sel, existing) {
     fields: [
       ...(existing ? [] : [{ name: "target", label: t("core.menus.target", "Target"), type: "select", value: "custom", options: [{ value: "custom", label: t("core.menus.srcLink", "Custom link") }, ...pickable] }]),
       { name: "title", label: t("core.menus.fieldTitle", "Link text"), value: existing?.title || "", required: true },
-      { name: "url", label: t("core.menus.fieldUrl", "URL"), value: existing?.url || "", placeholder: "https://… 或 /blog" },
+      { name: "url", label: t("core.menus.fieldUrl", "URL"), value: existing?.url || "", placeholder: "https://… / /blog" },
       { name: "parent_id", label: t("core.menus.fieldParent", "Parent"), type: "select", value: existing?.parent_id || "", options: parentOptions },
       { name: "locale", label: t("core.menus.fieldLocale", "Language"), type: "select", value: existing?.locale || "", options: [{ value: "", label: t("core.menus.localeAuto", "All languages") }, ...locales.map((l) => ({ value: l, label: l }))] },
     ],

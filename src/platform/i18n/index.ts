@@ -26,6 +26,7 @@ export {
   disableSiteLocale,
   setSiteDefaultLocale,
   seedSiteLocales,
+  TERMINAL_LOCALE,
   type PlatformLocale,
   type SiteLocale,
 } from "./locale-registry";

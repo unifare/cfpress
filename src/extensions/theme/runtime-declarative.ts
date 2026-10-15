@@ -54,6 +54,8 @@ export interface ThemeManifest {
   menuLocations?: ThemeMenuLocation[];
   /** Widget sidebars the theme renders. */
   sidebars?: ThemeSidebar[];
+  /** Widget areas (dotnetcms parity: Area -> Type -> Instance). Evolution of sidebars. */
+  widgets?: { areas?: ThemeSidebar[] };
   adminMenus?: ThemeAdminMenu[];
   blocks?: ThemeBlock[];
   settings?: ThemeSettingDef[];
@@ -697,6 +699,20 @@ export async function buildScope(
     // entry either rather than a control that lists one language.
     lang_current: langNavRows.length > 1 ? langCurrent : null,
     theme: { name: theme.name, version: theme.version, title: theme.manifest.title, strings },
+    "@hooks": (extra["@hooks"] && typeof extra["@hooks"] === "object" ? extra["@hooks"] : {}),
+    "@translator": (key: string, fallback?: string): string => {
+      if (strings && typeof strings === "object") {
+        const cleanKey = key.startsWith(`theme.${theme.name}.`) ? key.slice(`theme.${theme.name}.`.length) : key;
+        const parts = cleanKey.split(".");
+        let cur: any = strings;
+        for (const p of parts) {
+          if (cur && typeof cur === "object" && Object.prototype.hasOwnProperty.call(cur, p)) cur = cur[p];
+          else { cur = undefined; break; }
+        }
+        if (typeof cur === "string") return cur;
+      }
+      return fallback !== undefined ? fallback : key;
+    },
     ...extra,
   };
 }
@@ -734,22 +750,25 @@ export async function renderThemePage(
     return { html: minimalShell(o), template: "__none__", tried: templateCandidates(ctx) };
   }
 
-  const scope = await buildScope(env, theme, o);
-  let defaultLayout: string | undefined;
-  if (resolved.name !== "parts/layout" && (await load("parts/layout"))) defaultLayout = "parts/layout";
-  else if (resolved.name !== "layout" && (await load("layout"))) defaultLayout = "layout";
-
-  const opts: RenderOptions = {
-    loadTemplate: load,
-    defaultLayout,
-    // `o.siteId` is required by `ThemeRenderOptions`, so it is passed straight
-    // through. There used to be an `?? "default"` here: dead under the current
-    // types, but a landmine the moment anyone makes the field optional — it
-    // would silently render another site's data instead of failing to compile.
-    runQuery: (params, sc) => runThemeQuery(env, params, sc, o.siteId),
-  };
-
   try {
+    const scope = await buildScope(env, theme, o);
+    let defaultLayout: string | undefined;
+    const isStandalone = resolved.source.includes("<!DOCTYPE") || resolved.source.includes("<html");
+    if (!resolved.name.startsWith("parts/") && !isStandalone) {
+      if (await load("parts/layout").catch(() => null)) defaultLayout = "parts/layout";
+      else if (await load("layout").catch(() => null)) defaultLayout = "layout";
+    }
+
+    const opts: RenderOptions = {
+      loadTemplate: load,
+      defaultLayout,
+      // `o.siteId` is required by `ThemeRenderOptions`, so it is passed straight
+      // through. There used to be an `?? "default"` here: dead under the current
+      // types, but a landmine the moment anyone makes the field optional — it
+      // would silently render another site's data instead of failing to compile.
+      runQuery: (params, sc) => runThemeQuery(env, params, sc, o.siteId),
+    };
+
     let html = await renderTemplateSource(resolved.source, scope, opts);
     html = await decorateOutput(env, o, resolved.name, html);
     return { html, template: resolved.name, tried: resolved.tried };

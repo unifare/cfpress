@@ -5,7 +5,7 @@ import { resolveMetaByPost } from "./post-meta";
 import { CORE_PACKS } from "./i18n/core-pack";
 import { interpolate, packForLocale } from "./i18n/translate";
 
-export function esc(v:unknown){return String(v??"").replace(/[&<>\u0022\u0027]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]!))}
+export function esc(v:unknown){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]!))}
 /**
  * Read one `settings` row for a site.
  *

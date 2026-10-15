@@ -55,6 +55,7 @@ import {
   siteLocaleCodes,
   siteLocaleRows,
   siteLocales,
+  TERMINAL_LOCALE,
   upsertPlatformLocale,
 } from "./platform/i18n";
 import { activeTheme } from "./extensions/theme/runtime-declarative";
@@ -103,7 +104,7 @@ export async function seedDemoContent(
   for (const code of locales) {
     if (!pieces.some((p) => p.versions[code])) continue;
     let name: string = code, native: string = code;
-    try { name = new Intl.DisplayNames(["en"], { type: "language" }).of(code) || code; } catch { /* unknown tag */ }
+    try { name = new Intl.DisplayNames([TERMINAL_LOCALE], { type: "language" }).of(code) || code; } catch { /* unknown tag */ }
     try { native = new Intl.DisplayNames([code], { type: "language" }).of(code) || name; } catch { /* falls back to English */ }
     await upsertPlatformLocale(env, { code, name, native_name: native, direction: "ltr", enabled: 1 });
     await enableSiteLocale(env, siteId, code, { isDefault: false });
@@ -2839,7 +2840,8 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   // screen by this list, so the groups it offers are exactly what renders.
   if(path==="theme/sidebars"&&method==="GET"){
     const t=await activeTheme(env,siteId).catch(()=>null);
-    const sbs=t?.manifest?.sidebars?.length?t.manifest.sidebars:[{id:"sidebar"},{id:"footer"}];
+    const declaredAreas=t?.manifest?.widgets?.areas?.map((a:any)=>({id:a.id,label:a.label||a.name||a.id}));
+    const sbs=t?.manifest?.sidebars?.length?t.manifest.sidebars:(declaredAreas?.length?declaredAreas:[{id:"sidebar"},{id:"footer"}]);
     return ok({items:sbs,site:siteId});
   }
   if(path==="theme/routes"&&method==="GET") return ok({items:await listRoutes(env,siteId),site:siteId});

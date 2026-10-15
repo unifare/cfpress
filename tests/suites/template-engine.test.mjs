@@ -262,6 +262,10 @@ async function main() {
     // t helper
     check("t fallback", await renderTemplate("{{t('not.found', 'Default Text')}}", {}, { loadTemplate: noTemplates }), "Default Text");
     check("t with dictionary object", await renderTemplate("{{t('btn.save', 'Save')}}", { t: { "btn.save": "保存" } }, { loadTemplate: noTemplates }), "保存");
+    check("t with theme.strings nested", await renderTemplate("{{t('nav.home')}}", { theme: { strings: { nav: { home: "首页" } } } }, { loadTemplate: noTemplates }), "首页");
+    check("t with theme.strings prefixed", await renderTemplate("{{t('theme.mytheme.nav.home')}}", { theme: { strings: { nav: { home: "首页" } } } }, { loadTemplate: noTemplates }), "首页");
+    check("t prototype safe", await renderTemplate("{{t('constructor')}}", { t: {} }, { loadTemplate: noTemplates }), "constructor");
+    check("t with @translator function", await renderTemplate("{{t('core.ok')}}", { "@translator": (k, fb) => (k === "core.ok" ? "OK!" : fb) }, { loadTemplate: noTemplates }), "OK!");
 
     // widgets helper
     check("widgets area output", await renderTemplate("{{{widgets('sidebar-1')}}}", { widgets: { "sidebar-1": "<aside>Widgets</aside>" } }, { loadTemplate: noTemplates }), "<aside>Widgets</aside>");
@@ -284,6 +288,19 @@ async function main() {
       }),
       '<html><head></head><body><div class="content"><h1>Child Content</h1></div><div class="body"><h1>Child Content</h1></div></body></html>'
     );
+
+    // Verify child @query executes only once when layout uses @section content (no redundant body pre-render)
+    let execCount = 0;
+    const queryFiles = {
+      "base": "<html><body>{{@section \"content\"}}</body></html>",
+      "child": "{{@query type=\"post\" asVar=\"items\"}}x{{/query}}",
+    };
+    await renderTemplateSource(queryFiles.child, {}, {
+      loadTemplate: async (n) => queryFiles[n],
+      defaultLayout: "base",
+      runQuery: async () => { execCount++; return [{}]; },
+    });
+    check("child @query is only executed once under autoLayout with section content", execCount, 1);
   }
 
   console.log(`\n${pass} passed, ${fail} failed\n`);

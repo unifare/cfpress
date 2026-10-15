@@ -324,7 +324,7 @@
 | 18 前台/后台身份分离 | ✅ | `architecture.test.mjs`（规则 77 节，17 条）+ `admin-contract.test.mjs` §17（两条方向的 401 红线）；注入 4 场景。**结构性**：两个 cookie 名不同、两个解析器各读各的会话表 |
 | 19 后台前缀隐身 | ✅ | `admin-spa.test.mjs`（规则 75 节）+ `architecture.test.mjs`（规则 75 节，含"前缀挂载带 `u.search`"）+ `admin-contract.test.mjs` §0b/§0c/§15b；注入 4 场景 |
 | 20 每站点角色 | ✅（服务端 + UI 两侧） | `architecture.test.mjs` 规则 78 节（15 条，`siteId` 必填 + 31 个调用点 + 无回退 + 角色集派生）+ 规则 79 节（8 条，屏读 `role_here` 不读安装级 `role` + 切换器建自 `state.sites` + `superadmin` 不可授予）；行为 `admin-contract` §18（31 条）+ `admin-spa`（users 屏 8 条）；注入 10 场景 |
-| **语言数量无上限** | ✅ | `tests/tools/_locale-literal.mjs`：拦「把行为钉在某个语言上」（`locale === "xx"`、`/^xx/i.test(locale)`、写死的语言清单）与 i18n 层之外的语言字面量；每条白名单都要写理由。已知缺口：`frontend.ts` 的阅读时长标签仍是「zh 或非 zh」二分，待改成走语言包（见白名单里的 ⚠️） |
+| **语言数量无上限** | ✅ | `tests/tools/_locale-literal.mjs`：拦「把行为钉在某个语言上」（`locale === "xx"`、`/^xx/i.test(locale)`、写死的语言清单）与 i18n 层之外的语言字面量；每条白名单都要写理由。阅读时长标签已迁移至 `core.reading_time.format` 语言包与语言族回退。 |
 
 ---
 

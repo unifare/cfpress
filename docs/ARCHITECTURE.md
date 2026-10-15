@@ -2316,7 +2316,7 @@ SPA 的 `if (d.error)` 分支因此不可达，错误对话框要 `explain(err.m
    b) locale 语义同 `menu_items`：`''` 全语言，指定语言只在该语言页面渲染——
       **故意不跨语言回退**（语言专属小工具是特性，静默串语言是缺陷）
    c) 前台接线是契约：`buildScope` 输出 `widgets.<sidebar>`（无则无键），消费点在
-      layout/footer；`sidebars[]` 声明 = SPA 分组 = 渲染集合
+      layout/footer；`sidebars[]` / `widgets.areas[]` 声明 = SPA 分组 = 渲染集合
    d) config 按类型校验（body / count 1–20 / menu_id 属本站点）；html 不过 esc
       （信任边界：仅管理员可写）
    守卫：`architecture.test.mjs`（规则 74 节，5 条）；行为：`admin-contract.test.mjs`

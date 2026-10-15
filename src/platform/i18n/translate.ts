@@ -75,6 +75,13 @@ export function packForLocale(packs: Record<string, Pack>, locale: string): Pack
   if (base && hasOwn(packs, base) && packs[base] && typeof packs[base] === "object") {
     return packs[base];
   }
+  if (base) {
+    for (const k of Object.keys(packs)) {
+      if (k.startsWith(`${base}-`) && hasOwn(packs, k) && packs[k] && typeof packs[k] === "object") {
+        return packs[k];
+      }
+    }
+  }
   return null;
 }
 

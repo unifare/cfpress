@@ -60,8 +60,6 @@ const ALLOWED = {
     "BCP-47 error-message examples ('expected BCP-47 shape, e.g. \"en\", \"zh-CN\"') — prose shown to an extension author",
   "src/shared/demo-content.ts":
     "demo content fixtures: sample articles shipped with translations for seeding demo sites",
-  "src/api.ts":
-    "demo seeding uses Intl.DisplayNames with fallback locale to generate human-readable language names",
 };
 
 /**
@@ -83,6 +81,22 @@ function stripComments(src) {
     const c = src[i], n = src[i + 1];
     if (c === "/" && n === "/") { while (i < src.length && src[i] !== "\n") i++; continue; }
     if (c === "/" && n === "*") { i += 2; while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i++; i += 2; continue; }
+    if (c === "/" && n !== "/" && n !== "*") {
+      const prev = out.trim().slice(-1);
+      if ("(=:,[!&|?;".includes(prev) || out.trim().endsWith("return")) {
+        out += c; i++;
+        let inClass = false;
+        while (i < src.length) {
+          const rc = src[i];
+          if (rc === "\\") { out += rc + (src[i + 1] ?? ""); i += 2; continue; }
+          if (rc === "[") inClass = true;
+          else if (rc === "]") inClass = false;
+          out += rc; i++;
+          if (rc === "/" && !inClass) break;
+        }
+        continue;
+      }
+    }
     if (c === '"' || c === "'") {
       const q = c; out += c; i++;
       while (i < src.length) { if (src[i] === "\\") { out += src[i] + (src[i + 1] ?? ""); i += 2; continue; } out += src[i]; if (src[i] === q) { i++; break; } i++; }

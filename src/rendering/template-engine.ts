@@ -331,16 +331,28 @@ const HELPERS: Record<string, (args: unknown[], scope?: Scope) => unknown> = Obj
     const fallback = a[1] !== undefined ? String(a[1]) : key;
     const tr = (scope as any)?.["@translator"] || (scope as any)?.t;
     if (typeof tr === "function") return tr(key, fallback);
-    if (tr && typeof tr === "object" && key in tr) return tr[key];
+    if (tr && typeof tr === "object" && Object.prototype.hasOwnProperty.call(tr, key)) {
+      return (tr as Record<string, unknown>)[key];
+    }
     const themeStrings = (scope as any)?.theme?.strings;
     if (themeStrings && typeof themeStrings === "object") {
       const parts = key.split(".");
       let cur: any = themeStrings;
       for (const p of parts) {
-        if (cur && typeof cur === "object" && p in cur) cur = cur[p];
+        if (cur && typeof cur === "object" && Object.prototype.hasOwnProperty.call(cur, p)) cur = cur[p];
         else { cur = undefined; break; }
       }
       if (typeof cur === "string") return cur;
+      // If key had theme.<name>., try stripping it
+      if (parts[0] === "theme" && parts.length > 2) {
+        let curStripped: any = themeStrings;
+        for (let i = 2; i < parts.length; i++) {
+          const p = parts[i];
+          if (curStripped && typeof curStripped === "object" && Object.prototype.hasOwnProperty.call(curStripped, p)) curStripped = curStripped[p];
+          else { curStripped = undefined; break; }
+        }
+        if (typeof curStripped === "string") return curStripped;
+      }
     }
     return fallback;
   },
@@ -919,9 +931,14 @@ async function renderParsed(parsed: ParsedTemplate, scope: Scope, opts: RenderOp
   const rootScope = Object.create(scope) as Scope;
   rootScope["@sections"] = merged;
   rootScope["@block"] = (name: string) => merged[name] ?? null;
-  // Expose rendered child HTML as `body` in the root scope as well (for {{body}} / {{{body}}})
+  // Expose rendered child HTML as `body` in the root scope ONLY if the layout
+  // actually references `body` as a variable (avoids rendering child nodes twice
+  // when layout uses {{@section "content"}}).
   if (!parsed.extendsName && effectiveParsed.nodes) {
-    rootScope["body"] = await renderNodes(effectiveParsed.nodes, scope, opts, depth + 1);
+    const rootNodesStr = JSON.stringify(chain[chain.length - 1].nodes);
+    if (rootNodesStr.includes('"name":"body"')) {
+      rootScope["body"] = await renderNodes(effectiveParsed.nodes, scope, opts, depth + 1);
+    }
   }
   return renderNodes(chain[chain.length - 1].nodes, rootScope, opts, depth);
 }

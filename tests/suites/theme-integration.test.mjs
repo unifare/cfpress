@@ -892,9 +892,15 @@ async function main() {
     });
     checkTruthy(`item ${id} created`, r.status === 201);
   }
+  const rAll = await req(worker, env, `/api/v1/menus/menu_aaa/items?site=menutest`, {
+    method: "POST", headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ id: "mi_all", title: "ALL-LANG-LINK", url: "/all-link", locale: "" }),
+  });
+  checkTruthy("item with locale='' created", rAll.status === 201);
   const navRes = await req(worker, env, "/menutest/", { headers: authHeaders });
   const navBody = await navRes.text();
   check("of two header menus the deterministic winner renders", navBody.includes("AAA-LINK"), true);
+  check("item with locale='' renders on the page", navBody.includes("ALL-LANG-LINK"), true);
   check("the loser does not render", navBody.includes("ZZZ-LINK"), false);
   check("the declared footer location renders its menu", navBody.includes("FOOT-LINK"), true);
   // Second render must be byte-identical on the nav — the whole point of 73.
@@ -940,6 +946,9 @@ async function main() {
   await req(worker, env, "/api/v1/menus/menu_wtest/items?site=widgetest", {
     method: "POST", headers: jh, body: JSON.stringify({ title: "WIDGET-MENU-LINK", url: "/wt" }),
   });
+  await req(worker, env, "/api/v1/menus/menu_wtest/items?site=widgetest", {
+    method: "POST", headers: jh, body: JSON.stringify({ title: "WIDGET-ALL-LANG-LINK", url: "/wt-all", locale: "" }),
+  });
   const wMkWidget = (title, body2) => req(worker, env, "/api/v1/widgets?site=widgetest", {
     method: "POST", headers: jh, body: JSON.stringify(body2),
   }).then(async (r) => ({ status: r.status, id: (await r.json()).id, title }));
@@ -971,6 +980,7 @@ async function main() {
   check("html widget renders raw markup", body.includes("<b>WIDGET-HTML-BOLD</b>"), true);
   check("recent-posts widget lists the site's post with a frontend URL", body.includes("/blog/wpost"), true);
   check("menu widget renders its menu's items", body.includes("WIDGET-MENU-LINK"), true);
+  check("menu widget renders item with locale=''", body.includes("WIDGET-ALL-LANG-LINK"), true);
   check("the page-locale widget renders", body.includes("PAGE-LOCALE-WIDGET"), true);
   check("a disabled widget does not render", body.includes("DISABLED-WIDGET-BODY"), false);
   check("a widget pinned to the other locale does not render", body.includes("OTHER-LOCALE-WIDGET"), false);

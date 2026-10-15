@@ -2932,6 +2932,52 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     if (!m) throw new Error("menu_id does not exist on this site");
     return { menu_id: menuId };
   }
+  if(path==="widgets/types"&&method==="GET"){
+    return ok({
+      items: [
+        {
+          type: "text",
+          title: "Text",
+          description: "Arbitrary text with auto-paragraphs",
+          icon: "file-text",
+          fields: [
+            { name: "title", label: "Title", type: "text" },
+            { name: "body", label: "Content", type: "textarea", required: true }
+          ]
+        },
+        {
+          type: "html",
+          title: "Custom HTML",
+          description: "Raw HTML / embed code",
+          icon: "puzzle",
+          fields: [
+            { name: "title", label: "Title", type: "text" },
+            { name: "body", label: "HTML Code", type: "textarea", required: true }
+          ]
+        },
+        {
+          type: "recent-posts",
+          title: "Recent Posts",
+          description: "List of recently published posts",
+          icon: "layers",
+          fields: [
+            { name: "title", label: "Title", type: "text" },
+            { name: "count", label: "Number of Posts", type: "number", default: 5, min: 1, max: 20 }
+          ]
+        },
+        {
+          type: "menu",
+          title: "Navigation Menu",
+          description: "Display a site navigation menu",
+          icon: "menu",
+          fields: [
+            { name: "title", label: "Title", type: "text" },
+            { name: "menu_id", label: "Select Menu", type: "select", options: "menus", required: true }
+          ]
+        }
+      ]
+    });
+  }
   if(path==="widgets"&&method==="GET"){
     const rows=await env.DB.prepare("SELECT * FROM widget_instances WHERE site_id=? ORDER BY sidebar,sort_order,id").bind(siteId).all();return ok({items:rows.results,site:siteId});
   }

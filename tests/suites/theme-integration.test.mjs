@@ -990,6 +990,24 @@ async function main() {
   const body2 = await (await req(worker, env, "/widgetest/", { headers: authHeaders })).text();
   check("a second render is consistent", body2.includes("PAGE-LOCALE-WIDGET") && !body2.includes("DEFAULT-SITE-WIDGET"), true);
 
+  // 13. Visual Canvas & Widget Types API
+  const typesRes = await (await req(worker, env, "/api/v1/widgets/types", { headers: authHeaders })).json();
+  check("widget types catalog returned", Array.isArray(typesRes.items) && typesRes.items.length >= 4, true);
+  check("core widget type 'text' present in types catalog", typesRes.items.some((x) => x.type === "text"), true);
+
+  // Canvas preview requires admin session
+  const unauthPreview = await req(worker, env, "/admin/preview?path=/widgetest/&site=widgetest");
+  check("unauthenticated canvas preview is rejected", unauthPreview.status, 401);
+
+  // Authenticated canvas preview renders with interactive slot anchors & bridge
+  const canvasRes = await req(worker, env, "/admin/preview?path=/widgetest/&site=widgetest", { headers: authHeaders });
+  check("authenticated canvas preview status", canvasRes.status, 200);
+  const canvasHtml = await canvasRes.text();
+  checkTruthy("canvas preview injects base href tag", canvasHtml.includes('<base href="/">'));
+  checkTruthy("canvas preview contains slot data attributes", canvasHtml.includes('data-slot='));
+  checkTruthy("canvas preview contains widget data attributes", canvasHtml.includes('data-widget='));
+  checkTruthy("canvas preview injects bridge script", canvasHtml.includes('frame:ready'));
+
   // Cleanup: the throwaway site and the leak probe leave nothing behind.
   await req(worker, env, "/api/v1/sites/widgetest", { method: "DELETE", headers: authHeaders });
   const leakList = await (await req(worker, env, "/api/v1/widgets?site=default", { headers: authHeaders })).json();

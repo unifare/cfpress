@@ -1,14 +1,16 @@
 /**
  * Screen: Widgets — sidebar widgets rendered by the active theme.
  *
+ * Supports two view modes:
+ *   1. Visual Canvas (WYSIWYG layout with interactive slot anchors,
+ *      draggable widget catalog, responsive device viewport, and live bridge).
+ *   2. Classical List View (grouped tables by declared sidebars).
+ *
  * Widgets are grouped by the sidebars the active theme declares
- * (`sidebars[]` in its manifest, served by `theme/sidebars`) — the groups
- * the screen offers are exactly what the theme renders, so a widget can no
- * longer be filed under a sidebar nothing displays. Since 0020 the table is
- * site-scoped: every call goes through `scoped()` and the server re-verifies
- * ownership, so two sites cannot see each other's widgets.
+ * (`sidebars[]` in its manifest, served by `theme/sidebars`).
+ * Since 0020 the table is site-scoped: every call goes through `scoped()`.
  */
-import { api, scoped } from "../state.js";
+import { adminBase, api, scoped, state } from "../state.js";
 import { pageHead, render } from "../shell.js";
 import { icon } from "../../icons.js";
 import { t } from "../i18n.js";
@@ -21,7 +23,18 @@ const TYPE_KEY = {
   menu: "core.widgets.typeMenu",
 };
 
-async function openWidgetDialog(existing) {
+const VIEWPORT_WIDTHS = {
+  desktop: "100%",
+  tablet: "768px",
+  mobile: "375px",
+};
+
+let currentView = (typeof sessionStorage !== "undefined" && sessionStorage.getItem("cfpress_widgets_view")) || "canvas";
+let currentViewport = "desktop";
+let previewPath = "/";
+let detectedSlots = [];
+
+async function openWidgetDialog(existing, defaultSlot, defaultType) {
   const [sbs, menus, i18n] = await Promise.all([
     api(scoped("theme/sidebars")).catch(() => ({ items: [{ id: "sidebar" }, { id: "footer" }] })),
     api(scoped("menus")).catch(() => ({ items: [] })),
@@ -36,9 +49,9 @@ async function openWidgetDialog(existing) {
     description: t("core.widgets.bodyHint", "Text is escaped; HTML is inserted as-is"),
     confirmLabel: t("core.action.save", "Save"),
     fields: [
-      { name: "widget_type", label: t("core.widgets.fieldType", "Type"), type: "select", value: existing?.widget_type || "text", options: Object.entries(TYPE_KEY).map(([value, key]) => ({ value, label: t(key, value) })) },
+      { name: "widget_type", label: t("core.widgets.fieldType", "Type"), type: "select", value: existing?.widget_type || defaultType || "text", options: Object.entries(TYPE_KEY).map(([value, key]) => ({ value, label: t(key, value) })) },
       { name: "title", label: t("core.widgets.fieldTitle", "Widget title"), value: existing?.title || "", placeholder: "About this site" },
-      { name: "sidebar", label: t("core.widgets.fieldSidebar", "Sidebar"), type: "select", value: existing?.sidebar || sidebarOptions[0]?.value || "sidebar", options: sidebarOptions },
+      { name: "sidebar", label: t("core.widgets.fieldSidebar", "Sidebar"), type: "select", value: existing?.sidebar || defaultSlot || sidebarOptions[0]?.value || "sidebar", options: sidebarOptions },
       { name: "locale", label: t("core.widgets.fieldLocale", "Language"), type: "select", value: existing?.locale || "", options: [{ value: "", label: t("core.widgets.localeAll", "All languages") }, ...(i18n.enabled || []).map((l) => ({ value: l, label: l }))] },
       { name: "body", label: `${t("core.widgets.fieldBody", "Content")} — ${t("core.widgets.typeText", "Text")} / ${t("core.widgets.typeHtml", "HTML")}`, type: "textarea", value: cfg.body || "", placeholder: "…" },
       { name: "count", label: `${t("core.widgets.fieldCount", "Number of posts")} — ${t("core.widgets.typeRecent", "Recent posts")}`, type: "number", value: cfg.count ?? 5 },
@@ -47,7 +60,7 @@ async function openWidgetDialog(existing) {
   });
 }
 
-/** The config half of a dialog result, per chosen type (the other fields stay form noise). */
+/** The config half of a dialog result, per chosen type. */
 function configFor(type, v) {
   if (type === "text" || type === "html") return { body: v.body || "" };
   if (type === "recent-posts") return { count: Math.max(1, Math.min(20, Number(v.count) || 5)) };
@@ -55,17 +68,24 @@ function configFor(type, v) {
   return {};
 }
 
+function reloadCanvasIframe() {
+  const ifr = document.querySelector("#canvas-iframe");
+  if (ifr) ifr.src = ifr.src;
+}
+
 export default async function widgets(c) {
-  const [d, sbs] = await Promise.all([
+  const [d, sbs, widgetTypesRes] = await Promise.all([
     api(scoped("widgets")),
     api(scoped("theme/sidebars")).catch(() => ({ items: [{ id: "sidebar" }, { id: "footer" }] })),
+    api("widgets/types").catch(() => ({ items: [] })),
   ]);
   const items = d.items || [];
   const declared = sbs.items || [{ id: "sidebar" }, { id: "footer" }];
   const groups = [...declared.map((s) => s.id), ...[...new Set(items.map((w) => w.sidebar))].filter((sb) => !declared.some((s) => s.id === sb))];
 
   const typeLabel = (w) => esc(t(TYPE_KEY[w.widget_type] || "core.widgets.typeText", w.widget_type));
-  const groupHtml = (sb) => {
+
+  const listHtml = groups.map((sb) => {
     const rows = items.filter((w) => (w.sidebar || "sidebar") === sb)
       .sort((a, b) => (a.sort_order - b.sort_order) || String(a.id).localeCompare(String(b.id)));
     const body = rows.map((w) => `<tr data-widget-id="${attr(w.id)}">
@@ -87,14 +107,97 @@ export default async function widgets(c) {
         <tbody>${body || emptyRow(5, t("core.widgets.none", "No widgets in this sidebar yet."))}</tbody>
       </table></div>
     </div>`;
-  };
+  }).join("");
+
+  const catalogTypes = (widgetTypesRes.items && widgetTypesRes.items.length)
+    ? widgetTypesRes.items
+    : [
+        { type: "text", title: "Text", description: "Arbitrary text", icon: "file-text" },
+        { type: "html", title: "HTML", description: "Custom HTML / embed code", icon: "puzzle" },
+        { type: "recent-posts", title: "Recent Posts", description: "List of latest posts", icon: "layers" },
+        { type: "menu", title: "Menu", description: "Site navigation menu", icon: "menu" },
+      ];
+
+  const catalogHtml = catalogTypes.map((item) => `
+    <div class="widget-catalog-item" draggable="true" data-widget-type="${attr(item.type)}" style="padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg, #fff);display:flex;align-items:center;justify-content:space-between;cursor:grab;margin-bottom:8px;box-shadow:0 1px 3px rgba(0,0,0,0.03);user-select:none;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="display:inline-flex;color:var(--primary);">${icon(item.icon || "puzzle")}</span>
+        <div>
+          <div style="font-weight:600;font-size:13px;line-height:1.2;">${esc(item.title)}</div>
+          <div style="font-size:11px;color:var(--muted);">${esc(item.description || "")}</div>
+        </div>
+      </div>
+      <button class="btn outline sm" data-action="quick-add-widget" data-type="${attr(item.type)}" title="${esc(t("core.widgets.add", "Add widget"))}" style="padding:2px 6px;">${icon("plus")}</button>
+    </div>
+  `).join("");
+
+  const slotsList = (detectedSlots.length ? detectedSlots : groups.map((g) => ({ id: g, label: g }))).map((s) => {
+    const sId = typeof s === "string" ? s : s.id;
+    const count = items.filter((w) => (w.sidebar || "sidebar") === sId).length;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;">
+      <span style="font-weight:500;">${esc(sId)}</span>
+      <span class="badge outline">${count}</span>
+    </div>`;
+  }).join("");
+
+  const previewUrl = `${adminBase}/preview?path=${encodeURIComponent(previewPath)}&site=${encodeURIComponent(state.site || "default")}`;
+  const iframeWidth = VIEWPORT_WIDTHS[currentViewport] || "100%";
+
+  const canvasHtml = `
+    <div style="display:flex;gap:16px;margin-top:1rem;align-items:flex-start;">
+      <!-- Left Panel: Widget Catalog & Slots Info -->
+      <div style="width:280px;flex-shrink:0;display:flex;flex-direction:column;gap:14px;">
+        <div class="panel" style="padding:14px;">
+          <div class="card-title" style="margin-bottom:6px;font-size:14px;">${esc(t("core.widgets.catalog", "Widget catalog"))}</div>
+          <p class="muted text-sm" style="margin-bottom:12px;line-height:1.4;">${esc(t("core.widgets.dragHint", "Drag a widget into a slot in the preview"))}</p>
+          <div class="widget-catalog-list">
+            ${catalogHtml}
+          </div>
+        </div>
+
+        <div class="panel" style="padding:14px;">
+          <div class="card-title" style="margin-bottom:8px;font-size:14px;">${esc(t("core.widgets.activeSlots", "Page slots"))}</div>
+          <div style="display:flex;flex-direction:column;">
+            ${slotsList}
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Panel: Canvas Frame & Responsive Toolbar -->
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:10px;">
+        <div class="panel" style="padding:8px 12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <button class="btn ${currentViewport === "desktop" ? "primary" : "outline"} sm" data-action="set-viewport" data-viewport="desktop" title="${esc(t("core.widgets.viewportDesktop", "Desktop"))}">${icon("monitor")}</button>
+            <button class="btn ${currentViewport === "tablet" ? "primary" : "outline"} sm" data-action="set-viewport" data-viewport="tablet" title="${esc(t("core.widgets.viewportTablet", "Tablet"))}">768px</button>
+            <button class="btn ${currentViewport === "mobile" ? "primary" : "outline"} sm" data-action="set-viewport" data-viewport="mobile" title="${esc(t("core.widgets.viewportMobile", "Mobile"))}">375px</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex:1;max-width:380px;">
+            <input type="text" id="canvas-path-input" class="input sm" value="${esc(previewPath)}" placeholder="/" style="flex:1;" />
+            <button class="btn outline sm" data-action="navigate-preview">${icon("arrow-right")}</button>
+            <button class="btn outline sm" data-action="reload-preview" title="${esc(t("core.widgets.refreshPreview", "Refresh preview"))}">${icon("refresh")}</button>
+          </div>
+        </div>
+
+        <div style="min-height:640px;background:var(--muted-bg, #f1f5f9);border:1px solid var(--border);border-radius:8px;display:flex;justify-content:center;overflow:hidden;padding:12px 0;">
+          <iframe id="canvas-iframe" src="${previewUrl}" style="width:${iframeWidth};height:620px;border:1px solid var(--border);border-radius:6px;background:#fff;box-shadow:0 4px 12px rgba(0,0,0,0.06);transition:width 0.25s ease;"></iframe>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const viewToggleButtons = `
+    <div class="btn-group" style="display:inline-flex;margin-right:8px;">
+      <button class="btn ${currentView === "canvas" ? "primary" : "outline"} sm" data-action="toggle-view" data-view="canvas">${icon("palette")}${esc(t("core.widgets.viewCanvas", "Visual Canvas"))}</button>
+      <button class="btn ${currentView === "list" ? "primary" : "outline"} sm" data-action="toggle-view" data-view="list">${icon("menu")}${esc(t("core.widgets.viewList", "List"))}</button>
+    </div>
+  `;
 
   c.innerHTML = `${pageHead({
     title: t("core.nav.widgets", "Widgets"),
     sub: t("core.widgets.sub", "Sidebar widgets rendered by the active theme"),
-    actions: `<button class="btn primary" data-action="new-widget">${icon("plus")}${esc(t("core.widgets.add", "Add widget"))}</button>`,
+    actions: `${viewToggleButtons}<button class="btn primary sm" data-action="new-widget">${icon("plus")}${esc(t("core.widgets.add", "Add widget"))}</button>`,
     crumbs: [{ label: t("core.nav.appearance", "Appearance") }, { label: t("core.nav.widgets", "Widgets") }],
-  })}${groups.map(groupHtml).join("")}`;
+  })}${currentView === "canvas" ? canvasHtml : listHtml}`;
 }
 
 async function findWidget(id) {
@@ -112,15 +215,56 @@ async function move(id, dir) {
   const at = group.findIndex((w) => w.id === id);
   const other = group[at + dir];
   if (!other) return;
-  // Two PUTs with explicit sort_order values — the server stores what it is
-  // told, and the screen re-reads the group after the swap.
   await api(scoped(`widgets/${me.id}`), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sort_order: other.sort_order }) });
   await api(scoped(`widgets/${other.id}`), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sort_order: me.sort_order }) });
   toast(t("core.widgets.moved", "Order saved"));
   render();
 }
 
+// Global click delegation
 document.addEventListener("click", async (e) => {
+  const toggleBtn = e.target.closest("[data-action=toggle-view]");
+  if (toggleBtn) {
+    currentView = toggleBtn.dataset.view || "canvas";
+    if (typeof sessionStorage !== "undefined") sessionStorage.setItem("cfpress_widgets_view", currentView);
+    render();
+    return;
+  }
+
+  const viewportBtn = e.target.closest("[data-action=set-viewport]");
+  if (viewportBtn) {
+    currentViewport = viewportBtn.dataset.viewport || "desktop";
+    render();
+    return;
+  }
+
+  if (e.target.closest("[data-action=reload-preview]")) {
+    reloadCanvasIframe();
+    return;
+  }
+
+  if (e.target.closest("[data-action=navigate-preview]")) {
+    const input = document.querySelector("#canvas-path-input");
+    if (input) {
+      previewPath = input.value || "/";
+      reloadCanvasIframe();
+    }
+    return;
+  }
+
+  const quickAddBtn = e.target.closest("[data-action=quick-add-widget]");
+  if (quickAddBtn) {
+    const type = quickAddBtn.dataset.type || "text";
+    const v = await openWidgetDialog(null, null, type);
+    if (!v) return;
+    const payload = { widget_type: v.widget_type, title: v.title, sidebar: v.sidebar, locale: v.locale || "", config: configFor(v.widget_type, v) };
+    await api(scoped("widgets"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    toast(t("core.widgets.added", "Widget added"));
+    if (currentView === "canvas") reloadCanvasIframe();
+    else render();
+    return;
+  }
+
   if (e.target.closest("[data-action=new-widget]") || e.target.closest("[data-w-edit]")) {
     const editing = e.target.closest("[data-w-edit]")?.dataset.wEdit;
     const existing = editing ? await findWidget(editing) : null;
@@ -135,7 +279,8 @@ document.addEventListener("click", async (e) => {
       await api(scoped("widgets"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       toast(t("core.widgets.added", "Widget added"));
     }
-    render();
+    if (currentView === "canvas") reloadCanvasIframe();
+    else render();
     return;
   }
 
@@ -156,3 +301,76 @@ document.addEventListener("click", async (e) => {
     render();
   }
 });
+
+// Drag and drop start from catalog
+document.addEventListener("dragstart", (e) => {
+  const item = e.target.closest(".widget-catalog-item");
+  if (item && e.dataTransfer) {
+    const type = item.dataset.widgetType || "text";
+    e.dataTransfer.setData("application/x-widget-type", type);
+  }
+});
+
+// PostMessage Bridge listener from the preview iframe
+if (typeof window !== "undefined") {
+  window.addEventListener("message", async (e) => {
+    const data = e.data;
+    if (!data || typeof data !== "object") return;
+    if (data.action === "frame:ready") {
+      detectedSlots = Array.isArray(data.slots) ? data.slots : [];
+      return;
+    }
+    if (data.action === "widget:drop") {
+      const type = data.type || "text";
+      const slot = data.slot || "sidebar";
+      const v = await openWidgetDialog(null, slot, type);
+      if (!v) return;
+      const payload = { widget_type: v.widget_type, title: v.title, sidebar: v.sidebar, locale: v.locale || "", config: configFor(v.widget_type, v) };
+      await api(scoped("widgets"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      toast(t("core.widgets.added", "Widget added"));
+      reloadCanvasIframe();
+      return;
+    }
+    if (data.action === "widget:edit") {
+      const existing = await findWidget(data.widgetId);
+      if (!existing) return;
+      const v = await openWidgetDialog(existing);
+      if (!v) return;
+      const payload = { widget_type: v.widget_type, title: v.title, sidebar: v.sidebar, locale: v.locale || "", config: configFor(v.widget_type, v) };
+      await api(scoped(`widgets/${existing.id}`), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      toast(t("core.widgets.saved", "Widget saved"));
+      reloadCanvasIframe();
+      return;
+    }
+    if (data.action === "widget:delete") {
+      const w = await findWidget(data.widgetId);
+      const okDel = await confirmDialog({
+        title: t("core.widgets.deleteTitle", "Delete widget “{name}”?", { name: w?.title || data.widgetId }),
+        confirmLabel: t("core.action.delete", "Delete"),
+      });
+      if (!okDel) return;
+      await api(scoped(`widgets/${data.widgetId}`), { method: "DELETE" });
+      toast(t("core.widgets.deleted", "Widget deleted"));
+      reloadCanvasIframe();
+      return;
+    }
+    if (data.action === "slot:add") {
+      const slot = data.slot || "sidebar";
+      const v = await openWidgetDialog(null, slot);
+      if (!v) return;
+      const payload = { widget_type: v.widget_type, title: v.title, sidebar: v.sidebar, locale: v.locale || "", config: configFor(v.widget_type, v) };
+      await api(scoped("widgets"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      toast(t("core.widgets.added", "Widget added"));
+      reloadCanvasIframe();
+      return;
+    }
+    if (data.action === "navigate") {
+      if (data.url && typeof data.url === "string") {
+        previewPath = data.url;
+        const input = document.querySelector("#canvas-path-input");
+        if (input) input.value = previewPath;
+        reloadCanvasIframe();
+      }
+    }
+  });
+}

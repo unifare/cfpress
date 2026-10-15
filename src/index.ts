@@ -1,4 +1,4 @@
-import{Env}from "./shared/types";import{handleApi,handleFrontApi,maybeSeedDemoContent}from "./api";import{findContent,contentAlternates,siteInfo,locales,defaultLocale}from "./platform/frontend";import{robots,sitemap,feed}from "./platform/seo";import{seedBundledExtensions,bootPluginRuntime,doAction,applyFilters,renderShortcodes}from "./extensions/plugin/runtime";import{setPluginTableSync}from "./extensions/plugin/menus";import{syncOwnerTables}from "./extensions/theme/tables";import{setHostHooks}from "./extensions/contract/hooks";import{renderThemePage,runThemeQuery,activeTheme,type ThemeRenderOptions}from "./extensions/theme/runtime-declarative";import{tryRenderWithThemeWorker,handleThemeApi}from "./extensions/theme/runtime-worker";import{processScheduled}from "./shared/scheduler";import{resolveSite,siteListMemo,listSites,resetSiteListMemo}from "./platform/sites";
+import{Env}from "./shared/types";import{handleApi,handleFrontApi,maybeSeedDemoContent}from "./api";import{findContent,contentAlternates,siteInfo,locales,defaultLocale}from "./platform/frontend";import{robots,sitemap,feed}from "./platform/seo";import{seedBundledExtensions,bootPluginRuntime,doAction,applyFilters,renderShortcodes}from "./extensions/plugin/runtime";import{setPluginTableSync}from "./extensions/plugin/menus";import{syncOwnerTables}from "./extensions/theme/tables";import{setHostHooks}from "./extensions/contract/hooks";import{renderThemePage,runThemeQuery,activeTheme,type ThemeRenderOptions}from "./extensions/theme/runtime-declarative";import{tryRenderWithThemeWorker,handleThemeApi}from "./extensions/theme/runtime-worker";import{processScheduled}from "./shared/scheduler";import{resolveSite,siteListMemo,listSites,resetSiteListMemo,type ResolvedSite}from "./platform/sites";
 // The media read path's three gates (tenant / session / owner) live in one
 // module so this route and the admin media API cannot answer differently.
 import{currentUser,loginRequest}from "./platform/auth";import{adminPath,resetAdminPathMemo}from "./platform/settings";import{readMediaPolicy,mediaReadDecision}from "./platform/media-policy";import{isRemoteObjectKey}from "./platform/media-hosts";import{listRoutes,findPostTypeBySlug,listPostTypes}from "./extensions/theme/capabilities";
@@ -296,6 +296,15 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
  // this entire routing block and turned six guards red on correct code. Same
  // trap, same line, as the note further down this file.
  if(p===adminBase+"/api/v1/auth/login"&&request.method==="POST")return loginRequest(env,request,adminBase);
+ if(p===adminBase+"/preview"||p.startsWith(adminBase+"/preview/")){
+   const user=await currentUser(env,request);
+   if(!user)return new Response("Unauthorized",{status:401});
+   const previewPath=u.searchParams.get("path")||"/";
+   const previewSite=u.searchParams.get("site")||"default";
+   const subUrl=new URL(previewPath,u.origin);
+   const subReq=new Request(subUrl.toString(),{headers:request.headers});
+   return handleFrontRequest(env,subReq,ctx,subUrl,previewSite,true);
+ }
  if(p.startsWith(adminBase+"/api/"))return handleApi(env,new Request(new URL(p.slice(adminBase.length)+u.search,u.origin),request));
  if(p.startsWith(adminBase+"/"))return env.ASSETS.fetch(new Request(new URL("/admin"+p.slice(adminBase.length),u.origin),request));
  // ⚠️ 旧入口与旧登录端点一律 404：重定向会把新路径交给扫描器。
@@ -331,10 +340,27 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
    }
  }
  if(request.method!=="GET")return env.ASSETS.fetch(request);
+ return handleFrontRequest(env,request,ctx,u);
+},async scheduled(_event:ScheduledController,env:Env,_ctx:ExecutionContext){await processScheduled(env)}};
 
+async function handleFrontRequest(env:Env,request:Request,ctx:ExecutionContext,u:URL,overrideSiteId?:string,isCanvas=false):Promise<Response>{
+ const render=(o:ThemeRenderOptions)=>renderPage(env,{...o,canvas:isCanvas||o.canvas},request);
  // Resolve which site this request belongs to (host or path prefix).
  const sites=await siteListMemo(env);
- const resolved=await resolveSite(env,u,sites);
+ let resolved:ResolvedSite;
+ if(overrideSiteId){
+  const siteObj=sites.find(s=>s.id===overrideSiteId)??null;
+  let p=u.pathname||"/";
+  const rawPfx=siteObj?.path_prefix?String(siteObj.path_prefix).trim().replace(/\/+$/,""):null;
+  const pfx=rawPfx?(rawPfx.startsWith("/")?rawPfx:`/${rawPfx}`):null;
+  if(pfx&&(p===pfx||p.startsWith(pfx+"/"))){
+   const stripped=p.slice(pfx.length);
+   p=stripped.startsWith("/")?stripped:`/${stripped}`;
+  }
+  resolved={siteId:overrideSiteId,site:siteObj,path:p,matchedBy:"path_prefix"};
+ }else{
+  resolved=await resolveSite(env,u,sites);
+ }
  const siteId=resolved.siteId;
  const path=resolved.path;
 
@@ -407,10 +433,10 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
    // instead of the site's. One listing path means the front page and an
    // archive can never disagree about what a post carries.
    const ps=await runThemeQuery(env,{type:"post",limit:10,order:"created_at desc"},{locale},siteId) as any[];
-   const r=await renderPage(env,{
+   const r=await render({
      siteId,locale,path:u.pathname,kind:"home",title:site.title,description:site.description,
      extra:{posts:ps.map((p:any)=>({...p,url:`/${locale}/blog/${p.slug}`}))}
-   },request);
+   });
    return respond(r.html,r.template,r.status);
  };
 
@@ -484,7 +510,7 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
   // Doing it here rather than after the render avoids building a whole archive
   // page only to discard it and answer 404 with a listing in the body.
   if(wantSingle&&!post){
-    const miss=await renderPage(env,{siteId,locale,path:u.pathname,kind:"404",title:"Not Found"},request);
+    const miss=await render({siteId,locale,path:u.pathname,kind:"404",title:"Not Found"});
     return respond(miss.html,miss.template,404);
   }
 
@@ -530,7 +556,7 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
   const routeBase="/"+rp.split("/").filter(s=>s&&!s.startsWith(":")).join("/");
   const itemUrl=(slug:string)=>`/${locale}${routeBase==="/"?"":routeBase}/${slug}`;
 
-  const r=await renderPage(env,{
+  const r=await render({
     siteId,locale,path:u.pathname,kind,postType,slug:rt.params.slug,
     // The template the route named outranks the hierarchy. Without this a table
     // route has no post type to derive a name from and can only reach the
@@ -545,7 +571,7 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
       route:{path:route.path,params:rt.params,query},
       [listVar]:rows.map(p=>({...p,url:itemUrl(String(p.slug??""))})),
     }
-  },request);
+  });
   return respond(r.html,r.template,r.status);
  }
 
@@ -558,7 +584,7 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
    const slug=rest.slice(5);
    const x=await findContent(env,"post",slug,locale,siteId);
    if(x){
-     const r=await renderPage(env,{siteId,locale,path:u.pathname,kind:"single",postType:"post",slug,title:x.title,description:x.excerpt,post:x},request);
+     const r=await render({siteId,locale,path:u.pathname,kind:"single",postType:"post",slug,title:x.title,description:x.excerpt,post:x});
      return respond(r.html,r.template,r.status);
    }
  }
@@ -575,7 +601,7 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
    if(segs.length===2){
      const x=await findContent(env,pt.name,segs[1],locale,siteId);
      if(x){
-       const r=await renderPage(env,{siteId,locale,path:u.pathname,kind:"single",postType:pt.name,slug:segs[1],title:x.title,description:x.excerpt,post:x},request);
+       const r=await render({siteId,locale,path:u.pathname,kind:"single",postType:pt.name,slug:segs[1],title:x.title,description:x.excerpt,post:x});
        return respond(r.html,r.template,r.status);
      }
      // Nested path that is not this CPT -> fall through to pages below.
@@ -584,11 +610,11 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
    // Archive listing (has_archive).
    if(segs.length===1&&pt.has_archive){
      const rows=await runThemeQuery(env,{type:pt.name,limit:50},{locale} as Record<string,unknown>,siteId);
-     const r=await renderPage(env,{
+     const r=await render({
        siteId,locale,path:u.pathname,kind:"archive",postType:pt.name,
        title:String(pt.plural_label||pt.label||pt.name),
        extra:{posts:(rows as any[]).map(p=>({...p,url:`/${locale}/${ptBase}/${p.slug}`}))}
-     },request);
+     });
      return respond(r.html,r.template,r.status);
    }
  }
@@ -596,7 +622,7 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
  // Static page
  const page=await findContent(env,"page",rest,locale,siteId);
  if(page){
-   const r=await renderPage(env,{siteId,locale,path:u.pathname,kind:"page",postType:"page",slug:rest,title:page.title,description:page.excerpt,post:page},request);
+   const r=await render({siteId,locale,path:u.pathname,kind:"page",postType:"page",slug:rest,title:page.title,description:page.excerpt,post:page});
    return respond(r.html,r.template,r.status);
  }
 
@@ -611,15 +637,15 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
      if(code===locale)continue;
      const alt=await findContent(env,"page",rest,code,siteId);
      if(alt){
-       const r=await renderPage(env,{siteId,locale:code,path:u.pathname,kind:"page",postType:"page",slug:rest,title:alt.title,description:alt.excerpt,post:alt},request);
+       const r=await render({siteId,locale:code,path:u.pathname,kind:"page",postType:"page",slug:rest,title:alt.title,description:alt.excerpt,post:alt});
        return respond(r.html,r.template,r.status);
      }
    }
  }
 
- const r=await renderPage(env,{siteId,locale,path:u.pathname,kind:"404",title:"Not Found"},request);
+ const r=await render({siteId,locale,path:u.pathname,kind:"404",title:"Not Found"});
  return respond(r.html,r.template,r.status===200?404:r.status);
-},async scheduled(_event:ScheduledController,env:Env,_ctx:ExecutionContext){await processScheduled(env)}};
+}
 
 export{listPostTypes};
 // Test surface: the boot hook is exercised directly by `admin-contract` (the

@@ -436,6 +436,8 @@ export interface ThemeRenderOptions {
   slug?: string;
   taxonomy?: string;
   term?: string;
+  /** Whether rendering inside the admin visual widget canvas editor. */
+  canvas?: boolean;
   /**
    * An explicitly named template, which outranks the hierarchy.
    *
@@ -531,13 +533,24 @@ export async function buildScope(
   o: ThemeRenderOptions
 ): Promise<Record<string, unknown>> {
   const siteId = o.siteId;
-  const [s, ls, strings, siteDefault, widgets] = await Promise.all([
+  const [s, ls, strings, siteDefault, rawWidgets] = await Promise.all([
     siteInfo(env, siteId),
     locales(env, siteId),
     loadThemeStrings(env, theme, o.locale),
     defaultLocale(env, siteId),
     widgetGroups(env, siteId, o.locale),
   ]);
+  const declaredSidebars = (theme.manifest.widgets?.areas || theme.manifest.sidebars || [{ id: "sidebar" }]).map((sb: any) => sb.id);
+  const widgets: Record<string, string> = { ...rawWidgets };
+  if (o.canvas) {
+    for (const sb of declaredSidebars) {
+      if (!widgets[sb]) {
+        widgets[sb] = `<div class="widget-slot-empty" data-slot="${esc(sb)}"><span class="widget-slot-hint">+ ${esc(sb)}</span></div>`;
+      } else {
+        widgets[sb] += `<div class="widget-slot-dropzone" data-slot="${esc(sb)}"><span>+ ${esc(sb)}</span></div>`;
+      }
+    }
+  }
   // Menus per declared location (rule 73 — one deterministic winner per
   // location). The locations come from the active theme's manifest, read at
   // render time; a theme that declares none gets the historical `header`
@@ -788,6 +801,103 @@ export async function renderThemePage(
  * A plugin throwing must never take the page down, so each stage is isolated
  * and the document falls back to whatever the previous stage produced.
  */
+const CANVAS_BRIDGE_CSS = `
+.widget-item-wrapper{position:relative!important;outline:1px dashed transparent;transition:outline .15s ease}
+.widget-item-wrapper:hover{outline:1px dashed #3b82f6!important}
+.widget-actions-overlay{position:absolute;top:4px;right:4px;display:none;align-items:center;gap:4px;background:rgba(15,23,42,.85);backdrop-filter:blur(4px);padding:2px 6px;border-radius:4px;z-index:10000;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.widget-item-wrapper:hover .widget-actions-overlay{display:flex!important}
+.widget-type-badge{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:11px;font-weight:600;color:#93c5fd;text-transform:uppercase;margin-right:2px}
+.widget-action-btn{background:transparent;border:none;cursor:pointer;padding:2px 4px;border-radius:3px;color:#f8fafc;font-size:13px;line-height:1;display:inline-flex;align-items:center;justify-content:center;transition:background .15s}
+.widget-action-btn:hover{background:rgba(255,255,255,.2)}
+.widget-action-btn.btn-delete:hover{background:#ef4444}
+.widget-slot-empty{border:2px dashed #3b82f6!important;border-radius:6px!important;padding:20px 12px!important;text-align:center!important;background:rgba(59,130,246,.05)!important;margin:8px 0!important;min-height:50px!important;display:flex!important;align-items:center!important;justify-content:center!important;cursor:pointer!important;transition:all .2s ease!important}
+.widget-slot-empty:hover{background:rgba(59,130,246,.12)!important;border-color:#2563eb!important}
+.widget-slot-empty .widget-slot-hint{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif!important;font-size:13px!important;font-weight:500!important;color:#3b82f6!important;pointer-events:none!important}
+.widget-slot-dropzone{border:1px dashed #cbd5e1!important;border-radius:4px!important;padding:6px 12px!important;text-align:center!important;color:#64748b!important;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif!important;font-size:11px!important;margin:6px 0!important;cursor:pointer!important;transition:all .15s ease!important}
+.widget-slot-dropzone:hover{border-color:#3b82f6!important;color:#3b82f6!important;background:rgba(59,130,246,.04)!important}
+[data-slot].drag-over{outline:2px dashed #2563eb!important;outline-offset:4px!important;background:rgba(37,99,235,.08)!important}
+`;
+
+const CANVAS_BRIDGE_JS = `
+(function(){
+  function initBridge(){
+    var slotElements=document.querySelectorAll('[data-slot]');
+    var slots=[];
+    for(var i=0;i<slotElements.length;i++){
+      var s=slotElements[i].getAttribute('data-slot');
+      if(s&&slots.indexOf(s)===-1)slots.push(s);
+    }
+    window.parent.postMessage({action:'frame:ready',slots:slots},'*');
+
+    var widgetEls=document.querySelectorAll('[data-widget]');
+    for(var w=0;w<widgetEls.length;w++){
+      var wel=widgetEls[w];
+      if(!wel.querySelector('.widget-actions-overlay')){
+        wel.classList.add('widget-item-wrapper');
+        var m=wel.className.match(/widget-([a-z-]+)/);
+        var wType=m?m[1]:'widget';
+        var ov=document.createElement('div');
+        ov.className='widget-actions-overlay';
+        ov.innerHTML='<span class="widget-type-badge">'+wType+'</span><button type="button" class="widget-action-btn btn-edit" title="Edit" data-action="edit">⚙</button><button type="button" class="widget-action-btn btn-delete" title="Delete" data-action="delete">🗑</button>';
+        wel.insertBefore(ov,wel.firstChild);
+      }
+    }
+
+    document.addEventListener('click',function(e){
+      var editBtn=e.target.closest('.widget-action-btn[data-action="edit"]');
+      if(editBtn){
+        e.preventDefault();e.stopPropagation();
+        var wrapper=editBtn.closest('[data-widget]');
+        var wid=wrapper?wrapper.getAttribute('data-widget'):'';
+        var slot=wrapper?wrapper.getAttribute('data-slot'):'';
+        if(wid)window.parent.postMessage({action:'widget:edit',widgetId:wid,slot:slot},'*');
+        return;
+      }
+      var delBtn=e.target.closest('.widget-action-btn[data-action="delete"]');
+      if(delBtn){
+        e.preventDefault();e.stopPropagation();
+        var wrapper=delBtn.closest('[data-widget]');
+        var wid=wrapper?wrapper.getAttribute('data-widget'):'';
+        var slot=wrapper?wrapper.getAttribute('data-slot'):'';
+        if(wid)window.parent.postMessage({action:'widget:delete',widgetId:wid,slot:slot},'*');
+        return;
+      }
+      var emptySlot=e.target.closest('.widget-slot-empty, .widget-slot-dropzone');
+      if(emptySlot){
+        e.preventDefault();e.stopPropagation();
+        var slot=emptySlot.getAttribute('data-slot');
+        if(slot)window.parent.postMessage({action:'slot:add',slot:slot},'*');
+        return;
+      }
+      var link=e.target.closest('a');
+      if(link&&link.getAttribute('href')&&!link.getAttribute('href').startsWith('#')){
+        e.preventDefault();
+        window.parent.postMessage({action:'navigate',url:link.getAttribute('href')},'*');
+      }
+    },true);
+
+    document.addEventListener('dragover',function(e){
+      var slotEl=e.target.closest('[data-slot]');
+      if(slotEl){e.preventDefault();e.dataTransfer.dropEffect='copy';slotEl.classList.add('drag-over');}
+    });
+    document.addEventListener('dragleave',function(e){
+      var slotEl=e.target.closest('[data-slot]');
+      if(slotEl&&!slotEl.contains(e.relatedTarget)){slotEl.classList.remove('drag-over');}
+    });
+    document.addEventListener('drop',function(e){
+      var slotEl=e.target.closest('[data-slot]');
+      if(slotEl){
+        e.preventDefault();slotEl.classList.remove('drag-over');
+        var type=e.dataTransfer.getData('application/x-widget-type');
+        var slot=slotEl.getAttribute('data-slot');
+        if(type&&slot){window.parent.postMessage({action:'widget:drop',slot:slot,type:type},'*');}
+      }
+    });
+  }
+  if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',initBridge);}else{initBridge();}
+})();
+`;
+
 async function decorateOutput(env: Env, o: ThemeRenderOptions, template: string, html: string): Promise<string> {
   const hooks = hooksOf(o);
   await hooks.boot(env);
@@ -805,6 +915,14 @@ async function decorateOutput(env: Env, o: ThemeRenderOptions, template: string,
     if (typeof filtered === "string") out = filtered;
   } catch {
     /* a broken filter leaves the previous stage's output */
+  }
+  if (o.canvas) {
+    const headInject = `<base href="/">\n`;
+    const bodyInject = `<style>${CANVAS_BRIDGE_CSS}</style>\n<script>${CANVAS_BRIDGE_JS}</script>\n`;
+    if (out.includes("<head>")) out = out.replace("<head>", `<head>\n${headInject}`);
+    else if (out.includes("</head>")) out = out.replace("</head>", `${headInject}</head>`);
+    if (out.includes("</body>")) out = out.replace("</body>", `${bodyInject}</body>`);
+    else out += bodyInject;
   }
   return out;
 }

@@ -323,8 +323,12 @@ document.addEventListener("click", async (e) => {
     const v = await openWidgetDialog(null, null, type);
     if (!v) return;
     const payload = { widget_type: v.widget_type, title: v.title, sidebar: v.sidebar, locale: v.locale || "", config: configFor(v.widget_type, v) };
-    await api(scoped("widgets"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-    toast(t("core.widgets.added", "Widget added"));
+    try {
+      await api(scoped("widgets"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      toast(t("core.widgets.added", "Widget added"));
+    } catch (err) {
+      toast(err?.message || "Failed to add widget", "error");
+    }
     if (currentView === "canvas") refreshCanvasSlots();
     else render();
     return;
@@ -337,12 +341,16 @@ document.addEventListener("click", async (e) => {
     if (!v) return;
     const type = v.widget_type;
     const payload = { widget_type: type, title: v.title, sidebar: v.sidebar, locale: v.locale || "", config: configFor(type, v) };
-    if (existing) {
-      await api(scoped(`widgets/${existing.id}`), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      toast(t("core.widgets.saved", "Widget saved"));
-    } else {
-      await api(scoped("widgets"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      toast(t("core.widgets.added", "Widget added"));
+    try {
+      if (existing) {
+        await api(scoped(`widgets/${existing.id}`), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        toast(t("core.widgets.saved", "Widget saved"));
+      } else {
+        await api(scoped("widgets"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        toast(t("core.widgets.added", "Widget added"));
+      }
+    } catch (err) {
+      toast(err?.message || "Failed to save widget", "error");
     }
     if (currentView === "canvas") refreshCanvasSlots();
     else render();
@@ -355,14 +363,23 @@ document.addEventListener("click", async (e) => {
 
   const del = e.target.closest("[data-w-del]");
   if (del) {
-    const w = await findWidget(del.dataset.wDel);
+    const id = del.dataset.wDel;
+    const w = await findWidget(id);
     const okDel = await confirmDialog({
-      title: t("core.widgets.deleteTitle", "Delete widget “{name}”?", { name: w?.title || del.dataset.wDel }),
+      title: t("core.widgets.deleteTitle", "Delete widget “{name}”?", { name: w?.title || id }),
       confirmLabel: t("core.action.delete", "Delete"),
     });
     if (!okDel) return;
-    await api(scoped(`widgets/${del.dataset.wDel}`), { method: "DELETE" });
-    toast(t("core.widgets.deleted", "Widget deleted"));
+    try {
+      await api(scoped(`widgets/${id}`), { method: "DELETE" });
+      toast(t("core.widgets.deleted", "Widget deleted"));
+    } catch (err) {
+      if (err?.message?.includes("not found")) {
+        toast(t("core.widgets.notFound", "Widget not found or already removed"), "info");
+      } else {
+        toast(err?.message || "Failed to delete widget", "error");
+      }
+    }
     if (currentView === "canvas") refreshCanvasSlots();
     else render();
   }
@@ -392,19 +409,31 @@ if (typeof window !== "undefined") {
       const v = await openWidgetDialog(null, slot, type);
       if (!v) return;
       const payload = { widget_type: v.widget_type, title: v.title, sidebar: v.sidebar, locale: v.locale || "", config: configFor(v.widget_type, v) };
-      await api(scoped("widgets"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      toast(t("core.widgets.added", "Widget added"));
+      try {
+        await api(scoped("widgets"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        toast(t("core.widgets.added", "Widget added"));
+      } catch (err) {
+        toast(err?.message || "Failed to add widget", "error");
+      }
       refreshCanvasSlots();
       return;
     }
     if (data.action === "widget:edit") {
       const existing = await findWidget(data.widgetId);
-      if (!existing) return;
+      if (!existing) {
+        toast(t("core.widgets.notFound", "Widget not found or already removed"), "error");
+        refreshCanvasSlots();
+        return;
+      }
       const v = await openWidgetDialog(existing);
       if (!v) return;
       const payload = { widget_type: v.widget_type, title: v.title, sidebar: v.sidebar, locale: v.locale || "", config: configFor(v.widget_type, v) };
-      await api(scoped(`widgets/${existing.id}`), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      toast(t("core.widgets.saved", "Widget saved"));
+      try {
+        await api(scoped(`widgets/${existing.id}`), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        toast(t("core.widgets.saved", "Widget saved"));
+      } catch (err) {
+        toast(err?.message || "Failed to save widget", "error");
+      }
       refreshCanvasSlots();
       return;
     }
@@ -415,9 +444,21 @@ if (typeof window !== "undefined") {
         confirmLabel: t("core.action.delete", "Delete"),
       });
       if (!okDel) return;
-      await api(scoped(`widgets/${data.widgetId}`), { method: "DELETE" });
-      toast(t("core.widgets.deleted", "Widget deleted"));
+      try {
+        await api(scoped(`widgets/${data.widgetId}`), { method: "DELETE" });
+        toast(t("core.widgets.deleted", "Widget deleted"));
+      } catch (err) {
+        if (err?.message?.includes("not found")) {
+          toast(t("core.widgets.notFound", "Widget not found or already removed"), "info");
+        } else {
+          toast(err?.message || "Failed to delete widget", "error");
+        }
+      }
       refreshCanvasSlots();
+      const ifr = document.querySelector("#canvas-iframe");
+      if (ifr?.contentWindow) {
+        ifr.contentWindow.postMessage({ action: "canvas:remove-widget-dom", widgetId: data.widgetId }, "*");
+      }
       return;
     }
     if (data.action === "slot:add") {
@@ -425,8 +466,12 @@ if (typeof window !== "undefined") {
       const v = await openWidgetDialog(null, slot);
       if (!v) return;
       const payload = { widget_type: v.widget_type, title: v.title, sidebar: v.sidebar, locale: v.locale || "", config: configFor(v.widget_type, v) };
-      await api(scoped("widgets"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      toast(t("core.widgets.added", "Widget added"));
+      try {
+        await api(scoped("widgets"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        toast(t("core.widgets.added", "Widget added"));
+      } catch (err) {
+        toast(err?.message || "Failed to add widget", "error");
+      }
       refreshCanvasSlots();
       return;
     }

@@ -848,7 +848,10 @@ const CANVAS_BRIDGE_JS = `
 
   function refreshSlotsInPlace(){
     fetch(window.location.href, { cache: 'no-store' })
-      .then(function(res){ return res.text(); })
+      .then(function(res){
+        if(!res.ok) throw new Error('status ' + res.status);
+        return res.text();
+      })
       .then(function(html){
         var doc = new DOMParser().parseFromString(html, 'text/html');
         var newSlots = doc.querySelectorAll('[data-slot]');
@@ -860,14 +863,21 @@ const CANVAS_BRIDGE_JS = `
         var curSlots = document.querySelectorAll('[data-slot]');
         for(var j=0;j<curSlots.length;j++){
           var cs = curSlots[j].getAttribute('data-slot');
-          if(cs && map[cs]){
-            curSlots[j].innerHTML = map[cs].innerHTML;
+          if(cs){
+            if(map[cs]){
+              curSlots[j].innerHTML = map[cs].innerHTML;
+            } else {
+              curSlots[j].innerHTML = '';
+            }
           }
         }
         decorateWidgets();
         reportSlots();
       })
-      .catch(function(err){ console.error('[Canvas Bridge] in-place refresh failed', err); });
+      .catch(function(err){
+        console.warn('[Canvas Bridge] in-place refresh failed, falling back to reload', err);
+        window.location.reload();
+      });
   }
 
   function initBridge(){
@@ -878,6 +888,14 @@ const CANVAS_BRIDGE_JS = `
       if(!ev.data || typeof ev.data !== 'object') return;
       if(ev.data.action === 'canvas:refresh-slots'){
         refreshSlotsInPlace();
+      }
+      if(ev.data.action === 'canvas:remove-widget-dom'){
+        var el = document.querySelector('[data-widget="' + ev.data.widgetId + '"]');
+        if(el) {
+          el.remove();
+          decorateWidgets();
+          reportSlots();
+        }
       }
     });
 

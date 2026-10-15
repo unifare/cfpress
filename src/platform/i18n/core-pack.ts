@@ -444,6 +444,7 @@ const EN: Pack = {
   "core.widgets.groupPages": "Pages",
   "core.widgets.groupRoutes": "Theme routes",
   "core.widgets.menuRequired": "Please select a menu to display, or create one under Appearance -> Menus first.",
+  "core.widgets.notFound": "Widget not found or already removed",
   // -- theme-declared table screens ----------------------------------------
   "core.table.notice": "Table",
   "core.table.needsName": "This screen needs a table name. Declare it as args.table on the menu.",
@@ -1015,6 +1016,7 @@ const ZH_CN: Pack = {
   "core.widgets.groupPages": "独立页面",
   "core.widgets.groupRoutes": "主题路由与模板",
   "core.widgets.menuRequired": "请选择要展示的菜单，或先在 外观 -> 菜单 中创建。",
+  "core.widgets.notFound": "小工具不存在或已被删除",
   "core.table.notice": "数据表",
   "core.table.needsName": "此屏幕需要一个数据表名。请在菜单里声明 args.table。",
   "core.table.notDeclared": "本站点没有声明名为「{name}」的数据表。",

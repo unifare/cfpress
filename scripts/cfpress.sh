@@ -258,6 +258,8 @@ plugin-pages|tests/suites/plugin-pages.test.mjs
 theme-worker|tests/suites/theme-worker.test.mjs
 features|tests/suites/features.test.mjs
 permalink|tests/suites/permalink.test.mjs
+hook-tester|tests/suites/hook-tester.test.mjs
+shop-theme|tests/suites/shop-theme.test.mjs
 
 launcher-parity|tests/suites/launcher-parity.test.mjs"
 

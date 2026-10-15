@@ -1,0 +1,12 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+  <article class="post">
+    <h1>{{post.title}}</h1>
+    <div style="color: var(--muted); margin-bottom: 2rem;">
+      <span>{{post.published_at}}</span>
+    </div>
+    <div class="prose">
+      {{{post.content}}}
+    </div>
+  </article>
+{{/section}}

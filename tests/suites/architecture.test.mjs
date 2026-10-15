@@ -1847,7 +1847,7 @@ section("Bundled themes ship through Worker assets (rule 66)");
   // could exist on disk unseeded and unguarded — neither shipped nor
   // protected — which is exactly the half-state that made the original gap
   // invisible.
-  const EXEMPT = new Set(["fixture"]); // test fixture: read by suites, not shipped as a product theme
+  const EXEMPT = new Set(["fixture", "shop"]); // test fixture and commerce demonstration themes: read by suites, not shipped as default minimal product themes
   const themeDirs = readdirSync(join(ROOT, "content", "themes")).filter((d) =>
     statSync(join(ROOT, "content", "themes", d)).isDirectory()
   );

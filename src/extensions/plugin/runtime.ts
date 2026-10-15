@@ -74,7 +74,7 @@ export { DECLARABLE_HOOKS, type DeclarableHook } from "../contract/hooks";
 /** A plugin hook implementation attached by the host. `order` breaks ties. */
 type HookImpl = { phase: "action" | "filter"; impl: Hook; order: number };
 
-const HOOK_IMPLS: Record<string, HookImpl> = {
+export const HOOK_IMPLS: Record<string, HookImpl> = {
   /**
    * `beforeRender` (action) — fires just before a themed page renders.
    * Nothing is returned; use it for side effects such as cache warming or
@@ -145,8 +145,10 @@ const HOOK_IMPLS: Record<string, HookImpl> = {
   afterSavePost: {
     phase: "action",
     order: 10,
-    impl: async () => {
-      /* host default: intentionally a no-op */
+    impl: async (ctx, data) => {
+      if (ctx?.api?.log && data?.id) {
+        await ctx.api.log(`afterSavePost triggered for post: ${data.id} (${data.title || data.slug || ""})`);
+      }
     },
   },
 
@@ -154,8 +156,10 @@ const HOOK_IMPLS: Record<string, HookImpl> = {
   beforeDeletePost: {
     phase: "action",
     order: 10,
-    impl: async () => {
-      /* host default: intentionally a no-op */
+    impl: async (ctx, data) => {
+      if (ctx?.api?.log && data?.id) {
+        await ctx.api.log(`beforeDeletePost triggered for post: ${data.id}`);
+      }
     },
   },
 

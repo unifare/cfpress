@@ -1,0 +1,101 @@
+{
+  "name": "hook-tester",
+  "title": "Hook Tester & Inspector",
+  "version": "1.0.0",
+  "description": "Comprehensive Hook testing, auditing and execution tracing plugin for CFPress, verifying all host-provided declarable hooks.",
+  "permissions": ["content.read", "settings.read", "settings.write"],
+
+  "hooks": [
+    "beforeRender",
+    "html",
+    "head",
+    "footer",
+    "beforeSavePost",
+    "afterSavePost",
+    "beforeDeletePost",
+    "shortcode"
+  ],
+
+  "tables": [
+    {
+      "name": "log",
+      "label": "Hook Execution Log",
+      "fields": [
+        { "key": "hook_name", "type": "text", "label": "Hook Name" },
+        { "key": "target", "type": "text", "label": "Target Object" },
+        { "key": "execution_status", "type": "text", "label": "Status" },
+        { "key": "details", "type": "longtext", "label": "Details" }
+      ],
+      "translatable": ["hook_name", "target", "execution_status", "details"]
+    }
+  ],
+
+  "adminPages": [
+    {
+      "id": "logs",
+      "path": "logs",
+      "titleKey": "plugin.hook-tester.page.logs.title",
+      "blocks": [
+        {
+          "type": "stats",
+          "source": "log",
+          "aggregate": "count",
+          "labelKey": "plugin.hook-tester.block.count"
+        },
+        {
+          "type": "table",
+          "source": "log",
+          "columns": ["hook_name", "target", "execution_status", "details"],
+          "labelKey": "plugin.hook-tester.block.recent"
+        },
+        {
+          "type": "form",
+          "source": "log",
+          "fields": ["hook_name", "target", "execution_status", "details"],
+          "labelKey": "plugin.hook-tester.block.simulate"
+        }
+      ]
+    }
+  ],
+
+  "adminMenus": [
+    {
+      "id": "hook-tester-logs",
+      "label": "Hook Logs",
+      "icon": "activity",
+      "screen": "plugin-page:logs",
+      "capability": "settings.read"
+    },
+    {
+      "id": "hook-tester-settings",
+      "label": "Tester Settings",
+      "icon": "settings",
+      "screen": "plugin-settings",
+      "capability": "settings.read"
+    }
+  ],
+
+  "settings": [
+    { "key": "log_enabled", "type": "text", "label": "Logging Enabled (1/0)", "default": "1" },
+    { "key": "verbose", "type": "text", "label": "Verbose Payload Tracing", "default": "1" },
+    { "key": "footer_scripts", "type": "textarea", "label": "Footer Test Script", "default": "<script id=\"hook-tester-probe\">console.log('Hook-tester footer probe active');</script>" },
+    { "key": "default_description", "type": "textarea", "label": "Head SEO Injection Probe", "default": "Hook-tester probe meta tag" }
+  ],
+
+  "langs": {
+    "en": {
+      "plugin.hook-tester.title": "Hook Tester & Inspector",
+      "plugin.hook-tester.page.logs.title": "Hook Execution Logs",
+      "plugin.hook-tester.block.count": "Hooks Recorded",
+      "plugin.hook-tester.block.recent": "Recent Hook Invocations",
+      "plugin.hook-tester.block.simulate": "Simulate Hook Event"
+    },
+    "zh-CN": {
+      "plugin.hook-tester.title": "Hook 测试与审计工具",
+      "plugin.hook-tester.page.logs.title": "Hook 执行日志",
+      "plugin.hook-tester.block.count": "已记录的 Hook 调用",
+      "plugin.hook-tester.block.recent": "最近的 Hook 调用记录",
+      "plugin.hook-tester.block.simulate": "模拟 Hook 触发"
+    }
+  }
+}

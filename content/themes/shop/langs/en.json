@@ -1,0 +1,11 @@
+{
+  "theme.shop.menu.products": "Products",
+  "theme.shop.menu.productNew": "Add Product",
+  "theme.shop.menu.orders": "Orders",
+  "theme.shop.cart.title": "Your Shopping Cart",
+  "theme.shop.cart.empty": "Your cart is currently empty.",
+  "theme.shop.cart.checkout": "Proceed to Checkout",
+  "theme.shop.product.inStock": "In Stock",
+  "theme.shop.product.soldOut": "Sold Out",
+  "theme.shop.product.addToCart": "Add to Cart"
+}

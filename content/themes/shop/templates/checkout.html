@@ -1,0 +1,21 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+  <h1>Checkout</h1>
+  <div class="card" style="padding: 2rem; margin-top: 1.5rem; max-width: 600px;">
+    <form onsubmit="event.preventDefault(); alert('Order placed successfully!');">
+      <div style="margin-bottom: 1rem;">
+        <label style="display:block; margin-bottom:.5rem;">Full Name</label>
+        <input type="text" required style="width: 100%; padding: .5rem; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 4px;">
+      </div>
+      <div style="margin-bottom: 1rem;">
+        <label style="display:block; margin-bottom:.5rem;">Email Address</label>
+        <input type="email" required style="width: 100%; padding: .5rem; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 4px;">
+      </div>
+      <div style="margin-bottom: 1.5rem;">
+        <label style="display:block; margin-bottom:.5rem;">Shipping Address</label>
+        <textarea required style="width: 100%; padding: .5rem; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 4px;"></textarea>
+      </div>
+      <button type="submit" class="btn" style="cursor: pointer; border: none; font-size: 1rem;">Place Order Now</button>
+    </form>
+  </div>
+{{/section}}

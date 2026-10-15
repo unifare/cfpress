@@ -1,0 +1,11 @@
+{
+  "theme.shop.menu.products": "商品管理",
+  "theme.shop.menu.productNew": "新增商品",
+  "theme.shop.menu.orders": "订单管理",
+  "theme.shop.cart.title": "我的购物车",
+  "theme.shop.cart.empty": "购物车目前是空的。",
+  "theme.shop.cart.checkout": "前往结账",
+  "theme.shop.product.inStock": "有现货",
+  "theme.shop.product.soldOut": "已售罄",
+  "theme.shop.product.addToCart": "加入购物车"
+}

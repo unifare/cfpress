@@ -1,0 +1,122 @@
+{
+  "name": "shop",
+  "title": "Shop & Commerce (官方商城主题)",
+  "version": "1.0.0",
+  "author": "CFPress",
+  "description": "对标 dotnetcms / WordPress 官方商城业务主题：内置商品管理、订单管理、前台商品网格、商品详情页与购物车。完全由声明式数据表与后台业务菜单驱动，零后台代码侵入。",
+  "supports": [
+    "blocks",
+    "menus",
+    "widgets"
+  ],
+  "menuLocations": [
+    { "id": "header", "label": "Header Menu" },
+    { "id": "footer", "label": "Footer Menu" }
+  ],
+  "sidebars": [
+    { "id": "sidebar", "label": "Shop Sidebar" },
+    { "id": "footer", "label": "Shop Footer" }
+  ],
+  "templates": [
+    "index",
+    "home",
+    "archive-product",
+    "single-product",
+    "cart",
+    "checkout",
+    "single",
+    "page",
+    "404"
+  ],
+  "parts": [
+    "layout",
+    "header",
+    "footer"
+  ],
+  "locales": [
+    "zh-CN",
+    "en"
+  ],
+  "routes": [
+    {
+      "path": "/products",
+      "template": "archive-product",
+      "title": "Products",
+      "resolve": { "table": "product" },
+      "query": { "as": "products" }
+    },
+    {
+      "path": "/products/:slug",
+      "template": "single-product",
+      "title": "Product Detail",
+      "resolve": { "table": "product", "by": "slug" }
+    },
+    {
+      "path": "/cart",
+      "template": "cart",
+      "title": "Cart & Checkout"
+    }
+  ],
+  "tables": [
+    {
+      "name": "product",
+      "label": "Product",
+      "translatable": ["name", "sku", "description"],
+      "fields": [
+        { "key": "name", "type": "text", "label": "Product Name", "required": true },
+        { "key": "sku", "type": "text", "label": "SKU", "required": true },
+        { "key": "price", "type": "number", "label": "Price (Cents)", "required": true },
+        { "key": "stock", "type": "number", "label": "Stock Quantity" },
+        { "key": "in_stock", "type": "boolean", "label": "In Stock" },
+        { "key": "description", "type": "longtext", "label": "Description" }
+      ]
+    },
+    {
+      "name": "order",
+      "label": "Order",
+      "translatable": ["order_no", "order_status", "customer_name", "customer_email", "note"],
+      "fields": [
+        { "key": "order_no", "type": "text", "label": "Order Number", "required": true },
+        { "key": "total_amount", "type": "number", "label": "Total Amount (Cents)", "required": true },
+        { "key": "order_status", "type": "text", "label": "Order Status" },
+        { "key": "customer_name", "type": "text", "label": "Customer Name" },
+        { "key": "customer_email", "type": "text", "label": "Customer Email" },
+        { "key": "note", "type": "longtext", "label": "Order Notes" }
+      ]
+    }
+  ],
+  "adminMenus": [
+    {
+      "id": "shop-products",
+      "label": "Products (商品管理)",
+      "label_key": "theme.shop.menu.products",
+      "icon": "box",
+      "screen": "table-list",
+      "args": { "table": "product" },
+      "sortOrder": 10
+    },
+    {
+      "id": "shop-product-new",
+      "label": "Add Product (新增商品)",
+      "label_key": "theme.shop.menu.productNew",
+      "icon": "plus",
+      "screen": "table-edit",
+      "args": { "table": "product" },
+      "sortOrder": 11
+    },
+    {
+      "id": "shop-orders",
+      "label": "Orders (订单管理)",
+      "label_key": "theme.shop.menu.orders",
+      "icon": "shopping-cart",
+      "screen": "table-list",
+      "args": { "table": "order" },
+      "sortOrder": 12
+    }
+  ],
+  "settings": [
+    { "key": "currency_symbol", "label": "Currency Symbol", "type": "text", "default": "$" },
+    { "key": "items_per_page", "label": "Products per page", "type": "number", "default": "12" },
+    { "key": "enable_guest_checkout", "label": "Enable Guest Checkout", "type": "boolean", "default": "true" }
+  ]
+}

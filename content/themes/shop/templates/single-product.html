@@ -1,0 +1,19 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+  <article class="product-detail">
+    <p><a href="/{{locale}}/products">&larr; Back to catalog</a></p>
+    <h1>{{product.name}}</h1>
+    <div style="display: flex; gap: 2rem; margin-top: 1.5rem;">
+      <div style="flex: 2;">
+        <div class="card" style="padding: 2rem;">
+          <p class="price" style="font-size: 2rem;">${{product.price}}</p>
+          <p style="color: var(--muted);">SKU: {{product.sku}}</p>
+          <div style="margin: 1.5rem 0;">
+            {{{product.description}}}
+          </div>
+          <button class="btn" style="cursor: pointer; border: none; font-size: 1rem; padding: 0.75rem 1.5rem;" onclick="alert('Added to cart!')">Add to Cart</button>
+        </div>
+      </div>
+    </div>
+  </article>
+{{/section}}

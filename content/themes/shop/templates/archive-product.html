@@ -1,0 +1,20 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+  <header style="margin-bottom: 2rem;">
+    <h1>All Products</h1>
+    <p class="lede">Discover our curated selection</p>
+  </header>
+  <ul class="grid">
+    {{#each products as p}}
+    <li class="card">
+      <h3><a href="/{{locale}}/products/{{p.slug}}">{{p.name}}</a></h3>
+      <p class="sku" style="color: var(--muted); font-size: 0.85rem;">SKU: {{p.sku}}</p>
+      <div style="margin: 1rem 0; display: flex; justify-content: space-between; align-items: center;">
+        <span class="price">${{p.price}}</span>
+        {{#if p.in_stock}}<span style="color: var(--success); font-size: 0.85rem;">● In Stock</span>{{/if}}
+      </div>
+      <p><a class="btn" href="/{{locale}}/products/{{p.slug}}">View Details &rarr;</a></p>
+    </li>
+    {{/each}}
+  </ul>
+{{/section}}

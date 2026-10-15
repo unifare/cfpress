@@ -428,9 +428,23 @@ export interface ThemeManifest extends ExtensionManifest {
   menuLocations?: { id: string; label?: string }[];
   /** Widget sidebars the theme renders; the SPA groups widgets by this list. */
   sidebars?: { id: string; label?: string }[];
+  /** Widget areas (dotnetcms parity: Area -> Type -> Instance). Evolution of sidebars. */
+  widgets?: ThemeWidgetsDecl;
   blocks?: unknown[];
   locales?: string[];
   tables?: TableDecl[];
+}
+
+export interface ThemeWidgetAreaDecl {
+  id: string;
+  name?: string;
+  label?: string;
+  allowedTypes?: string[];
+  maxDepth?: number;
+}
+
+export interface ThemeWidgetsDecl {
+  areas?: ThemeWidgetAreaDecl[];
 }
 
 export interface PluginManifest extends ExtensionManifest {

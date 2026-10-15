@@ -735,8 +735,13 @@ export async function renderThemePage(
   }
 
   const scope = await buildScope(env, theme, o);
+  let defaultLayout: string | undefined;
+  if (resolved.name !== "parts/layout" && (await load("parts/layout"))) defaultLayout = "parts/layout";
+  else if (resolved.name !== "layout" && (await load("layout"))) defaultLayout = "layout";
+
   const opts: RenderOptions = {
     loadTemplate: load,
+    defaultLayout,
     // `o.siteId` is required by `ThemeRenderOptions`, so it is passed straight
     // through. There used to be an `?? "default"` here: dead under the current
     // types, but a landmine the moment anyone makes the field optional — it

@@ -251,6 +251,41 @@ async function main() {
     );
   }
 
+  console.log("\n9. Dotnetcms parity (helpers & layout pipeline)");
+  {
+    // prefix_lang helper
+    check("prefix_lang absolute URL", await renderTemplate("{{prefix_lang('/about', 'en')}}", {}, { loadTemplate: noTemplates }), "/en/about");
+    check("prefix_lang preserves external URL", await renderTemplate("{{prefix_lang('https://example.com', 'en')}}", {}, { loadTemplate: noTemplates }), "https://example.com");
+    check("prefix_lang uses scope locale when omitted", await renderTemplate("{{prefix_lang('/search')}}", { locale: "zh-CN" }, { loadTemplate: noTemplates }), "/zh-CN/search");
+    check("prefix_lang avoids double prefix", await renderTemplate("{{prefix_lang('/en/blog', 'en')}}", {}, { loadTemplate: noTemplates }), "/en/blog");
+
+    // t helper
+    check("t fallback", await renderTemplate("{{t('not.found', 'Default Text')}}", {}, { loadTemplate: noTemplates }), "Default Text");
+    check("t with dictionary object", await renderTemplate("{{t('btn.save', 'Save')}}", { t: { "btn.save": "保存" } }, { loadTemplate: noTemplates }), "保存");
+
+    // widgets helper
+    check("widgets area output", await renderTemplate("{{{widgets('sidebar-1')}}}", { widgets: { "sidebar-1": "<aside>Widgets</aside>" } }, { loadTemplate: noTemplates }), "<aside>Widgets</aside>");
+    check("widgets missing area empty", await renderTemplate("{{{widgets('missing')}}}", { widgets: {} }, { loadTemplate: noTemplates }), "");
+
+    // hook helper
+    check("hook output", await renderTemplate("{{{hook('frontend:head:start')}}}", { "@hooks": { "frontend:head:start": "<meta name='custom'>" } }, { loadTemplate: noTemplates }), "<meta name='custom'>");
+
+    // automatic layout pipeline: child with no @extends gets wrapped into defaultLayout
+    const autoFiles = {
+      "base": "<html><head></head><body><div class=\"content\">{{@section \"content\"}}</div><div class=\"body\">{{{body}}}</div></body></html>",
+      "child": "<h1>Child Content</h1>",
+    };
+    const autoLoader = async (n) => (n in autoFiles ? autoFiles[n] : null);
+    check(
+      "automatic layout wrapping populates content slot and body variable",
+      await renderTemplateSource(autoFiles.child, {}, {
+        loadTemplate: autoLoader,
+        defaultLayout: "base",
+      }),
+      '<html><head></head><body><div class="content"><h1>Child Content</h1></div><div class="body"><h1>Child Content</h1></div></body></html>'
+    );
+  }
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail === 0 ? 0 : 1);
 }

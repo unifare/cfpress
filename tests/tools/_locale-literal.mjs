@@ -58,8 +58,10 @@ const ALLOWED = {
     "the shape a plugin's language pack takes (documentation example in the header comment)",
   "src/extensions/contract/validation.ts":
     "BCP-47 error-message examples ('expected BCP-47 shape, e.g. \"en\", \"zh-CN\"') — prose shown to an extension author",
-  "src/platform/frontend.ts":
-    "⚠️ KNOWN GAP: `readingTime()` still picks its label with `/^zh/i.test(locale)` — a two-way switch that will print 'min read' on a Japanese page. Tracked in docs/CHANGE-CONTRACT.md §6; the fix is for the label to come from the language pack, not from TypeScript. This entry exists so the gap is *counted*, not blessed.",
+  "src/shared/demo-content.ts":
+    "demo content fixtures: sample articles shipped with translations for seeding demo sites",
+  "src/api.ts":
+    "demo seeding uses Intl.DisplayNames with fallback locale to generate human-readable language names",
 };
 
 /**

@@ -2,8 +2,10 @@ import { Env } from "../shared/types";
 import { parseBlocks } from "../rendering/blocks";
 import { siteLocales, siteDefaultLocale, TERMINAL_LOCALE } from "./i18n/locale-registry";
 import { resolveMetaByPost } from "./post-meta";
+import { CORE_PACKS } from "./i18n/core-pack";
+import { interpolate, packForLocale } from "./i18n/translate";
 
-export function esc(v:unknown){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]!))}
+export function esc(v:unknown){return String(v??"").replace(/[&<>\u0022\u0027]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]!))}
 /**
  * Read one `settings` row for a site.
  *
@@ -62,8 +64,9 @@ export function readingTime(html:string, wpm:number, locale:string){
   const cjk=(text.match(/[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/g)||[]).length;
   const latin=text.replace(/[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/g," ").split(/\s+/).filter(Boolean).length;
   const mins=Math.max(1,Math.round(cjk/350+latin/wpm));
-  // The label is prose the reader sees, so it follows the content language.
-  return /^zh/i.test(locale)?`${mins} 分钟阅读`:`${mins} min read`;
+  const pack=packForLocale(CORE_PACKS, locale);
+  const fmt=pack?.["core.reading_time.format"]||"{mins} min read";
+  return interpolate(fmt, { mins });
 }
 /**
  * A ready-to-print date for a piece of content, in the reader's language.
@@ -215,7 +218,7 @@ export async function menusForLocation(env:Env,siteId:string,location:string,loc
     m=await env.DB.prepare("SELECT id FROM menus WHERE location=? AND site_id=? ORDER BY id LIMIT 1").bind(location,siteId).first<any>();
   }catch{/* menus predates the site_id column on an unmigrated install */}
   if(!m)return[];
-  const r=await env.DB.prepare("SELECT * FROM menu_items WHERE menu_id=? AND site_id=? AND (locale IS NULL OR locale=?) ORDER BY sort_order,id").bind(m.id,siteId,locale).all();
+  const r=await env.DB.prepare("SELECT * FROM menu_items WHERE menu_id=? AND site_id=? AND (locale IS NULL OR locale='' OR locale=?) ORDER BY sort_order,id").bind(m.id,siteId,locale).all();
   return r.results as any[];
 }
 
@@ -233,18 +236,20 @@ export async function menusForLocation(env:Env,siteId:string,location:string,loc
 async function renderWidget(env:Env,siteId:string,locale:string,w:any):Promise<string|null>{
   let cfg:any={};try{cfg=JSON.parse(String(w.config||"{}"))}catch{}
   const title=w.title?`<h6 class="widget-title">${esc(String(w.title))}</h6>`:"";
-  if(w.widget_type==="text") return `<section class="widget widget-text">${title}<p>${esc(String(cfg.body||""))}</p></section>`;
-  if(w.widget_type==="html") return `<section class="widget widget-html">${title}${String(cfg.body||"")}</section>`;
+  const slot=esc(String(w.sidebar||"sidebar"));
+  const wid=esc(String(w.id||""));
+  if(w.widget_type==="text") return `<section class="widget widget-text" data-slot="${slot}" data-widget="${wid}">${title}<p>${esc(String(cfg.body||""))}</p></section>`;
+  if(w.widget_type==="html") return `<section class="widget widget-html" data-slot="${slot}" data-widget="${wid}">${title}${String(cfg.body||"")}</section>`;
   if(w.widget_type==="recent-posts"){
     const n=Math.min(20,Math.max(1,Math.round(Number(cfg.count||5))));
     const r=await env.DB.prepare("SELECT p.slug, COALESCE(t.title,p.slug) AS title FROM posts p LEFT JOIN post_translations t ON t.post_id=p.id AND t.locale=? WHERE p.site_id=? AND p.type='post' AND p.status='published' ORDER BY p.created_at DESC LIMIT ?").bind(locale,siteId,n).all();
     const lis=((r.results as any[])??[]).map(x=>`<li><a href="/${locale}/blog/${esc(String(x.slug))}">${esc(String(x.title))}</a></li>`).join("");
-    return `<section class="widget widget-recent">${title}<ul class="widget-list">${lis}</ul></section>`;
+    return `<section class="widget widget-recent" data-slot="${slot}" data-widget="${wid}">${title}<ul class="widget-list">${lis}</ul></section>`;
   }
   // menu — the widget pins a menu by id; the items carry site_id (rule 6).
-  const r=await env.DB.prepare("SELECT title,url FROM menu_items WHERE site_id=? AND menu_id=? AND (locale IS NULL OR locale=?) ORDER BY sort_order,id").bind(siteId,String(cfg.menu_id||""),locale).all();
+  const r=await env.DB.prepare("SELECT title,url FROM menu_items WHERE site_id=? AND menu_id=? AND (locale IS NULL OR locale='' OR locale=?) ORDER BY sort_order,id").bind(siteId,String(cfg.menu_id||""),locale).all();
   const lis=((r.results as any[])??[]).map(x=>`<li><a href="${esc(String(x.url))}">${esc(String(x.title))}</a></li>`).join("");
-  return `<section class="widget widget-menu">${title}<ul class="widget-list">${lis}</ul></section>`;
+  return `<section class="widget widget-menu" data-slot="${slot}" data-widget="${wid}">${title}<ul class="widget-list">${lis}</ul></section>`;
 }
 
 /**

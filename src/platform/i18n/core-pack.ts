@@ -583,6 +583,7 @@ const EN: Pack = {
   "core.err.passwordShort": "The new password must be at least 8 characters.",
   "core.err.usernameTaken": "That username is already in use.",
   "core.err.usernameInvalid": "That username is not allowed.",
+  "core.reading_time.format": "{mins} min read",
 };
 
 const ZH_CN: Pack = {
@@ -1121,6 +1122,7 @@ const ZH_CN: Pack = {
   "core.err.passwordShort": "新密码至少需要 8 个字符。",
   "core.err.usernameTaken": "该用户名已被占用。",
   "core.err.usernameInvalid": "该用户名不符合要求。",
+  "core.reading_time.format": "{mins} 分钟阅读",
 };
 
 /** Bundled packs, keyed by the exact locale code they translate. */

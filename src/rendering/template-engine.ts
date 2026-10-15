@@ -271,7 +271,7 @@ export function parseExpression(src: string): Node {
 // Template-context helpers. Deliberately tiny and side-effect free.
 // Created with a null prototype so no built-in method can leak through a
 // name collision, and frozen so templates cannot mutate the registry.
-const HELPERS: Record<string, (args: unknown[]) => unknown> = Object.freeze(
+const HELPERS: Record<string, (args: unknown[], scope?: Scope) => unknown> = Object.freeze(
   Object.assign(Object.create(null), {
   // array/string length
   len: (a: unknown[]) => {
@@ -312,6 +312,55 @@ const HELPERS: Record<string, (args: unknown[]) => unknown> = Object.freeze(
     const needle = a[1];
     if (Array.isArray(hay)) return hay.some((x) => x === needle);
     return String(hay ?? "").includes(String(needle ?? ""));
+  },
+  // prefix_lang (dotnetcms parity): intelligent language prefixing for URLs
+  prefix_lang: (a: unknown[], scope?: Scope) => {
+    const raw = String(a[0] ?? "");
+    const loc = String(a[1] ?? (scope as any)?.locale ?? "");
+    if (!raw || raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("#") || raw.startsWith("//")) {
+      return raw;
+    }
+    const clean = raw.startsWith("/") ? raw : "/" + raw;
+    if (!loc) return clean;
+    if (clean === `/${loc}` || clean.startsWith(`/${loc}/`)) return clean;
+    return `/${loc}${clean === "/" ? "" : clean}`;
+  },
+  // t (dotnetcms parity): key translation lookup with fallback
+  t: (a: unknown[], scope?: Scope) => {
+    const key = String(a[0] ?? "");
+    const fallback = a[1] !== undefined ? String(a[1]) : key;
+    const tr = (scope as any)?.["@translator"] || (scope as any)?.t;
+    if (typeof tr === "function") return tr(key, fallback);
+    if (tr && typeof tr === "object" && key in tr) return tr[key];
+    const themeStrings = (scope as any)?.theme?.strings;
+    if (themeStrings && typeof themeStrings === "object") {
+      const parts = key.split(".");
+      let cur: any = themeStrings;
+      for (const p of parts) {
+        if (cur && typeof cur === "object" && p in cur) cur = cur[p];
+        else { cur = undefined; break; }
+      }
+      if (typeof cur === "string") return cur;
+    }
+    return fallback;
+  },
+  // widgets (dotnetcms parity): area widget HTML output
+  widgets: (a: unknown[], scope?: Scope) => {
+    const areaId = String(a[0] ?? "");
+    const w = (scope as any)?.widgets;
+    if (w && typeof w === "object") {
+      return (w as Record<string, unknown>)[areaId] ?? "";
+    }
+    return "";
+  },
+  // hook (dotnetcms parity): lifecycle hook output
+  hook: (a: unknown[], scope?: Scope) => {
+    const name = String(a[0] ?? "");
+    const h = (scope as any)?.["@hooks"];
+    if (h && typeof h === "object") {
+      return (h as Record<string, unknown>)[name] ?? "";
+    }
+    return "";
   },
   })
 );
@@ -403,7 +452,7 @@ export function evaluate(node: Node, scope: Scope): unknown {
       }
       const fn = HELPERS[node.name];
       if (typeof fn !== "function") throw new TemplateError(`Unknown helper: ${node.name}`);
-      return fn(node.args.map((a) => evaluate(a, scope)));
+      return fn(node.args.map((a) => evaluate(a, scope)), scope);
     }
   }
 }
@@ -722,6 +771,11 @@ export interface RenderOptions {
   runQuery?: (params: Record<string, string | number>, scope: Scope) => Promise<unknown[]>;
   /** Hard cap on recursion depth to prevent cyclic includes. */
   maxDepth?: number;
+  /**
+   * Optional default layout template to wrap templates that do not declare
+   * @extends (dotnetcms parity: automatic layout pipeline).
+   */
+  defaultLayout?: string;
 }
 
 export function escapeHtml(v: unknown): string {
@@ -812,12 +866,32 @@ async function renderNodes(nodes: TplNode[], scope: Scope, opts: RenderOptions, 
 /** Render an already-parsed template, resolving @extends chains. */
 async function renderParsed(parsed: ParsedTemplate, scope: Scope, opts: RenderOptions, depth: number): Promise<string> {
   if (depth > (opts.maxDepth ?? 12)) throw new TemplateError("Maximum template recursion depth exceeded");
-  if (!parsed.extendsName) {
+
+  let effectiveExtends = parsed.extendsName;
+  let effectiveParsed = parsed;
+
+  // Dotnetcms parity: automatic layout pipeline
+  // If no explicit @extends was specified and a default layout is configured and exists,
+  // wrap the template into the default layout, assigning child content to "content" & "body".
+  if (depth === 0 && !effectiveExtends && opts.defaultLayout) {
+    const layoutSrc = await opts.loadTemplate(opts.defaultLayout).catch(() => null);
+    if (layoutSrc) {
+      effectiveExtends = opts.defaultLayout;
+      const sections: Record<string, TplNode[]> = {
+        ...parsed.sections,
+        content: parsed.nodes,
+        body: parsed.nodes,
+      };
+      effectiveParsed = { nodes: parsed.nodes, extendsName: opts.defaultLayout, sections };
+    }
+  }
+
+  if (!effectiveExtends) {
     return renderNodes(parsed.nodes, scope, opts, depth);
   }
   // Resolve the parent chain: child -> ... -> root layout.
-  const chain: ParsedTemplate[] = [parsed];
-  let current = parsed;
+  const chain: ParsedTemplate[] = [effectiveParsed];
+  let current = effectiveParsed;
   const seen = new Set<string>();
   while (current.extendsName) {
     if (seen.has(current.extendsName)) throw new TemplateError(`Circular @extends: ${current.extendsName}`);
@@ -845,6 +919,10 @@ async function renderParsed(parsed: ParsedTemplate, scope: Scope, opts: RenderOp
   const rootScope = Object.create(scope) as Scope;
   rootScope["@sections"] = merged;
   rootScope["@block"] = (name: string) => merged[name] ?? null;
+  // Expose rendered child HTML as `body` in the root scope as well (for {{body}} / {{{body}}})
+  if (!parsed.extendsName && effectiveParsed.nodes) {
+    rootScope["body"] = await renderNodes(effectiveParsed.nodes, scope, opts, depth + 1);
+  }
   return renderNodes(chain[chain.length - 1].nodes, rootScope, opts, depth);
 }
 

@@ -144,7 +144,12 @@ async function openItemDialog(sel, existing) {
   } catch { /* the custom-link path works without the picker */ }
   const pickableByValue = Object.fromEntries(pickable.map((p) => [p.value, p]));
   let locales = [];
-  try { locales = (await api(scoped("i18n/locales"))).enabled || []; } catch { /* locale select degrades to All languages */ }
+  let dfltLocale = "";
+  try {
+    const locResp = await api(scoped("i18n/locales"));
+    locales = locResp.enabled || [];
+    dfltLocale = locResp.default || locales[0] || "";
+  } catch { /* locale select degrades to All languages */ }
 
   const parentOptions = [{ value: "", label: t("core.menus.parentTop", "Top level") }];
   if (existing) {
@@ -160,7 +165,7 @@ async function openItemDialog(sel, existing) {
     fields: [
       ...(existing ? [] : [{ name: "target", label: t("core.menus.target", "Target"), type: "select", value: "custom", options: [{ value: "custom", label: t("core.menus.srcLink", "Custom link") }, ...pickable] }]),
       { name: "title", label: t("core.menus.fieldTitle", "Link text"), value: existing?.title || "", required: true },
-      { name: "url", label: t("core.menus.fieldUrl", "URL"), value: existing?.url || "", placeholder: "https://… 或 /zh-CN/blog" },
+      { name: "url", label: t("core.menus.fieldUrl", "URL"), value: existing?.url || "", placeholder: "https://… 或 /blog" },
       { name: "parent_id", label: t("core.menus.fieldParent", "Parent"), type: "select", value: existing?.parent_id || "", options: parentOptions },
       { name: "locale", label: t("core.menus.fieldLocale", "Language"), type: "select", value: existing?.locale || "", options: [{ value: "", label: t("core.menus.localeAuto", "All languages") }, ...locales.map((l) => ({ value: l, label: l }))] },
     ],
@@ -172,7 +177,9 @@ async function openItemDialog(sel, existing) {
   let title = v.title;
   if (v.target && v.target !== "custom") {
     const [, , slug, loc] = v.target.split(":");
-    url = `/${loc || "zh-CN"}/${v.target.startsWith("post:") ? "blog/" : ""}${slug}`;
+    const targetLoc = loc || dfltLocale || "";
+    const prefix = targetLoc ? `/${targetLoc}` : "";
+    url = `${prefix}/${v.target.startsWith("post:") ? "blog/" : ""}${slug}`;
     if (!title) title = pickableByValue[v.target]?.title || slug;
   }
   return { title, url, parent_id: v.parent_id || null, locale: v.locale || null };

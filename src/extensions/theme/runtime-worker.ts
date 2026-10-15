@@ -409,7 +409,7 @@ export async function handleThemeApi(env: Env, request: Request): Promise<Respon
       const m = await env.DB.prepare("SELECT id FROM menus WHERE location='header' AND site_id=? LIMIT 1").bind(siteId).first<any>().catch(() => null);
       if (!m) return json({ items: [] });
       const items = await env.DB.prepare(
-        "SELECT title, url, target FROM menu_items WHERE menu_id=? AND site_id=? AND (locale IS NULL OR locale=?) ORDER BY sort_order, id"
+        "SELECT title, url, target FROM menu_items WHERE menu_id=? AND site_id=? AND (locale IS NULL OR locale='' OR locale=?) ORDER BY sort_order, id"
       )
         .bind(m.id, siteId, locale)
         .all();

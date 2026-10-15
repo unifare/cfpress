@@ -542,13 +542,18 @@ export async function buildScope(
   ]);
   const declaredSidebars = (theme.manifest.widgets?.areas || theme.manifest.sidebars || [{ id: "sidebar" }]).map((sb: any) => sb.id);
   const widgets: Record<string, string> = { ...rawWidgets };
+  for (const [k, v] of Object.entries(rawWidgets)) {
+    widgets[`${k}_html`] = v;
+  }
   if (o.canvas) {
     for (const sb of declaredSidebars) {
-      if (!widgets[sb]) {
-        widgets[sb] = `<div class="widget-slot-empty" data-slot="${esc(sb)}"><span class="widget-slot-hint">+ ${esc(sb)}</span></div>`;
+      const inner = widgets[sb] || "";
+      if (!inner) {
+        widgets[sb] = `<div class="cfpress-slot-area" data-slot-area="${esc(sb)}" data-slot="${esc(sb)}"><div class="widget-slot-empty" data-slot="${esc(sb)}"><span class="widget-slot-hint">+ ${esc(sb)}</span></div></div>`;
       } else {
-        widgets[sb] += `<div class="widget-slot-dropzone" data-slot="${esc(sb)}"><span>+ ${esc(sb)}</span></div>`;
+        widgets[sb] = `<div class="cfpress-slot-area" data-slot-area="${esc(sb)}" data-slot="${esc(sb)}">${inner}<div class="widget-slot-dropzone" data-slot="${esc(sb)}"><span>+ ${esc(sb)}</span></div></div>`;
       }
+      widgets[`${sb}_html`] = widgets[sb];
     }
   }
   // Menus per declared location (rule 73 — one deterministic winner per
@@ -815,6 +820,7 @@ const CANVAS_BRIDGE_CSS = `
 .widget-slot-empty .widget-slot-hint{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif!important;font-size:13px!important;font-weight:500!important;color:#3b82f6!important;pointer-events:none!important}
 .widget-slot-dropzone{border:1px dashed #cbd5e1!important;border-radius:4px!important;padding:6px 12px!important;text-align:center!important;color:#64748b!important;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif!important;font-size:11px!important;margin:6px 0!important;cursor:pointer!important;transition:all .15s ease!important}
 .widget-slot-dropzone:hover{border-color:#3b82f6!important;color:#3b82f6!important;background:rgba(59,130,246,.04)!important}
+.cfpress-slot-area{display:contents!important}
 [data-slot].drag-over{outline:2px dashed #2563eb!important;outline-offset:4px!important;background:rgba(37,99,235,.08)!important}
 `;
 
@@ -837,38 +843,38 @@ const CANVAS_BRIDGE_JS = `
   }
 
   function reportSlots(){
-    var slotElements=document.querySelectorAll('[data-slot]');
+    var slotElements=document.querySelectorAll('[data-slot-area], [data-slot]');
     var slots=[];
     for(var i=0;i<slotElements.length;i++){
-      var s=slotElements[i].getAttribute('data-slot');
+      var s=slotElements[i].getAttribute('data-slot-area') || slotElements[i].getAttribute('data-slot');
       if(s&&slots.indexOf(s)===-1)slots.push(s);
     }
     window.parent.postMessage({action:'frame:ready',slots:slots},'*');
   }
 
   function refreshSlotsInPlace(){
-    fetch(window.location.href, { cache: 'no-store' })
+    fetch(window.location.href, { cache: 'no-store', credentials: 'same-origin' })
       .then(function(res){
         if(!res.ok) throw new Error('status ' + res.status);
         return res.text();
       })
       .then(function(html){
         var doc = new DOMParser().parseFromString(html, 'text/html');
-        var newSlots = doc.querySelectorAll('[data-slot]');
-        var map = {};
-        for(var i=0;i<newSlots.length;i++){
-          var s = newSlots[i].getAttribute('data-slot');
-          if(s) map[s] = newSlots[i];
+        var newAreas = doc.querySelectorAll('[data-slot-area]');
+        var curAreas = document.querySelectorAll('[data-slot-area]');
+        if(newAreas.length === 0 || curAreas.length === 0){
+          window.location.reload();
+          return;
         }
-        var curSlots = document.querySelectorAll('[data-slot]');
-        for(var j=0;j<curSlots.length;j++){
-          var cs = curSlots[j].getAttribute('data-slot');
-          if(cs){
-            if(map[cs]){
-              curSlots[j].innerHTML = map[cs].innerHTML;
-            } else {
-              curSlots[j].innerHTML = '';
-            }
+        var map = {};
+        for(var i=0;i<newAreas.length;i++){
+          var s = newAreas[i].getAttribute('data-slot-area');
+          if(s) map[s] = newAreas[i];
+        }
+        for(var j=0;j<curAreas.length;j++){
+          var cs = curAreas[j].getAttribute('data-slot-area');
+          if(cs && map[cs]){
+            curAreas[j].innerHTML = map[cs].innerHTML;
           }
         }
         decorateWidgets();

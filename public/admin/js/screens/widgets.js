@@ -98,6 +98,23 @@ function refreshCanvasSlots() {
   } else {
     reloadCanvasIframe();
   }
+  updateSlotCounts();
+}
+
+async function updateSlotCounts() {
+  try {
+    const d = await api(scoped("widgets"));
+    const items = d.items || [];
+    const summary = document.querySelector("#canvas-slots-summary");
+    if (summary) {
+      summary.querySelectorAll("[data-slot-summary-id]").forEach((el) => {
+        const sid = el.getAttribute("data-slot-summary-id");
+        const count = items.filter((w) => (w.sidebar || "sidebar") === sid).length;
+        const badge = el.querySelector(".badge");
+        if (badge) badge.textContent = count;
+      });
+    }
+  } catch {}
 }
 
 export default async function widgets(c) {
@@ -163,7 +180,7 @@ export default async function widgets(c) {
   const slotsList = (detectedSlots.length ? detectedSlots : groups.map((g) => ({ id: g, label: g }))).map((s) => {
     const sId = typeof s === "string" ? s : s.id;
     const count = items.filter((w) => (w.sidebar || "sidebar") === sId).length;
-    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;">
+    return `<div data-slot-summary-id="${attr(sId)}" style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;">
       <span style="font-weight:500;">${esc(sId)}</span>
       <span class="badge outline">${count}</span>
     </div>`;
@@ -204,7 +221,7 @@ export default async function widgets(c) {
 
         <div class="panel" style="padding:14px;">
           <div class="card-title" style="margin-bottom:8px;font-size:14px;">${esc(t("core.widgets.activeSlots", "Page slots"))}</div>
-          <div style="display:flex;flex-direction:column;">
+          <div style="display:flex;flex-direction:column;" id="canvas-slots-summary">
             ${slotsList}
           </div>
         </div>

@@ -2992,6 +2992,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     const id=await randomId();
     await env.DB.prepare("INSERT INTO widget_instances (id,site_id,sidebar,widget_type,title,config,sort_order,enabled,locale) VALUES (?,?,?,?,?,?,?,?,?)")
       .bind(id,siteId,String(b.sidebar||"sidebar"),type,String(b.title||""),JSON.stringify(cfg),Number(b.sort_order||0),b.enabled===false?0:1,String(b.locale||"")).run();
+    await bumpContentCache(env, siteId);
     await activity(env,user.id,"create","widget",id);
     return ok({id,site:siteId},201);
   }
@@ -3007,6 +3008,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     try{ cfg=await normaliseWidgetConfig(type,b.config===undefined?JSON.parse(String(cur.config||"{}")):b.config); }catch(e:any){ return ok({error:e?.message||"invalid config"},400); }
     await env.DB.prepare("UPDATE widget_instances SET sidebar=?,widget_type=?,title=?,config=?,sort_order=?,enabled=?,locale=? WHERE site_id=? AND id=?")
       .bind(String(b.sidebar||cur.sidebar),type,b.title===undefined?String(cur.title??""):String(b.title),JSON.stringify(cfg),b.sort_order===undefined?Number(cur.sort_order||0):Number(b.sort_order),b.enabled===undefined?Number(cur.enabled??1):(b.enabled?1:0),b.locale===undefined?String(cur.locale||""):String(b.locale||""),siteId,wim[1]).run();
+    await bumpContentCache(env, siteId);
     await activity(env,user.id,"update","widget",wim[1]);
     return ok({ok:true});
   }
@@ -3014,6 +3016,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     const r=await env.DB.prepare("DELETE FROM widget_instances WHERE site_id=? AND id=?").bind(siteId,wim[1]).run();
     if(!r.meta.changes) return ok({error:"widget not found"},404);
+    await bumpContentCache(env, siteId);
     await activity(env,user.id,"delete","widget",wim[1]);
     return ok({ok:true});
   }

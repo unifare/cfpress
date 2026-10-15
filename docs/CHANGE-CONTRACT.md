@@ -80,7 +80,7 @@
 | 16 | **测试与文档** | 规则**三处同步**（`AGENTS.md` + `ARCHITECTURE.md` §10 + `architecture.test.mjs`）；新套件要进**四个注册表**（`package.json` test 链、`run-all.mjs`、`cfpress.sh`、`cfpress.ps1`）；文档里写的测试路径必须存在 | `architecture.test.mjs`（末节）、`launcher-parity.test.mjs` | 18–23 |
 | 17 | **部署与启动器** | 配置**一份手写 + 一份生成**（真 id 绝不进 `wrangler.jsonc`）；主题随 assets 分发；**新增 manifest 声明后必须重新激活主题**（`ensureThemeCapabilities` 是"从零修复"不是"增量同步"）；改 `cfpress.ps1` 后 BOM 还在 | `launcher-parity.test.mjs`、`cfpress.sh doctor` | 52–55、66、69 |
 | 18 | **前台 / 后台身份分离** | 两套身份从**存储到 cookie 完全分离**：`site_users`(install 级) vs `members`(按站点)、`admin_sessions` vs `member_sessions`、`cfpress_admin` vs `cfpress_member`、`{前缀}/api/v1/…` vs `/api/v1/front/…`；**没有东西可交换**（member cookie 打后台端点 401，反之亦然）；member 用户名按站点唯一 | `architecture.test.mjs`（规则 77 节）、`admin-contract.test.mjs` §17、`theme-default.test.mjs` §8b | 77 |
-| 19 | **后台前缀隐身** | 整个后台（SPA + 资产 + API + 登录端点）挂在可配前缀（`admin.path`）之下；SPA **不硬编码前缀**（读注入的 `window.CFP_ADMIN_BASE`）；**旧地址一律 404 不重定向**（含旧资产）；cookie `cfpress_admin` 的 `Path=<前缀>`（前台响应不含它）；登录端点限流 | `admin-spa.test.mjs`（规则 75 节）、`architecture.test.mjs`（规则 75 节）、`admin-contract.test.mjs` §0b/§0c/§15b | 75 |
+| 19 | **后台前缀隐身** | 整个后台（SPA + 资产 + API + 登录端点）挂在可配前缀（`admin.path`）之下；SPA **不硬编码前缀**（读注入的 `window.CFP_ADMIN_BASE`）；**旧地址一律 404 不重定向**（含旧资产）；cookie `cfpress_admin` 的 `Path=<前缀>`（前台响应不含它）；登录端点限流；**改名当场生效**：路由下一请求即改 + **会话 cookie 跟着搬**（同 id 按新前缀重发 + 过期旧前缀那条）+ **SPA 自己跳过去**（`location.replace(新前缀 + 当前 hash)`）；**被拒的值不跳也不吞** | `admin-spa.test.mjs`（规则 75 节）、`architecture.test.mjs`（规则 75 节）、`admin-contract.test.mjs` §0b/§0c/§15b | 75 |
 | 20 | **每站点角色** | 权限答案**带站点**：`can(env,user,perm,siteId)` 的 `siteId` 是**必填**（不是可选带默认）；查 `site_users_sites` **且带站点过滤**；**绝不回退 `site_users.role`**；行的缺席 = 拒绝；`superadmin` 首先短路且不可从站点屏授予；UI 问和 API **同一个**问题（读 `role_here` 不读安装级 `role`） | `architecture.test.mjs`（规则 78/79 节）、`admin-contract.test.mjs` §18、`admin-spa.test.mjs`（users 屏） | 78、79 |
 
 ---
@@ -239,7 +239,13 @@
    「有些参数生效、有些不生效」铺满后台，**没有一个请求报错**。
 3. **旧地址一律 404**，不重定向（重定向把新前缀交给扫描器）：旧页面、旧**资产**、旧登录端点都要 404。
 4. 会话 cookie `Path=<前缀>`；**前台响应不含 `Set-Cookie: cfpress_admin`**。
-5. 验：`admin-spa.test.mjs`（规则 75 节）、`architecture.test.mjs`（规则 75 节，含"前缀挂载带 `u.search`"）、
+5. **改名是一次搬迁，不是一次赋值**。保存 `admin.path` 会让保存它的那张页面当场失效（旧前缀
+   一落库就 404），所以三件事缺一不可：① 路由下一请求即改（每请求 `resetAdminPathMemo`）；
+   ② 会话 cookie 跟着搬——cookie 按「名字 + Path」定位，只发新的不删旧的会留下一条会话 cookie；
+   ③ SPA `location.replace(新前缀 + 当前 hash)` 自己过去（`replace` 而非 `assign`，Back 不能落回
+   已 404 的旧地址）。⚠️ **被拒的值（400）不许跳**（地址没变，跳过去就是 404），也**不许吞**
+   （逐键 `await` 到第一个失败就中断，会让被拒的前缀静默跳过它后面每一个键）。
+6. 验：`admin-spa.test.mjs`（规则 75 节）、`architecture.test.mjs`（规则 75 节，含"前缀挂载带 `u.search`"）、
    `admin-contract.test.mjs` §0b/§0c/§15b、真实浏览器验收（默认前缀 + 移到 `/manage` 两种情形）+ 注入场景。
 
 ---

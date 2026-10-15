@@ -117,6 +117,11 @@ const THEME_FILE = (name, rel) => join(ROOT, "content/themes", name, rel);
 //     on every front-end request and left the two session kinds indistinguishable).
 const ADMIN_STATE = join(ROOT, "public/admin/js/state.js");
 const AUTH = join(ROOT, "src/platform/auth.ts");
+// The Settings screen's platform panel. `admin.path` is the one setting whose
+// save invalidates the page it was saved from, so this screen owns two
+// decisions no other screen has: whether to follow the admin to its new
+// address, and whether the write actually landed before doing so.
+const ADMIN_SETTINGS = join(ROOT, "public/admin/js/screens/settings.js");
 // The other identity: the front-end member. It is deliberately a *different*
 // module from `auth.ts` — the point of batch D is that the two identities are
 // structurally apart, so the two live in two files that do not import each
@@ -1053,13 +1058,81 @@ const SCENARIOS = [
     // every page".
     label: "the admin session cookie is scoped to / instead of the prefix",
     file: AUTH,
+    // The anchor is the single `Set-Cookie` writer every cookie path goes
+    // through (login, logout, and the prefix rename), so hard-coding `Path=/`
+    // there is the defect in its most reachable form — and it is the *only*
+    // place it can be written now.
     before: [
-      "      \"Set-Cookie\": `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=${cookiePath}; HttpOnly; SameSite=Lax; Secure; Max-Age=${SESSION_TTL}`",
+      "  return `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=${cookiePath}; HttpOnly; SameSite=Lax; Secure; Max-Age=${maxAge}`;",
     ],
     after: [
-      "      \"Set-Cookie\": `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=${SESSION_TTL}`",
+      "  return `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=${maxAge}`;",
     ],
     runs: [["tests/suites/admin-contract.test.mjs", "the session cookie path is the admin prefix, not /"]],
+  },
+  {
+    // Moving the admin (`admin.path`) without re-issuing the session cookie.
+    // The cookie's `Path` *is* the prefix, so the operator's own session stops
+    // being sent the moment the admin moves: every request to the new prefix
+    // arrives anonymous and answers 401, while the rename itself reports
+    // success. Nothing else in the system can see this — the route moved, the
+    // shell is served, the old prefix 404s, every other assertion is green —
+    // so dropping the re-scope must turn the cookie assertion red.
+    label: "the prefix rename leaves the session cookie behind on the old prefix",
+    file: API,
+    before: [
+      '    for (const cookie of rescopeSessionCookie(user.sessionId, previous ?? "/admin", String(value ?? ""))) {\n      res.headers.append("Set-Cookie", cookie);\n    }',
+    ],
+    after: [""],
+    runs: [["tests/suites/admin-contract.test.mjs", "the move re-issues the session cookie for the new prefix"]],
+  },
+  {
+    // The client half of the same move. The server can route the new prefix and
+    // hand the session across, and the operator is *still* stranded: the SPA
+    // they are looking at was loaded from the old address, and every request it
+    // makes next is a 404. The save is only live if the browser is taken to the
+    // new address, so removing the navigation must turn the SPA assertion red.
+    label: "the SPA stays on the dead prefix after moving the admin",
+    file: ADMIN_SETTINGS,
+    before: [
+      '    if (typeof location !== "undefined" && typeof location.replace === "function") location.replace(moved + "/" + hash);',
+    ],
+    after: [""],
+    runs: [["tests/suites/admin-spa.test.mjs", "and the browser is taken to the new prefix, keeping the open screen"]],
+  },
+  {
+    // And the over-correction: following a prefix the server *refused* to
+    // store. Nothing was written, so the address never changed and the SPA
+    // would send the browser to a prefix that does not exist — the operator's
+    // one instruction ("do not move me") answered with a 404. The defect is a
+    // *fall-through*: the refusal reports itself but does not stop the flow.
+    label: "the SPA follows a prefix the server refused to store",
+    file: ADMIN_SETTINGS,
+    before: [
+      '    return { failed, moved: null };\n  }\n  toast(t("core.settings.platformSaved", "Platform settings saved"));',
+    ],
+    after: ['  }\n  toast(t("core.settings.platformSaved", "Platform settings saved"));'],
+    runs: [["tests/suites/admin-spa.test.mjs", "and a rejected prefix never navigates"]],
+  },
+  {
+    // The other half of the same panel: a rejection that is swallowed. The
+    // loop used to `await` each key and abort on the first throw, so a rejected
+    // prefix silently skipped every key after it and the operator was told
+    // nothing. Collecting the failures is what makes the refusal legible, so
+    // emptying the collector must turn the assertion red.
+    //
+    // ⚠️ The anchor starts at the request body, not at the `catch`: the tool
+    // counts *substring* hits, and a 6-space-indented `failed.push(...)` is
+    // also a substring of the 8-space-indented one in this same file (the
+    // seed-demo handler) — the first version reported "appears 2x". An anchor
+    // has to be unique as a substring, not as a line.
+    label: "a refused platform setting is swallowed instead of reported",
+    file: ADMIN_SETTINGS,
+    before: [
+      "        body: JSON.stringify({ key, value }),\n      });\n    } catch (err) {\n      failed.push(`${key}: ${err?.message || err}`);\n    }",
+    ],
+    after: ["        body: JSON.stringify({ key, value }),\n      });\n    } catch (err) {\n    }"],
+    runs: [["tests/suites/admin-spa.test.mjs", "a rejected prefix is reported as a failure"]],
   },
   {
     // And the name: a shared `cfpress_session` name is how "an admin is logged

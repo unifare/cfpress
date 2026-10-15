@@ -360,6 +360,10 @@ function makeEl(tag = "div") {
     appendChild(node) { return node; },
     closest: () => null,
     focus() {},
+    // A real element has one, and `toast()` reaches for it. It is a *getter*
+    // rather than a value so `makeEl` does not recurse into itself while it is
+    // being constructed.
+    get firstElementChild() { return makeEl("div"); },
   };
 }
 
@@ -472,7 +476,11 @@ try {
     return { ok: true, status: 200, json: async () => ({ user: null, ...probeItem, items: [probeItem] }) };
   };
   globalThis.CustomEvent = class { constructor(type, init) { this.type = type; this.detail = init?.detail; } };
-  globalThis.location = { origin: "http://localhost" };
+  // `replace` is what the Settings screen calls after `admin.path` moves: the
+  // old address is gone (it 404s by design), so the browser has to be taken to
+  // the new one rather than left there. Recording the target is the only way
+  // to observe that decision — the stub's `document` never dispatches a click.
+  globalThis.location = { origin: "http://localhost", hash: "", replaced: null, replace(url) { this.replaced = url; } };
   globalThis.CSS = { escape: (s) => String(s) };
 
   await import(pathToFileURL(join(tmpDir, "admin.js")).href);
@@ -489,6 +497,10 @@ try {
     editor: await import(pathToFileURL(join(tmpDir, "js/screens/editor.js")).href),
     tableForm: await import(pathToFileURL(join(tmpDir, "js/table-form.js")).href),
     mediaScreen: await import(pathToFileURL(join(tmpDir, "js/screens/media.js")).href),
+    // Reached directly rather than through `SCREENS`: the platform-settings
+    // save (and the move it can trigger) is a decision, not a rendering, and
+    // the section that proves it drives the exported function itself.
+    settingsScreen: await import(pathToFileURL(join(tmpDir, "js/screens/settings.js")).href),
   };
 } catch (e) {
   bootError = e;
@@ -1242,6 +1254,63 @@ if (modules && !bootError) {
   await render();
   check("and leaves the interface language where it was", tick() === "zh-CN", `tick=${JSON.stringify(tick())}`);
   routeTable.delete("/api/v1/i18n/ui-locale");
+}
+
+// ---------------------------------------------------------------------------
+section("Saving admin.path takes the SPA to the new prefix");
+// ---------------------------------------------------------------------------
+
+// Moving the admin is the one setting whose *save* invalidates the page it was
+// saved from: the old prefix answers 404 the moment the write lands (that is
+// the point of the setting), so every request the SPA makes next — including
+// the one that would render the success toast — is a 404. The save is only
+// "live" if the browser is taken to the new address, which is what
+// `savePlatformSettings` decides.
+//
+// Both halves of that decision are wrong in ways that look fine in a browser:
+//
+//   - no move at all: the operator renames the admin and is left on a dead
+//     page, which reads as "the setting does not work";
+//   - moving on a *rejected* save: the server answers 400 for a prefix it will
+//     not store, so the address never changed and the browser is sent to a
+//     404 — the operator's one instruction was "do not move me".
+//
+// Driven through the real exported function rather than a click, because the
+// DOM stub here does not dispatch events; `fetch` is the same stub the rest of
+// the suite uses, so the write path is real too.
+if (modules && !bootError) {
+  const { savePlatformSettings } = modules.settingsScreen;
+  const loc = globalThis.location;
+
+  loc.hash = "#/settings";
+  routeTable.set("/api/v1/platform-settings", { ok: true, key: "admin.path", value: "/manage" });
+  const moved = await savePlatformSettings([{ key: "admin.path", value: "/manage" }]);
+  check("a prefix change is reported as a move", moved.moved === "/manage", `moved=${JSON.stringify(moved)}`);
+  check(
+    "and the browser is taken to the new prefix, keeping the open screen",
+    loc.replaced === "/manage/#/settings",
+    `replaced=${JSON.stringify(loc.replaced)}`
+  );
+
+  // The refusal path. The value is one the server rejects (no leading `/`), so
+  // the address has not changed and the browser must stay put.
+  loc.replaced = null;
+  routeTable.set("/api/v1/platform-settings", { __status: 400, error: "admin.path must start with '/'" });
+  const refused = await savePlatformSettings([{ key: "admin.path", value: "manage" }]);
+  check("a rejected prefix is reported as a failure", refused.failed.length === 1, `failed=${JSON.stringify(refused.failed)}`);
+  check("and a rejected prefix never navigates", loc.replaced === null, `replaced=${JSON.stringify(loc.replaced)}`);
+
+  // The everyday case: the panel is saved and the prefix did not change (it is
+  // re-saved as-is, which is what every other platform key does too). No
+  // navigation — a save that always reloaded the admin would be its own bug.
+  loc.replaced = null;
+  routeTable.set("/api/v1/platform-settings", { ok: true, key: "admin.path", value: "/admin" });
+  const same = await savePlatformSettings([{ key: "admin.path", value: "/admin" }]);
+  check("re-saving the current prefix reports no failure", same.failed.length === 0, `failed=${JSON.stringify(same.failed)}`);
+  check("and does not navigate", loc.replaced === null, `replaced=${JSON.stringify(loc.replaced)}`);
+
+  routeTable.delete("/api/v1/platform-settings");
+  loc.hash = "";
 }
 
 // ---------------------------------------------------------------------------

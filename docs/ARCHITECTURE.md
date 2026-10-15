@@ -2338,9 +2338,22 @@ SPA 的 `if (d.error)` 分支因此不可达，错误对话框要 `explain(err.m
       只 404 页面而放行 `/admin/admin.js` 等于留指路牌
    d) **cookie `cfpress_admin` + `Path=<前缀>`**（前台响应必须不含它；`Path=/` 会把后台
       会话带上每个前台请求；名字与批次 D 的 `cfpress_member` 区分）
-   守卫：`admin-spa.test.mjs`（规则 75 节，5 条）；行为：`admin-contract.test.mjs`
-   §0b/§0c（cookie Path / 旧登录 404 / 前台不 Set-Cookie / 连错 429 / 移动前缀后旧资产全 404）；
-   注入 `_skeleton-inject.mjs`（SPA 硬编码 `/api/v1/` + cookie `Path=/` + cookie 名，历史形状）
+   e) **改名当场生效，且把人一起带过去。** 这是唯一一条「保存它会让保存它的那张页面失效」
+      的设置：旧前缀一落库就 404（这正是它的用途）。所以改名是三件事，不是一件事——
+      ① 路由下一请求即改（`index.ts` 每请求 `resetAdminPathMemo`）；② **会话 cookie 跟着搬**
+      （`auth.ts::rescopeSessionCookie`：同一个 id 按新前缀重发，并**显式过期旧前缀的那条**。
+      cookie 按「名字 + Path」定位，只发新的不删旧的会留一条会话 cookie 一直躺在浏览器里）；
+      ③ **SPA 自己跳过去**（`settings.js::savePlatformSettings`：写完全部键 → 无失败 →
+      `location.replace(新前缀 + 当前 hash)`；用 `replace` 不用 `assign`，否则 Back 会落在
+      已 404 的旧地址上）。三件都做了才叫「实时生效」；只做①得到的是「设置成功了，然后我的
+      后台坏了」。⚠️ **被拒的值（400）绝不能跳**：地址没变，跳过去就是 404——「别动我」是
+      操作员唯一的诉求。判据是 `failed.length` 拦在前面，且失败**不许吞**：旧代码逐键
+      `await` 到第一个失败就中断，前缀被拒会静默跳过它后面的每一个键
+   守卫：`admin-spa.test.mjs`（规则 75 节，5 条 + 改名跳转 6 条）；行为：`admin-contract.test.mjs`
+   §0b/§0c（cookie Path / 旧登录 404 / 前台不 Set-Cookie / 连错 429 / 移动前缀后旧资产全 404 /
+   **改名重发 cookie 且旧前缀那条被过期**）；
+   注入 `_skeleton-inject.mjs`（SPA 硬编码 `/api/v1/` + cookie `Path=/` + cookie 名 +
+   改名不带 cookie + SPA 停在死前缀 + 跟着被拒的前缀跳 + 吞掉失败，历史形状）
 
 【计数按站点分组，主题报「选了什么」】（AGENTS.md 规则 76，批次 28）
 76. 站点屏是**管理**视图：每行要答「前台在哪、里面有多少、用什么渲染」。三个错答案

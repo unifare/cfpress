@@ -1,7 +1,20 @@
 # CFPress (CFCMS) 交接文档
 
-> 更新时间：2026-10-12 (GMT+8) ｜ 交接基线：**演示内容随安装自种（规则 86）+ 同步脚本不再可能空树**
+> 更新时间：2026-10-14 (GMT+8) ｜ 交接基线：**演示内容随安装自种（规则 86）+ 同步脚本不再可能空树**
 > **本轮新增**：
+> - **规则 75e（改后台前缀是一次搬迁，不是一次赋值）**：`admin/#/settings` 的 `admin.path`
+>   此前**保存之后人就被丢在死页面上**——服务端下一请求就改路由（`resetAdminPathMemo` 每请求），
+>   但 SPA 是从旧前缀加载的，它接下来的每个请求都是 404，读起来像「这个设置不生效」。三件事补齐：
+>   ① 路由（本来就有）；② **会话 cookie 跟着搬**——cookie 的 `Path` 就是前缀，不改的话操作员被
+>   自己的改名登出（`auth.ts::rescopeSessionCookie`：同一个 session id 按新前缀重发 + **显式过期
+>   旧前缀那条**，因为 cookie 按「名字 + Path」定位）；③ **SPA 自己跳过去**
+>   （`settings.js::savePlatformSettings`：写完全部键 → 无失败 → `location.replace(新前缀 + 当前 hash)`，
+>   `replace` 而非 `assign`，否则 Back 落在已 404 的旧地址上）。顺带修掉旧循环的两个毛病：
+>   逐键 `await` 到第一个失败就中断（被拒的前缀会静默跳过它后面每一个键）→ 改为收集失败；
+>   以及**被拒的值（400）绝不跳**（地址没变，跳过去就是 404）。三条 `Set-Cookie` 出口
+>   （登录 / 登出 / 改名）现在共用 `sessionCookie()` 一个写者。
+>   守卫：admin-spa +6（行为，驱动真实导出函数）/ admin-contract §0c +5（重发 + 过期 + 被拒不发 +
+>   同值不发）/ 注入 +4（改名不带 cookie / SPA 停在死前缀 / 跟着被拒的前缀跳 / 吞掉失败）。
 > - **规则 86（演示内容只有一份定义，安装自己种）**：全新安装的首个请求自动写入双语演示文章与
 >   「关于」页。内容唯一定义 `src/shared/demo-content.ts`；三个调用者（boot 钩子 / 后台设置屏按钮
 >   `POST /api/v1/seed-demo`，门 = `settings.manage` / `seed:demo` 脚本——现在只做登录 + 调端点 +
@@ -383,6 +396,11 @@ x-default）；`/{locale}/feed.xml`；`lang_nav` 切换器进 scope。规则 56�
    资产全 404，`finally` 里通过已移动的前缀改回）；`architecture` 新增规则 75 节（7 条结构守卫）；
    12 个套件的 cookie 名断言批量改 `cfpress_admin`。
 5. **规则 75**（三处同步：AGENTS.md + ARCHITECTURE.md §10 + architecture.test.mjs）。
+6. **规则 75e（后续补，改前缀当场生效）**：见文首「本轮新增」第一条。要点是「改名」在服务端
+   是两条（路由 + 会话 cookie），在客户端是一条（SPA 自己 `location.replace` 过去），
+   而「被拒的值」既不许跳也不许吞。守卫：`admin-spa` 规则 75 节 +6 条行为断言（驱动真实
+   导出函数 `savePlatformSettings`，不是文本扫描）；`admin-contract` §0c +5 条
+   （重发新前缀 cookie / 过期旧前缀那条 / 被拒不发 / 同值不发）；注入 +4 条。
 
 **验证**：`architecture` **154/0**（147→154，规则 75 节 7 条）；`admin-contract` **105/0**
 （88→105，§0b/§0c 十七条）；`admin-spa` **79/0**（74→79，规则 75 节 5 条）；**24 套件逐个跑

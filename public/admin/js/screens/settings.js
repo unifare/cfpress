@@ -9,11 +9,79 @@
  *   without it gets a 403, and the panel is simply not shown rather than shown
  *   disabled — a control that says "you may not" is an invitation to ask why.
  */
-import { api, scoped, state } from "../state.js";
+import { api, scoped, state, adminBase } from "../state.js";
 import { pageHead } from "../shell.js";
 import { icon } from "../../icons.js";
 import { t } from "../i18n.js";
 import { attr, esc, toast } from "../../ui.js";
+
+/**
+ * Write the platform-settings panel, and follow the admin if the prefix moved.
+ *
+ * `admin.path` is not like the other platform keys: it is a **route**, so the
+ * address this SPA was loaded from stops existing the moment the write lands
+ * (the old prefix answers 404 on purpose — that is the entire point of the
+ * setting). Saving it therefore cannot end at a toast. Without the move below,
+ * the operator renames the admin and is left on a page whose every subsequent
+ * request 404s — the setting looks broken when it in fact worked.
+ *
+ * Three things here are load-bearing, and each has a wrong version that looks
+ * right:
+ *
+ *   - **every key is written before anything moves.** The loop used to
+ *     `await` and abort on the first rejection, so a rejected prefix silently
+ *     skipped every key after it. Failures are collected now.
+ *   - **a rejected save never navigates.** The server answers 400 for a prefix
+ *     it will not store (no leading `/`, a trailing `/`, the site root). The
+ *     address has not changed, so going there would be a 404 — the operator's
+ *     one instruction was "do not move me".
+ *   - **the hash is carried across.** It is what says which screen is open
+ *     (`#/settings`), so the move lands back on Settings rather than on the
+ *     dashboard. `replace`, not `assign`: the old address is gone, and a Back
+ *     button that lands on it would be both a 404 and a signpost.
+ *
+ * Exported, and taking its rows as an argument, so the whole decision is
+ * drivable from the suite — the DOM stub there does not dispatch clicks, and
+ * "the admin is still reachable after the move" is exactly the kind of claim
+ * that has to be observed rather than assumed.
+ */
+export async function savePlatformSettings(rows) {
+  const failed = [];
+  for (const { key, value } of rows) {
+    try {
+      await api("platform-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, value }),
+      });
+    } catch (err) {
+      failed.push(`${key}: ${err?.message || err}`);
+    }
+  }
+  if (failed.length) {
+    toast(t("core.msg.wentWrong", "Something went wrong") + ": " + failed.join(", "), "error");
+    // Nothing was stored, so nothing moved — and the value the operator typed
+    // is *not* where the admin is. The one request in this state is "do not
+    // move me", so the refusal has to stop the flow here rather than fall
+    // through to the navigation below.
+    return { failed, moved: null };
+  }
+  toast(t("core.settings.platformSaved", "Platform settings saved"));
+  // Every write landed, so the prefix the operator asked for is the prefix the
+  // server now routes: the endpoint stores the value verbatim and refuses
+  // anything it would not store, so "what was asked for" and "what is stored"
+  // are the same string. Reading it off the rows keeps the whole decision —
+  // where the admin lives — in one place.
+  const wanted = rows.find((r) => r.key === "admin.path")?.value;
+  const moved = wanted != null && String(wanted) !== adminBase ? String(wanted) : null;
+  if (moved) {
+    const hash = typeof location === "undefined" ? "" : location.hash || "";
+    // `replace`, not `assign`: the old address is gone, and a Back button that
+    // lands on it would be both a 404 and a signpost back to the admin.
+    if (typeof location !== "undefined" && typeof location.replace === "function") location.replace(moved + "/" + hash);
+  }
+  return { failed, moved };
+}
 
 function groupPanel(title, count, rows, dataAttr) {
   return `<div class="panel" style="margin-bottom:1rem">
@@ -83,10 +151,12 @@ document.addEventListener("click", async (e) => {
     return;
   }
   if (a.dataset.action === "save-platform-settings") {
-    for (const el of document.querySelectorAll("[data-pkey]")) {
-      await api("platform-settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: el.dataset.pkey, value: el.value }) });
-    }
-    toast(t("core.settings.platformSaved", "Platform settings saved"));
+    // The rows are read out of the DOM here and the whole save is handed to
+    // `savePlatformSettings`, which also decides whether the browser has to
+    // follow the admin to a new address.
+    const rows = [];
+    for (const el of document.querySelectorAll("[data-pkey]")) rows.push({ key: el.dataset.pkey, value: el.value });
+    await savePlatformSettings(rows);
     return;
   }
   if (a.dataset.action === "seed-demo") {

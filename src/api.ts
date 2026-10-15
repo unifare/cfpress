@@ -1,5 +1,5 @@
-import { Env } from "./shared/types";
-import { bootstrapAdmin, changePassword, changeUsername, currentUser, getMenuPrefs, login, logout, requireAdmin, setMenuPrefs, setUserUiLang } from "./platform/auth";
+import { Env, SessionUser } from "./shared/types";
+import { bootstrapAdmin, changePassword, changeUsername, currentUser, getMenuPrefs, login, logout, requireAdmin, rescopeSessionCookie, setMenuPrefs, setUserUiLang } from "./platform/auth";
 import { activity, jsonBody, now, ok } from "./shared/repo";
 import { randomId } from "./shared/crypto";
 import { CORE_BLOCKS } from "./rendering/blocks";
@@ -8,7 +8,7 @@ import { unzipSync } from "fflate";
 import { validateManifest } from "./extensions/contract/validation";
 import { CAPABILITIES } from "./extensions/contract/capabilities";
 import { PURGE_ON_SITE_DELETE } from "./extensions/contract/schema";
-import { SETTING_DEFS, getSetting, setSetting, platformSetting, setPlatformSetting, isDeclaredSetting, settingDef, adminPath } from "./platform/settings";
+import { SETTING_DEFS, getSetting, setSetting, platformSetting, setPlatformSetting, isDeclaredSetting, settingDef, adminPath, resetAdminPathMemo } from "./platform/settings";
 import { safeZipPath, sha256 } from "./extensions/security";
 import { createRevision, autosave } from "./platform/revisions";
 import { requirePermission, can, accessibleSiteIds, SITE_ROLES, SUPERADMIN_ROLE } from "./platform/permissions";
@@ -941,7 +941,8 @@ async function platformSettingsList(env: Env) {
   return ok({ items: read, install: "platform" });
 }
 
-async function savePlatformSetting(env: Env, userId: string, body: any) {
+async function savePlatformSetting(env: Env, user: SessionUser, request: Request) {
+  const body = await jsonBody(request);
   const key = String(body.key ?? "");
   if (!key) return ok({ error: "key required" }, 400);
   if (!isDeclaredSetting(key)) return ok({ error: `undeclared setting key: ${key}` }, 400);
@@ -961,9 +962,27 @@ async function savePlatformSetting(env: Env, userId: string, body: any) {
     if (value === "/") return ok({ error: "admin.path cannot be the site root" }, 400);
   }
   const value = body.value === null || body.value === undefined ? null : String(body.value);
+  // Read the *old* prefix before the write, because the rename has two
+  // consequences that are not "store a string":
+  const previous = key === "admin.path" ? await adminPath(env) : null;
   await setPlatformSetting(env, key, value);
-  await activity(env, userId, "update", "platform-setting", key, { value });
-  return ok({ ok: true, key, value });
+  await activity(env, user.id, "update", "platform-setting", key, { value });
+  const res = ok({ ok: true, key, value });
+  if (key === "admin.path") {
+    // 1. Routing is live from the next request (`index.ts` drops the memo at
+    //    the top of every fetch), but this request already read the *old*
+    //    value into the memo — clear it so anything later in this same request
+    //    sees where the admin actually is.
+    resetAdminPathMemo(env);
+    // 2. The caller's session cookie is scoped to the prefix they just left,
+    //    so without this they are signed out by their own rename. Hand the
+    //    same session back at the new address and expire the old cookie. This
+    //    is what makes the change *live* rather than "reload and log in again".
+    for (const cookie of rescopeSessionCookie(user.sessionId, previous ?? "/admin", String(value ?? ""))) {
+      res.headers.append("Set-Cookie", cookie);
+    }
+  }
+  return res;
 }
 
 /**
@@ -2570,7 +2589,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   }
   if (path === "platform-settings" && method === "POST") {
     if(!(await requirePermission(env,user,"platform.manage",siteId))) return ok({error:"Forbidden"},403);
-    return savePlatformSetting(env, user.id, await jsonBody(request));
+    return savePlatformSetting(env, user, request);
   }
 
   // Platform feature switches. GET needs no extra permission beyond being

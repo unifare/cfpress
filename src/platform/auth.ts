@@ -25,6 +25,19 @@ import { SITE_ROLES, SUPERADMIN_ROLE } from "./permissions";
 const SESSION_COOKIE = "cfpress_admin";
 const SESSION_TTL = 60 * 60 * 24 * 14;
 
+/**
+ * One `Set-Cookie` value for the admin session. `maxAge` 0 is the expiry form.
+ *
+ * `Path` is the caller's business (the prefix is configurable — see above), so
+ * it is a parameter here and never a constant. One writer for the whole cookie
+ * because the *three* places that hand one out (login, logout, and the prefix
+ * rename) must agree on every attribute: a cookie that differs in one of them
+ * is a cookie the browser treats as a different cookie.
+ */
+function sessionCookie(sessionId: string, cookiePath: string, maxAge: number): string {
+  return `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=${cookiePath}; HttpOnly; SameSite=Lax; Secure; Max-Age=${maxAge}`;
+}
+
 export async function bootstrapAdmin(env: Env) {
   const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM site_users").first<{ count: number }>();
   if ((row?.count ?? 0) > 0) return;
@@ -87,7 +100,7 @@ export async function login(env: Env, username: string, password: string, cookie
   }}), {
     headers: {
       "Content-Type": "application/json",
-      "Set-Cookie": `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=${cookiePath}; HttpOnly; SameSite=Lax; Secure; Max-Age=${SESSION_TTL}`
+      "Set-Cookie": sessionCookie(sessionId, cookiePath, SESSION_TTL)
     }
   });
 }
@@ -98,9 +111,37 @@ export async function logout(env: Env, request: Request, cookiePath = "/admin"):
   return new Response(JSON.stringify({ ok: true }), {
     headers: {
       "Content-Type": "application/json",
-      "Set-Cookie": `${SESSION_COOKIE}=; Path=${cookiePath}; HttpOnly; SameSite=Lax; Secure; Max-Age=0`
+      "Set-Cookie": sessionCookie("", cookiePath, 0)
     }
   });
+}
+
+/**
+ * Carry a live session across an admin-prefix rename (`admin.path`).
+ *
+ * The cookie's `Path` **is** the prefix, so the moment an operator renames the
+ * admin their own session becomes invisible to the address they just moved to:
+ * a browser only sends `Path=/admin` to `/admin/…`, so every request to
+ * `/manage/api/v1/…` arrives without the cookie and answers 401. The operator
+ * is signed out by their own rename, at the exact moment the admin moves —
+ * and the rename is otherwise entirely successful, which is what makes it
+ * read as "the setting does not work".
+ *
+ * This is a **rename, not a new login**: the session row is untouched and the
+ * same id is handed back, scoped to where the admin now lives. The old cookie
+ * is expired in the same response, because a cookie is only addressable by
+ * name *and* path — `Path=/admin; Max-Age=0` names the old one explicitly, and
+ * without it the stale cookie lingers until it expires on its own (harmless
+ * here, since `/admin/…` 404s, but a lingering session cookie is not something
+ * to leave lying around).
+ *
+ * Returns the `Set-Cookie` values to append, or `[]` when the path did not
+ * move — in which case there is nothing to carry and re-issuing would be a
+ * pointless write.
+ */
+export function rescopeSessionCookie(sessionId: string, fromPath: string, toPath: string): string[] {
+  if (!sessionId || fromPath === toPath) return [];
+  return [sessionCookie(sessionId, toPath, SESSION_TTL), sessionCookie("", fromPath, 0)];
 }
 
 /**

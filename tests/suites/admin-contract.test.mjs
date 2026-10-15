@@ -249,13 +249,17 @@ async function main() {
 
   console.log("\n0c. Moving the admin prefix");
   // The point of `admin.path` is that the admin can be moved somewhere a
-  // scanner will not guess. Three things have to hold when it moves, and each
+  // scanner will not guess. Four things have to hold when it moves, and each
   // was a real way to get it wrong:
   //   1. the new prefix serves the shell and the API;
   //   2. the shell is served with `CFP_ADMIN_BASE` = the new prefix (otherwise
   //      the SPA calls back to `/admin/api/…`, which is now gone);
   //   3. the old prefix answers 404 — *including its assets*, or `/admin/admin.js`
-  //      is a signpost back to the admin.
+  //      is a signpost back to the admin;
+  //   4. the operator's session moves with it. The cookie's `Path` is the
+  //      prefix, so without re-issuing it the rename signs the operator out of
+  //      the address they just moved to — and it does so *silently*, because
+  //      the rename itself succeeded.
   // The prefix is restored at the end of this block, in a `finally`, so a
   // failure here cannot leave the operator's own install on `/manage`.
   {
@@ -264,6 +268,32 @@ async function main() {
     });
     const moved = await setPath("/manage", "/admin");
     check("admin.path can be moved", moved.status, 200);
+    // 4. the session comes along. The cookie's `Path` *is* the prefix, so a
+    //    browser only sends it to `/admin/…` — renaming the admin without
+    //    re-issuing it signs the operator out of the address they just moved
+    //    to, while the rename itself looks entirely successful. That is the
+    //    difference between "the setting works" and "the setting worked and
+    //    then broke my admin", so it is asserted on the *browser-visible*
+    //    shape (`Set-Cookie`), not on an internal call.
+    const moveCookies = moved.headers.getSetCookie();
+    checkTruthy(
+      "the move re-issues the session cookie for the new prefix",
+      moveCookies.some((c) => /^cfpress_admin=.+;/.test(c) && /;\s*Path=\/manage(?:;|$)/.test(c))
+    );
+    checkTruthy(
+      "and expires the old prefix's cookie",
+      moveCookies.some((c) => /^cfpress_admin=;/.test(c) && /;\s*Path=\/admin(?:;|$)/.test(c) && /Max-Age=0/.test(c))
+    );
+    // A *refused* move changes nothing, so it must hand back no cookie at all:
+    // re-scoping the session for a prefix that was never stored would send the
+    // browser to an address that does not exist.
+    const badPath = await setPath("/Bad", "/manage");
+    check("a prefix the server will not store is refused", badPath.status, 400);
+    check("and a refused move hands back no cookie", badPath.headers.getSetCookie().length, 0);
+    // Nor does a save that changes nothing: `Path` is unchanged, so re-issuing
+    // the cookie would be a pointless write on every panel save.
+    const samePath = await setPath("/manage", "/manage");
+    check("re-saving the same prefix hands back no cookie", samePath.headers.getSetCookie().length, 0);
     try {
       const shell = await req(worker, env, "/manage/");
       check("the new prefix serves the shell", shell.status, 200);

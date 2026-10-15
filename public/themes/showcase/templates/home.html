@@ -1,0 +1,277 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+{{! All copy lives in langs/ (theme.strings.*) and renders in the request
+    locale — there is no client-side dictionary swap. The language button is
+    a plain link to the same page in the other locale (`lang_nav`), which the
+    platform builds from the locales this site declares. A monolingual site
+    gets no `lang_nav` and therefore no button rather than a dead one. }}
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="/">CF<em>Press</em></a>
+    <nav class="nav-links">
+      <a href="#highlights">{{default(theme.strings.nav.highlights, "Highlights")}}</a>
+      <a href="#box">{{default(theme.strings.nav.box, "What's in the box")}}</a>
+      <a href="#compare">{{default(theme.strings.nav.compare, "Compare")}}</a>
+      <a href="#quickstart">{{default(theme.strings.nav.quickstart, "Quick start")}}</a>
+      <a href="#license">{{default(theme.strings.nav.license, "License")}}</a>
+    </nav>
+    {{#if lang_nav}}
+    <details class="lang-menu">
+      <summary aria-label="Language">
+        <span>{{lang_current.name}}</span>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </summary>
+      <div class="lang-list">
+        {{#each lang_nav as l}}<a href="{{l.url}}"{{#if l.current}} class="on" aria-current="true"{{/if}} hreflang="{{l.code}}">{{l.name}}</a>{{/each}}
+      </div>
+    </details>
+    {{/if}}
+    {{! Member state, same contract as the default theme: `member` comes from
+        the member session only (never the admin one). A signed-in reader gets
+        their name linking to the account page, everyone else gets sign-in. }}
+    {{#if member}}<a class="lang-toggle" href="/{{locale}}/account">{{member.display_name}}</a>
+    {{else}}<a class="lang-toggle" href="/{{locale}}/login">{{default(theme.strings.nav.signin, "Sign in")}}</a>{{/if}}
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="hero">
+    <p class="kicker">{{default(theme.strings.hero.kicker, "On the Cloudflare edge · never runs third-party code")}}</p>
+    <h1>{{default(theme.strings.hero.title.pre, "A WordPress-style CMS that ")}}<span class="accent">{{default(theme.strings.hero.title.accent, "runs entirely")}}</span>{{default(theme.strings.hero.title.post, " on Workers")}}</h1>
+    <p class="hero-sub">{{default(theme.strings.hero.sub, "Themes, plugins, multi-site, multilingual content, members, a media library and a block editor — inside a single Cloudflare Worker.")}}</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://demo.cfpress.cc/" target="_blank" rel="noopener">{{default(theme.strings.hero.demo, "Live demo")}} →</a>
+      <a class="btn btn-ghost" href="https://github.com/unifare/cfpress" target="_blank" rel="noopener">GitHub</a>
+    </div>
+    <figure class="hero-figure">
+      <img src="/themes/showcase/shots/hero.svg" alt="{{default(theme.strings.hero.imgalt, "CFPress front page")}}">
+      <figcaption class="fig-cap">{{default(theme.strings.hero.figcap, "Real capture from a local wrangler dev run")}}</figcaption>
+    </figure>
+  </section>
+
+  <div class="stats">
+    <div class="stat"><b>$0</b><span>{{default(theme.strings.stats.free, "Runs on Cloudflare's free tier")}}</span></div>
+    <div class="stat"><b>0</b><span>{{default(theme.strings.stats.noserver, "Servers to maintain")}}</span></div>
+    <div class="stat"><b>16</b><span>{{default(theme.strings.stats.modules, "Admin modules, one Worker")}}</span></div>
+    <div class="stat"><b>28</b><span>{{default(theme.strings.stats.suites, "Behavioural & architectural test suites")}}</span></div>
+  </div>
+
+  <section id="highlights">
+    <div class="sec-head">
+      <p class="kicker">{{default(theme.strings.hl.kicker, "Highlights")}}</p>
+      <h2>{{default(theme.strings.hl.title, "Four decisions that go against the grain")}}</h2>
+      <p>{{default(theme.strings.hl.sub, "Each answers a real long-term cost in the WordPress world.")}}</p>
+    </div>
+
+    <article class="feature">
+      <div class="feature-text">
+        <p class="kicker">01</p>
+        <h3>{{default(theme.strings.f1.title, "Third-party code never runs")}}</h3>
+        <p>{{default(theme.strings.f1.p1, "WordPress lets any plugin run arbitrary PHP in your request path — the root cause of its security record.")}}</p>
+        <p>{{default(theme.strings.f1.p2, "The trade-off is stated plainly: declarative theming is less expressive than arbitrary PHP.")}}</p>
+      </div>
+      <figure class="feature-media">
+        <img src="/themes/showcase/shots/admin-themes.svg" alt="{{default(theme.strings.f1.imgalt, "A theme declaring custom post types")}}">
+      </figure>
+    </article>
+
+    <article class="feature">
+      <div class="feature-text">
+        <p class="kicker">02</p>
+        <h3>{{default(theme.strings.f2.title, "Multi-site and multilingual, built in")}}</h3>
+        <p>{{default(theme.strings.f2.p1, "In WordPress, multilingual needs a plugin and multi-site needs a network config. Here both are first-class at the storage layer.")}}</p>
+      </div>
+      <figure class="feature-media">
+        <img src="/themes/showcase/shots/admin-languages.svg" alt="{{default(theme.strings.f2.imgalt, "The four language layers")}}">
+      </figure>
+    </article>
+
+    <article class="feature">
+      <div class="feature-text">
+        <p class="kicker">03</p>
+        <h3>{{default(theme.strings.f3.title, "One post, two languages")}}</h3>
+        <p>{{default(theme.strings.f3.p1, "The switcher at the top of the editor is the post's language versions.")}}</p>
+      </div>
+      <figure class="feature-media">
+        <img src="/themes/showcase/shots/admin-editor.svg" alt="{{default(theme.strings.f3.imgalt, "Block editor with the language-version switcher")}}">
+      </figure>
+    </article>
+
+    <article class="feature">
+      <div class="feature-text">
+        <p class="kicker">04</p>
+        <h3>{{default(theme.strings.f4.title, "Three sites, one Worker")}}</h3>
+        <p>{{default(theme.strings.f4.p1, "Routing matches by path prefix first (longest wins), then by host.")}}</p>
+      </div>
+      <figure class="feature-media">
+        <img src="/themes/showcase/shots/admin-sites.svg" alt="{{default(theme.strings.f4.imgalt, "Three sites on one Worker")}}">
+      </figure>
+    </article>
+  </section>
+
+  <section id="box">
+    <div class="sec-head">
+      <p class="kicker">{{default(theme.strings.box.kicker, "What's in the box")}}</p>
+      <h2>{{default(theme.strings.box.title, "A complete CMS with no server")}}</h2>
+      <p>{{default(theme.strings.box.sub, "Workers, D1, R2 and KV all have free allowances.")}}</p>
+    </div>
+    <div class="box-grid">
+      <div class="box-cell">
+        <h4>{{default(theme.strings.box.content.h, "Content")}}</h4>
+        <p>{{default(theme.strings.box.content.p, "Posts and pages, categories, tags, block editor, revisions, autosave, scheduled publishing on a 5-minute cron")}}</p>
+      </div>
+      <div class="box-cell">
+        <h4>{{default(theme.strings.box.media.h, "Media")}}</h4>
+        <p>{{default(theme.strings.box.media.p, "R2-backed library, a shared picker, ownership scoping per site")}}</p>
+      </div>
+      <div class="box-cell">
+        <h4>{{default(theme.strings.box.multisite.h, "Multi-site")}}</h4>
+        <p>{{default(theme.strings.box.multisite.p, "Storage-level isolation, per-site settings, per-site user roles")}}</p>
+      </div>
+      <div class="box-cell">
+        <h4>{{default(theme.strings.box.languages.h, "Languages")}}</h4>
+        <p>{{default(theme.strings.box.languages.p, "Content and UI languages, per-locale slugs, hreflang, per-locale feeds and sitemaps")}}</p>
+      </div>
+      <div class="box-cell">
+        <h4>{{default(theme.strings.box.members.h, "Members")}}</h4>
+        <p>{{default(theme.strings.box.members.p, "Front-end registration and accounts, separate from admin identity")}}</p>
+      </div>
+      <div class="box-cell">
+        <h4>{{default(theme.strings.box.access.h, "Access control")}}</h4>
+        <p>{{default(theme.strings.box.access.p, "admin / editor / author capability matrix, enforced server-side")}}</p>
+      </div>
+      <div class="box-cell">
+        <h4>{{default(theme.strings.box.themes.h, "Themes")}}</h4>
+        <p>{{default(theme.strings.box.themes.p, "Declarative engine, packaged as ZIP, stored in R2, ships 3 examples")}}</p>
+      </div>
+      <div class="box-cell">
+        <h4>{{default(theme.strings.box.plugins.h, "Plugins")}}</h4>
+        <p>{{default(theme.strings.box.plugins.p, "Manifest-declared capabilities, settings schema, notification channels")}}</p>
+      </div>
+      <div class="box-cell">
+        <h4>{{default(theme.strings.box.caching.h, "Search & caching")}}</h4>
+        <p>{{default(theme.strings.box.caching.p, "Search API over published content; cache versioning invalidated automatically on content change")}}</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="compare">
+    <div class="sec-head">
+      <p class="kicker">{{default(theme.strings.cmp.kicker, "How it compares")}}</p>
+      <h2>{{default(theme.strings.cmp.title, "A comparison of shapes, not a benchmark")}}</h2>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th></th><th>CFPress</th><th>WordPress</th><th>Ghost</th><th>Strapi</th></tr>
+        </thead>
+        <tbody>
+          <tr><th>{{default(theme.strings.cmp.r1.th, "Runtime")}}</th>
+            <td class="cfp">{{default(theme.strings.cmp.r1.cfp, "Cloudflare edge (Workers)")}}</td>
+            <td>{{default(theme.strings.cmp.r1.wp, "PHP + a server")}}</td>
+            <td>{{default(theme.strings.cmp.r1.ghost, "Node + a server")}}</td>
+            <td>{{default(theme.strings.cmp.r1.strapi, "Node + a server")}}</td></tr>
+          <tr><th>{{default(theme.strings.cmp.r2.th, "Server to maintain")}}</th>
+            <td class="cfp">{{default(theme.strings.cmp.r2.cfp, "none")}}</td>
+            <td>{{default(theme.strings.cmp.r2.wp, "yes")}}</td>
+            <td>{{default(theme.strings.cmp.r2.ghost, "yes")}}</td>
+            <td>{{default(theme.strings.cmp.r2.strapi, "yes")}}</td></tr>
+          <tr><th>{{default(theme.strings.cmp.r3.th, "Cost, small site")}}</th>
+            <td class="cfp">{{default(theme.strings.cmp.r3.cfp, "free tier")}}</td>
+            <td>{{default(theme.strings.cmp.r3.wp, "VPS / hosting")}}</td>
+            <td>{{default(theme.strings.cmp.r3.ghost, "VPS / hosted")}}</td>
+            <td>{{default(theme.strings.cmp.r3.strapi, "VPS / hosted")}}</td></tr>
+          <tr><th>{{default(theme.strings.cmp.r4.th, "Third-party code executes")}}</th>
+            <td class="cfp">{{default(theme.strings.cmp.r4.cfp, "never")}}</td>
+            <td>{{default(theme.strings.cmp.r4.wp, "yes (PHP plugins)")}}</td>
+            <td>{{default(theme.strings.cmp.r4.ghost, "yes (Node)")}}</td>
+            <td>{{default(theme.strings.cmp.r4.strapi, "yes (Node)")}}</td></tr>
+          <tr><th>{{default(theme.strings.cmp.r5.th, "Multi-site")}}</th>
+            <td class="cfp">{{default(theme.strings.cmp.r5.cfp, "built in")}}</td>
+            <td>{{default(theme.strings.cmp.r5.wp, "network config")}}</td>
+            <td>{{default(theme.strings.cmp.r5.ghost, "not built in")}}</td>
+            <td>{{default(theme.strings.cmp.r5.strapi, "not built in")}}</td></tr>
+          <tr><th>{{default(theme.strings.cmp.r6.th, "Multilingual content")}}</th>
+            <td class="cfp">{{default(theme.strings.cmp.r6.cfp, "built in, per-locale slugs")}}</td>
+            <td>{{default(theme.strings.cmp.r6.wp, "plugin")}}</td>
+            <td>{{default(theme.strings.cmp.r6.ghost, "partial")}}</td>
+            <td>{{default(theme.strings.cmp.r6.strapi, "plugin")}}</td></tr>
+          <tr><th>{{default(theme.strings.cmp.r7.th, "Data store")}}</th>
+            <td class="cfp">D1 (SQLite) + R2 + KV</td>
+            <td>MySQL</td><td>MySQL</td><td>Postgres / MySQL</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="table-note">{{default(theme.strings.cmp.note, "Not a like-for-like benchmark — a comparison of shapes.")}}</p>
+  </section>
+
+  <section class="quickstart" id="quickstart">
+    <div class="qs-grid">
+      <div>
+        <p class="kicker">{{default(theme.strings.qs.kicker, "Quick start")}}</p>
+        <h2 style="font-family:var(--font-display);font-size:clamp(28px,3.2vw,40px);font-weight:600;letter-spacing:-.015em;line-height:1.15;margin:16px 0">{{default(theme.strings.qs.title, "Four commands, up and running")}}</h2>
+        <p style="color:var(--muted);font-size:16px;max-width:32em">{{default(theme.strings.qs.desc, "Create the two account-scoped resources, write their ids into a gitignored config file, start the dev server.")}}</p>
+        <div class="hero-ctas" style="margin-top:28px;margin-bottom:0">
+          <a class="btn btn-primary" href="https://github.com/unifare/cfpress" target="_blank" rel="noopener">{{default(theme.strings.qs.repo, "View the repository")}} →</a>
+        </div>
+      </div>
+      <pre><span class="c"># clone &amp; install</span>
+git clone https://github.com/unifare/cfpress.git
+cd cfpress
+npm install
+
+<span class="c"># create the two account-scoped resources</span>
+npx wrangler d1 create cfpress
+npx wrangler kv namespace create CACHE
+
+<span class="c"># start the dev server (port 47913)</span>
+npm run dev
+
+<span class="c"># deploy — migrations first, then deploy</span>
+npm run db:migrate
+npm run deploy</pre>
+    </div>
+  </section>
+
+  <section id="license">
+    <div class="sec-head">
+      <p class="kicker">{{default(theme.strings.lic.kicker, "License")}}</p>
+      <h2>{{default(theme.strings.lic.title, "AGPL-3.0, or a commercial license")}}</h2>
+    </div>
+    <div class="license-grid">
+      <div class="license-cell">
+        <h4>{{default(theme.strings.lic.agpl.h, "Free: AGPL-3.0")}}</h4>
+        <p>{{default(theme.strings.lic.agpl.p, "For running your own site, internal systems, evaluation, study, and any project that is itself AGPL-3.0.")}}</p>
+      </div>
+      <div class="license-cell">
+        <h4>{{default(theme.strings.lic.comm.h, "Commercial: closed-source service")}}</h4>
+        <p>{{default(theme.strings.lic.comm.p, "Required when you offer CFPress to third parties as a hosted service without releasing your modifications.")}}</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta-band">
+    <p class="kicker" style="margin-bottom:16px">{{default(theme.strings.cta.ver, "CFPress · v0.8.0")}}</p>
+    <h2>{{default(theme.strings.cta.title, "Take “maintain a server” off the build list")}}</h2>
+    <p>{{default(theme.strings.cta.sub, "The demo restores its content hourly — front end and admin are both open for a walk-through.")}}</p>
+    <div class="hero-ctas" style="justify-content:center;margin-bottom:0">
+      <a class="btn btn-primary" href="https://demo.cfpress.cc/" target="_blank" rel="noopener">{{default(theme.strings.cta.demo, "Open the live demo")}} →</a>
+      <a class="btn btn-ghost" href="https://demo.cfpress.cc/admin" target="_blank" rel="noopener">Admin</a>
+    </div>
+  </section>
+
+  <footer>
+    <div class="foot">
+      <small>{{default(theme.strings.foot.disclaimer, "CFPress is not affiliated with, endorsed by, or sponsored by Cloudflare, Inc. or the WordPress Foundation.")}}</small>
+      <div class="foot-links">
+        <a href="https://github.com/unifare/cfpress" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://demo.cfpress.cc/" target="_blank" rel="noopener">{{default(theme.strings.foot.demo, "Demo")}}</a>
+        <a href="https://github.com/unifare/cfpress/blob/main/LICENSE" target="_blank" rel="noopener">LICENSE</a>
+      </div>
+    </div>
+  </footer>
+
+</main>
+{{/section}}

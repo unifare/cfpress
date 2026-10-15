@@ -1,0 +1,20 @@
+{
+  "name": "showcase",
+  "title": "Showcase",
+  "version": "1.0.0",
+  "author": "CFPress",
+  "description": "CFPress 的自我介绍站：单页落地页，中英双语，内容全部走主题语言包，没有文章依赖。",
+  "templates": [
+    "home",
+    "index",
+    "404"
+  ],
+  "parts": [
+    "layout",
+    "styles"
+  ],
+  "locales": [
+    "zh-CN",
+    "en"
+  ]
+}

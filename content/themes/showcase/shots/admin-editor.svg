@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
+  <rect width="1200" height="800" fill="#f7f3ea"/>
+  <rect x="180" y="90" width="840" height="620" fill="#fffdf8" stroke="#ddd5c2" stroke-width="2"/>
+  <rect x="180" y="90" width="840" height="72" fill="#efe9d8"/>
+  <rect x="220" y="108" width="120" height="36" rx="18" fill="#2b2620"/>
+  <text x="280" y="133" text-anchor="middle" font-family="monospace" font-size="22" fill="#f7f3ea">中文</text>
+  <rect x="352" y="108" width="120" height="36" rx="18" fill="none" stroke="#2b2620" stroke-width="2"/>
+  <text x="412" y="133" text-anchor="middle" font-family="monospace" font-size="22" fill="#2b2620">EN</text>
+  <rect x="240" y="220" width="720" height="34" fill="#2b2620"/>
+  <rect x="240" y="280" width="720" height="18" fill="#e7e0cf"/><rect x="240" y="312" width="720" height="18" fill="#e7e0cf"/><rect x="240" y="344" width="480" height="18" fill="#e7e0cf"/>
+  <rect x="240" y="400" width="340" height="200" fill="#efe9d8"/>
+  <rect x="620" y="400" width="340" height="18" fill="#e7e0cf"/><rect x="620" y="432" width="340" height="18" fill="#e7e0cf"/><rect x="620" y="464" width="220" height="18" fill="#e7e0cf"/>
+</svg>

@@ -1,0 +1,24 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+{{! Generic fallback: every kind the hierarchy cannot place more precisely
+    (single, page, archive, search…) lands here. A landing theme has no
+    listings, so this renders the addressed object when there is one and a
+    short pointer home otherwise — never a blank page, never a throw. }}
+<main class="wrap">
+  <section class="hero">
+    {{#if post}}
+    <p class="kicker">{{#if post.date_display}}{{post.date_display}}{{/if}}</p>
+    <h1>{{post.title}}</h1>
+    {{#if post.excerpt}}<p class="hero-sub">{{post.excerpt}}</p>{{/if}}
+    {{#if post.html}}<div class="feature-text">{{{post.html}}}</div>{{/if}}
+    {{else}}
+    <p class="kicker">{{default(theme.strings.idx.kicker, "CFPress")}}</p>
+    <h1>{{#if page.title}}{{page.title}}{{else}}{{site.title}}{{/if}}</h1>
+    <p class="hero-sub">{{default(theme.strings.idx.sub, "This page has no dedicated template — you are reading the theme fallback.")}}</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="/">{{default(theme.strings.idx.home, "Back to the front page")}} →</a>
+    </div>
+    {{/if}}
+  </section>
+</main>
+{{/section}}

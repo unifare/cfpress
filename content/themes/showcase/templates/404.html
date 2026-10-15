@@ -1,0 +1,13 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+<main class="wrap">
+  <section class="hero">
+    <p class="kicker">404</p>
+    <h1>{{default(theme.strings.nf.title, "This page does not exist")}}</h1>
+    <p class="hero-sub">{{default(theme.strings.nf.desc, "It may have moved, or it never existed.")}}</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="/">{{default(theme.strings.nf.home, "Back to the front page")}} →</a>
+    </div>
+  </section>
+</main>
+{{/section}}

@@ -21,7 +21,6 @@ export function renderLogin() {
       <div class="field" style="margin-bottom:0"><label for="p">${esc(t("core.auth.password", "Password"))}</label><input id="p" type="password" value="change-me-now" autocomplete="current-password"></div>
     </div>
     <button class="btn primary" style="width:100%" id="signin">${esc(t("core.action.login", "Sign in"))}</button>
-    <p class="muted text-sm" style="margin-top:1rem">${esc(t("core.auth.defaultHint", "First login default: admin / change-me-now. Change it before production use."))}</p>
   </div></div>`;
 
   const submit = () => doLogin();

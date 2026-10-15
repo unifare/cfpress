@@ -27,6 +27,19 @@ header{position:sticky;top:0;z-index:50;background:oklch(98% 0.004 95 / .92);bac
 .nav-links a:hover{color:var(--fg)}
 .lang-toggle{font-family:var(--font-mono);font-size:12px;letter-spacing:.02em;background:none;border:1px solid var(--border);padding:6px 12px;cursor:pointer;color:var(--fg);min-height:32px;transition:border-color .15s;text-decoration:none;display:inline-flex;align-items:center}
 .lang-toggle:hover{border-color:var(--fg)}
+.icon-btn{font-size:12px;background:none;border:1px solid var(--border);padding:6px 9px;cursor:pointer;color:var(--fg);min-height:32px;min-width:36px;display:inline-flex;align-items:center;justify-content:center;transition:border-color .15s}
+.icon-btn:hover{border-color:var(--fg)}
+/* dark reader: same shapes, inverted paper */
+[data-theme="dark"]{
+  --bg:      oklch(24% 0.008 70);
+  --surface: oklch(28% 0.010 70);
+  --fg:      oklch(93% 0.010 95);
+  --muted:   oklch(70% 0.012 95);
+  --border:  oklch(38% 0.010 95);
+  --accent:  oklch(76% 0.090 28);
+}
+[data-theme="dark"] header{background:oklch(24% 0.008 70 / .92)}
+[data-theme="dark"] .feature-media img{filter:brightness(.88)}
 .lang-menu{position:relative}
 .lang-menu summary{font-family:var(--font-mono);font-size:12px;letter-spacing:.02em;border:1px solid var(--border);padding:6px 12px;cursor:pointer;min-height:32px;display:inline-flex;align-items:center;gap:6px;list-style:none}
 .lang-menu summary::-webkit-details-marker{display:none}

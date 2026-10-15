@@ -21,8 +21,47 @@
 {{! Feed discovery, same as the default theme: this page language's feed. }}
 <link rel="alternate" type="application/rss+xml" title="{{site.title}}" href="/{{locale}}/feed.xml">
 {{@include "parts/styles"}}
+{{! Theme choice before first paint, so a dark reader never sees a white
+    frame. Saved choice wins, otherwise the OS preference. `colorScheme` keeps
+    native controls (scrollbars, form widgets) in step. }}
+<script>
+(function () {
+  try {
+    var saved = null;
+    try { saved = localStorage.getItem("showcase-theme"); } catch (e) {}
+    var dark = saved ? saved === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var root = document.documentElement;
+    root.dataset.theme = dark ? "dark" : "light";
+    root.style.colorScheme = dark ? "dark" : "light";
+  } catch (e) {}
+})();
+</script>
 </head>
 <body>
 {{@section "content"}}
+{{! Theme toggle binding. Guarded: only the home header carries the button,
+    the fallback templates share this layout without one. Icon state is synced
+    on load (the head script above ran before the button existed). }}
+<script>
+(function () {
+  var btn = document.getElementById("themeBtn");
+  if (!btn) return;
+  function paint() {
+    var dark = document.documentElement.dataset.theme === "dark";
+    var moon = btn.querySelector("[data-icon-moon]");
+    var sun = btn.querySelector("[data-icon-sun]");
+    if (moon) moon.style.display = dark ? "none" : "";
+    if (sun) sun.style.display = dark ? "" : "none";
+  }
+  btn.addEventListener("click", function () {
+    var dark = document.documentElement.dataset.theme !== "dark";
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    document.documentElement.style.colorScheme = dark ? "dark" : "light";
+    try { localStorage.setItem("showcase-theme", dark ? "dark" : "light"); } catch (e) {}
+    paint();
+  });
+  paint();
+})();
+</script>
 </body>
 </html>

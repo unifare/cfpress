@@ -10,6 +10,7 @@
     "dev": "wrangler dev --port 47913 -c wrangler.local.jsonc",
     "predeploy": "node scripts/make-local-config.mjs && node scripts/sync-bundled-themes.mjs",
     "deploy": "wrangler deploy -c wrangler.local.jsonc",
+    "deploy:demo": "node scripts/deploy-demo.mjs",
     "db:migrate": "wrangler d1 migrations apply cfpress --remote -c wrangler.local.jsonc",
     "db:migrate:local": "wrangler d1 migrations apply cfpress --local -c wrangler.local.jsonc",
     "typecheck": "tsc --noEmit",

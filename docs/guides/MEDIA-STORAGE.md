@@ -113,11 +113,39 @@ R2 在代码里是可选绑定（`MEDIA?`）：读不到就 404，写（媒体 R
 存在的桶就直接失败）：
 
 ```bash
-node scripts/make-local-config.mjs --no-r2 --out wrangler.demo.jsonc
+node scripts/make-local-config.mjs --no-r2 --ids wrangler.ids.demo.json --out wrangler.demo.jsonc
 npx wrangler deploy --name cfpress-demo -c wrangler.demo.jsonc
 ```
 
 `wrangler.demo.jsonc` 是 gitignore 的生成物（和 `wrangler.local.jsonc`
 一样），`_config-parity.mjs` 在它存在时校验，不存在时报 n/a。
-注意它和 `wrangler.ids.json` 当前指向的 D1/KV 配套使用；切账户部署
-时先换 ids（备份好原文件），部署完换回来。
+`--ids wrangler.ids.demo.json` 让第二套部署用自己的 ids 文件——永远
+不要手工换 `wrangler.ids.json` 的内容，那正是这套生成链要消灭的漂移。
+
+## 8. 演示版冻结（demo frozen，正式版继续走）
+
+线上演示版（`cfpress-demo`）冻结在 tag 上，正式版（`wrangler.local.jsonc`
+对应的那套）照常跟着 `main` 走。两边从此是两条线：
+
+- 冻结标记：`git tag demo-frozen-2026-10-15`（已推到远端），正好等于
+  当前线上的 worker 版本。以后想更新演示版时，先 `npm test` 全绿，
+  再打一个新的 `demo-frozen-*` tag 并移动下面的脚本常量。
+- 部署演示版只走一个入口：`npm run deploy:demo`（即
+  `scripts/deploy-demo.mjs`）。它先验三件事，缺一就拒绝：
+  1. `HEAD` 必须正好等于冻结 tag（`main` 上多一个 commit 也会被拦下）；
+  2. `CLOUDFLARE_API_TOKEN` 必须存在（token 是 secret，永不进仓库）；
+  3. `CLOUDFLARE_ACCOUNT_ID` 必须等于演示账户（防手滑把演示版打到
+     正式账户上）。
+- `main` 上继续开发新功能时，不需要做任何事——你不可能"顺手"把演示
+  版覆盖掉，因为脚本根本不让你在 `main` 上跑演示部署。真要重打演示
+  版（比如误删了 worker），开一个 worktree 指到 tag 上再跑：
+
+```bash
+git worktree add ../cfpress-demo-frozen demo-frozen-2026-10-15
+cp wrangler.ids.demo.json ../cfpress-demo-frozen/
+cd ../cfpress-demo-frozen && npm run deploy:demo
+```
+
+注意冻的是**代码**，不是数据：演示站 D1 里管理员改的东西（文章、
+设置、key）照常读写。想要连数据一起定格，得另行备份 D1，那是另一
+件事。

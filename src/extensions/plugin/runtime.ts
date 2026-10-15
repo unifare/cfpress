@@ -99,8 +99,15 @@ const HOOK_IMPLS: Record<string, HookImpl> = {
     impl: async (ctx, doc) => {
       if (typeof doc !== "string") return doc;
       const head = await filterHead(ctx as ExtensionContext);
-      if (!head) return doc;
-      return doc.includes("</head>") ? doc.replace("</head>", `${head}</head>`) : doc;
+      let out = doc;
+      if (head && !out.includes(head)) {
+        out = out.includes("</head>") ? out.replace("</head>", `${head}</head>`) : out;
+      }
+      const foot = await filterFooter(ctx as ExtensionContext);
+      if (foot && !out.includes(foot)) {
+        out = out.includes("</body>") ? out.replace("</body>", `${foot}</body>`) : out;
+      }
+      return out;
     },
   },
 
@@ -110,6 +117,16 @@ const HOOK_IMPLS: Record<string, HookImpl> = {
     order: 15,
     impl: async (ctx, doc) => {
       const extra = await filterHead(ctx as ExtensionContext);
+      return extra ? `${doc}${extra}` : doc;
+    },
+  },
+
+  /** `footer` (filter) — contributes raw markup before `</body>`. */
+  footer: {
+    phase: "filter",
+    order: 15,
+    impl: async (ctx, doc) => {
+      const extra = await filterFooter(ctx as ExtensionContext);
       return extra ? `${doc}${extra}` : doc;
     },
   },
@@ -330,6 +347,35 @@ async function filterHead(ctx: ExtensionContext): Promise<string> {
     const out: string[] = [];
     if (map.default_description) {
       out.push(`<meta name="description" content="${escapeAttr(String(map.default_description))}">`);
+    }
+    return out.join("");
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Build the `<footer>` / `</body>` contribution from enabled plugins that
+ * expose footer scripts or markup.
+ */
+async function filterFooter(ctx: ExtensionContext): Promise<string> {
+  const name = ctx.extension?.name;
+  if (!name) return "";
+  const allowed = await capabilityAllowed(ctx.env, "plugin", name, "settings.read").catch(() => false);
+  if (!allowed) return "";
+  try {
+    const defs = await ctx.env.DB.prepare(
+      "SELECT key, value FROM plugin_settings WHERE plugin_id=(SELECT id FROM plugin_installs WHERE name=? LIMIT 1)"
+    )
+      .bind(name)
+      .all();
+    const map = Object.fromEntries(((defs.results as any[]) ?? []).map((r) => [r.key, r.value]));
+    const out: string[] = [];
+    if (map.footer_scripts) {
+      out.push(String(map.footer_scripts));
+    }
+    if (map.footer_html) {
+      out.push(String(map.footer_html));
     }
     return out.join("");
   } catch {

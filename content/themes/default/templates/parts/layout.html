@@ -47,6 +47,7 @@
 })();
 </script>
 {{@include "parts/styles"}}
+{{{hook("head")}}}
 </head>
 <body>
 <a class="skip" href="#content">{{default(theme.strings.skip, "Skip to content")}}</a>
@@ -82,5 +83,6 @@
   });
 })();
 </script>
+{{{hook("footer")}}}
 </body>
 </html>

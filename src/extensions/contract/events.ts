@@ -12,7 +12,7 @@
  * An **event** is a *fact*: a past-tense statement with a payload.
  *
  * One event may be delivered over several channels; one channel may carry
- * several events. `DECLARABLE_HOOKS` has seven entries because there are seven
+ * several events. `DECLARABLE_HOOKS` has eight entries because there are eight
  * *places to attach*. `DOMAIN_EVENTS` has entries because there are that many
  * *things worth knowing about* — and a future plugin subscribing to
  * `PostPublished` should not have to reason about whether that arrives as

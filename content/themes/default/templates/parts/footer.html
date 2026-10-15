@@ -1,7 +1,8 @@
 <footer>
   {{! Footer menu — one entry per item of the menu assigned to the theme's
       `footer` location. A site with no footer menu renders nothing here. }}
-  {{#if menu.footer_html}}<nav class="foot-nav">{{{menu.footer_html}}}</nav>{{/if}}
+  {{#if menu.footer}}<nav class="foot-nav">{{#each menu.footer as item}}<a href="{{item.url}}"{{#if item.target}} target="{{item.target}}"{{/if}}>{{item.title}}</a>{{/each}}</nav>
+  {{else}}{{#if menu.footer_html}}<nav class="foot-nav">{{{menu.footer_html}}}</nav>{{/if}}{{/if}}
   {{! Footer widgets — the theme's declared `footer` sidebar. }}
   {{#if widgets.footer}}<div class="wrap foot-widgets">{{{widgets.footer}}}</div>{{/if}}
   <div class="wrap">

@@ -49,6 +49,7 @@ export const DECLARABLE_HOOKS = [
   "beforeRender",
   "html",
   "head",
+  "footer",
   "beforeSavePost",
   "afterSavePost",
   "beforeDeletePost",

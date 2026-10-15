@@ -1189,6 +1189,27 @@ check(
     JSON.stringify([...declaredHooks].sort()) === JSON.stringify([...implHooks].sort()),
     `declarable:     ${JSON.stringify([...declaredHooks].sort())}\n       implemented:    ${JSON.stringify([...implHooks].sort())}`
   );
+
+  // Themes must expose lifecycle hook points so plugins can contribute to
+  // `<head>` and `</body>`. Verify that every theme layout contains `hook("head")`
+  // and `hook("footer")`.
+  const themeDirs = ["default", "prism", "showcase", "fixture"];
+  const missingHooks = [];
+  for (const t of themeDirs) {
+    const layoutPath = join(ROOT, "content/themes", t, "templates/parts/layout.html");
+    if (!existsSync(layoutPath)) continue;
+    const layoutSrc = read(layoutPath);
+    if (!/\{\{\{\s*hook\s*\(\s*["']head["']\s*\)\s*\}\}\}/.test(layoutSrc)) {
+      missingHooks.push(`${t}: missing {{{hook("head")}}}`);
+    }
+    if (!/\{\{\{\s*hook\s*\(\s*["']footer["']\s*\)\s*\}\}\}/.test(layoutSrc)) {
+      missingHooks.push(`${t}: missing {{{hook("footer")}}}`);
+    }
+  }
+  checkEmpty(
+    "every bundled and fixture theme layout contains {{{hook('head')}}} and {{{hook('footer')}}}",
+    missingHooks
+  );
 }
 
 // ---------------------------------------------------------------------------

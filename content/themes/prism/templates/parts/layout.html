@@ -34,6 +34,7 @@
 (function(){try{var t=localStorage.getItem("prism-theme");if(t==="dark"||t==="light"){document.documentElement.setAttribute("data-theme",t);}}catch(e){}})();
 </script>
 {{@include "parts/styles"}}
+{{{hook("head")}}}
 </head>
 <body>
 <a class="skip" href="#content">{{default(theme.strings.a11y.skip, "Skip to content")}}</a>
@@ -77,5 +78,6 @@ window.prismToast=function(msg){
 };
 window.defaultToast=window.prismToast;
 </script>
+{{{hook("footer")}}}
 </body>
 </html>

@@ -15,11 +15,13 @@
 
     <nav class="nav" aria-label="{{default(theme.strings.nav.aria, "Main navigation")}}">
       {{#if menu.header}}
-        {{#each menu.header as item}}<a href="{{item.url}}">{{item.title}}</a>{{/each}}
+        {{#each menu.header as item}}<a href="{{item.url}}"{{#if item.target}} target="{{item.target}}"{{/if}}>{{item.title}}</a>{{/each}}
+      {{else}}{{#if menu.header_html}}
+        {{{menu.header_html}}}
       {{else}}
         <a href="/{{locale}}">{{default(theme.strings.nav.home, "Home")}}</a>
         <a href="/{{locale}}/blog">{{default(theme.strings.nav.blog, "Posts")}}</a>
-      {{/if}}
+      {{/if}}{{/if}}
     </nav>
 
     <div class="top-actions">

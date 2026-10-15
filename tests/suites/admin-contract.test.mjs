@@ -183,6 +183,8 @@ async function main() {
       "DELETE FROM content_cache_versions WHERE site_id LIKE 'admdemo%'",
       "DELETE FROM site_locales WHERE site_id LIKE 'admdemo%'",
       "DELETE FROM settings WHERE site_id LIKE 'admdemo%'",
+      "DELETE FROM menu_items WHERE site_id LIKE 'admdemo%'",
+      "DELETE FROM menus WHERE site_id LIKE 'admdemo%'",
       "DELETE FROM site_users_sites WHERE user_id IN (SELECT id FROM site_users WHERE username='admdemo_limited')",
       "DELETE FROM site_users WHERE username='admdemo_limited'",
       "DELETE FROM sites WHERE id LIKE 'admdemo%'",

@@ -908,6 +908,31 @@ async function main() {
   const navBody2 = await navRes2.text();
   check("a second render picks the same menu (no coin flip)",
     navBody2.includes("AAA-LINK") && !navBody2.includes("ZZZ-LINK"), true);
+  // Multi-language menu filtering: locale-specific items only show in their own language
+  await req(worker, env, `/api/v1/menus/menu_aaa/items?site=menutest`, {
+    method: "POST", headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ id: "mi_en", title: "EN-ONLY-LINK", url: "/en-link", locale: "en" }),
+  });
+  await req(worker, env, `/api/v1/menus/menu_aaa/items?site=menutest`, {
+    method: "POST", headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ id: "mi_zh", title: "ZH-ONLY-LINK", url: "/zh-link", locale: "zh-CN" }),
+  });
+  const navEn = await (await req(worker, env, "/menutest/en", { headers: authHeaders })).text();
+  check("en page includes EN-ONLY-LINK", navEn.includes("EN-ONLY-LINK"), true);
+  check("en page does not include ZH-ONLY-LINK", navEn.includes("ZH-ONLY-LINK"), false);
+  const navZh = await (await req(worker, env, "/menutest/zh-CN", { headers: authHeaders })).text();
+  check("zh-CN page includes ZH-ONLY-LINK", navZh.includes("ZH-ONLY-LINK"), true);
+  check("zh-CN page does not include EN-ONLY-LINK", navZh.includes("EN-ONLY-LINK"), false);
+
+  // Prism theme parity: prism theme must also render header and footer menus cleanly
+  const actPrism = await req(worker, env, "/api/v1/extensions/themes/prism/activate?site=menutest", { method: "POST", headers: authHeaders });
+  checkTruthy("bundled prism theme activates on throwaway site", actPrism.status === 200);
+  const prismNavRes = await req(worker, env, "/menutest/en", { headers: authHeaders });
+  const prismNavBody = await prismNavRes.text();
+  check("prism theme renders header menu items", prismNavBody.includes("AAA-LINK"), true);
+  check("prism theme renders footer menu items", prismNavBody.includes("FOOT-LINK"), true);
+  check("prism theme renders locale-specific menu items", prismNavBody.includes("EN-ONLY-LINK"), true);
+
   // Cleanup: remove the throwaway site so the shared local D1 stays clean.
   await req(worker, env, "/api/v1/sites/menutest", { method: "DELETE", headers: authHeaders });
   for (const sql of [

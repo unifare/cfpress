@@ -2,7 +2,7 @@
   <div class="wrap topbar-in">
     <a class="brand" href="/{{locale}}"><span class="brand-mark">墨</span>{{site.title}}</a>
     <nav class="nav">
-      {{#if menu.primary_html}}{{{menu.primary_html}}}{{else}}<a href="/{{locale}}">{{default(theme.strings.nav.home, "Home")}}</a><a href="/{{locale}}/blog">{{default(theme.strings.nav.articles, "Articles")}}</a>{{#if (contains(page.kind, "home"))}}<a href="#sec-topics">{{default(theme.strings.nav.topics, "Topics")}}</a><a href="#sec-rank">{{default(theme.strings.nav.rank, "Ranking")}}</a><a href="#sec-about">{{default(theme.strings.nav.about, "About")}}</a>{{/if}}{{/if}}
+      {{#if menu.header}}{{#each menu.header as item}}<a href="{{item.url}}"{{#if item.target}} target="{{item.target}}"{{/if}}>{{item.title}}</a>{{/each}}{{else}}{{#if menu.primary_html}}{{{menu.primary_html}}}{{else}}<a href="/{{locale}}">{{default(theme.strings.nav.home, "Home")}}</a><a href="/{{locale}}/blog">{{default(theme.strings.nav.articles, "Articles")}}</a>{{#if (contains(page.kind, "home"))}}<a href="#sec-topics">{{default(theme.strings.nav.topics, "Topics")}}</a><a href="#sec-rank">{{default(theme.strings.nav.rank, "Ranking")}}</a><a href="#sec-about">{{default(theme.strings.nav.about, "About")}}</a>{{/if}}{{/if}}{{/if}}
     </nav>
     <div class="top-actions">
       <label class="searchbox">

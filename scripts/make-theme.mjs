@@ -81,6 +81,7 @@ const layout = `<!doctype html>
   footer.site .wrap{padding-block:1.5rem}
   .empty{color:var(--muted);font-style:italic}
 </style>
+{{{hook("head")}}}
 </head>
 <body>
 {{@include "parts/header"}}
@@ -88,6 +89,7 @@ const layout = `<!doctype html>
 {{@section "content"}}
 </main>
 {{@include "parts/footer"}}
+{{{hook("footer")}}}
 </body>
 </html>
 `;

@@ -15,7 +15,7 @@ import { requirePermission, can, accessibleSiteIds, SITE_ROLES, SUPERADMIN_ROLE 
 import { bumpContentCache } from "./shared/cache";
 import { BUNDLED_THEMES } from "./shared/bundled";
 import { featureSnapshot, inheritedValue, truthy, FEATURE_SETTINGS_KEY, FEATURE_SWITCHES, type FeatureSwitch } from "./shared/features";
-import { DEMO_CONTENTS, DEMO_LOCALES, DEMO_SEED_STAMP } from "./shared/demo-content";
+import { DEMO_CONTENTS, DEMO_LOCALES, DEMO_MENUS, DEMO_SEED_STAMP } from "./shared/demo-content";
 import { clearOwnerMenusAllSites, listAdminMenuGroups } from "./platform/admin-menus";
 import { clearPluginMenus } from "./extensions/plugin/menus";
 import { createSite, updateSite, deleteSite, listSites, DEFAULT_SITE_ID } from "./platform/sites";
@@ -138,7 +138,29 @@ export async function seedDemoContent(
       else failed.push(`${piece.key}/${code}:${res.status}`);
     }
   }
-  if (written > 0) await activity(env, userId, "seed", "demo-content", "demo", { site: siteId, written, failed });
+  for (const m of DEMO_MENUS) {
+    const existing = await env.DB.prepare("SELECT id FROM menus WHERE site_id=? AND (id=? OR location=?) LIMIT 1").bind(siteId, m.id, m.location).first<any>();
+    const menuId = existing?.id || m.id;
+    if (!existing) {
+      await env.DB.prepare(
+        "INSERT INTO menus (id, site_id, name, location, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
+      ).bind(menuId, siteId, m.name, m.location, now(), now()).run();
+    }
+    const itemCount = await env.DB.prepare("SELECT COUNT(*) AS c FROM menu_items WHERE site_id=? AND menu_id=?").bind(siteId, menuId).first<any>();
+    if (Number(itemCount?.c ?? 0) === 0) {
+      let order = 0;
+      for (const it of m.items) {
+        const itemId = `demo_${siteId}_${menuId}_${order}`;
+        await env.DB.prepare(
+          "INSERT OR REPLACE INTO menu_items (id, site_id, menu_id, parent_id, title, url, target, sort_order, locale, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).bind(itemId, siteId, menuId, null, it.title, it.url, it.target ?? null, order++, it.locale ?? null, now(), now()).run();
+      }
+    }
+  }
+  if (written > 0) {
+    await bumpContentCache(env, siteId);
+    await activity(env, userId, "seed", "demo-content", "demo", { site: siteId, written, failed });
+  }
   return ok({ ok: failed.length === 0, written, failed, site: siteId });
 }
 

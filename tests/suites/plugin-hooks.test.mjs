@@ -243,6 +243,28 @@ async function main() {
   checkTruthy("injection back after re-enable", homeOn.includes("PLUGIN-INJECTED-DESC"));
 
   // ---------------------------------------------------------------------
+  console.log("\n2b. `footer` filter reaches the rendered document");
+  // ---------------------------------------------------------------------
+  installPlugin(sqlite, {
+    name: "hooked_foot", title: "Foot", version: "1.0.0",
+    permissions: ["settings.read", "settings.write"],
+    hooks: ["footer"],
+    settings: [
+      { key: "footer_scripts", label: "Scripts", type: "textarea", default: "" },
+    ],
+  });
+  await req(worker, env, "/api/v1/extensions/plugins/hooked_foot/settings", {
+    method: "POST", headers: json,
+    body: JSON.stringify({ key: "footer_scripts", value: '<script id="foot-inject">/*ok*/</script>' }),
+  });
+  await req(worker, env, "/api/v1/extensions/plugins/hooked_foot/enable", { method: "POST", headers: auth });
+  const homeWithFoot = await (await req(worker, env, "/en")).text();
+  checkTruthy("plugin markup present in footer", homeWithFoot.includes('<script id="foot-inject">/*ok*/</script>'));
+  await req(worker, env, "/api/v1/extensions/plugins/hooked_foot/disable", { method: "POST", headers: auth });
+  const homeNoFoot = await (await req(worker, env, "/en")).text();
+  check("plugin markup gone after footer disable", homeNoFoot.includes('<script id="foot-inject">/*ok*/</script>'), false);
+
+  // ---------------------------------------------------------------------
   console.log("\n3. Shortcodes are expanded on the rendered page");
   // ---------------------------------------------------------------------
   // `[site_title]` only expands when a `shortcodes` row is enabled; `[year]`

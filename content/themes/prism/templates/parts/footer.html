@@ -6,9 +6,13 @@
 
     {{#if menu.footer}}
     <nav class="foot-nav" aria-label="{{default(theme.strings.nav.footerAria, "Footer navigation")}}">
-      {{#each menu.footer as item}}<a href="{{item.url}}">{{item.title}}</a>{{/each}}
+      {{#each menu.footer as item}}<a href="{{item.url}}"{{#if item.target}} target="{{item.target}}"{{/if}}>{{item.title}}</a>{{/each}}
     </nav>
-    {{/if}}
+    {{else}}{{#if menu.footer_html}}
+    <nav class="foot-nav" aria-label="{{default(theme.strings.nav.footerAria, "Footer navigation")}}">
+      {{{menu.footer_html}}}
+    </nav>
+    {{/if}}{{/if}}
 
     <div class="foot">
       <div>

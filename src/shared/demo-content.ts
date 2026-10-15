@@ -504,3 +504,46 @@ export const DEMO_CONTENTS: DemoPiece[] = [
     },
   },
 ];
+
+export interface DemoMenuItem {
+  title: string;
+  url: string;
+  locale?: string;
+  target?: string;
+}
+
+export interface DemoMenu {
+  id: string;
+  name: string;
+  location: string;
+  items: DemoMenuItem[];
+}
+
+export const DEMO_MENUS: DemoMenu[] = [
+  {
+    id: "header",
+    name: "Header Navigation",
+    location: "header",
+    items: [
+      { title: "首页", url: "/", locale: "zh-CN" },
+      { title: "文章", url: "/blog", locale: "zh-CN" },
+      { title: "关于", url: "/page/guan-yu", locale: "zh-CN" },
+      { title: "Home", url: "/", locale: "en" },
+      { title: "Articles", url: "/blog", locale: "en" },
+      { title: "About", url: "/page/about", locale: "en" },
+    ],
+  },
+  {
+    id: "footer",
+    name: "Footer Navigation",
+    location: "footer",
+    items: [
+      { title: "首页", url: "/", locale: "zh-CN" },
+      { title: "归档", url: "/blog", locale: "zh-CN" },
+      { title: "关于本站", url: "/page/guan-yu", locale: "zh-CN" },
+      { title: "Home", url: "/", locale: "en" },
+      { title: "Archive", url: "/blog", locale: "en" },
+      { title: "About Us", url: "/page/about", locale: "en" },
+    ],
+  },
+];

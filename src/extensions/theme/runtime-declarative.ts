@@ -663,6 +663,18 @@ export async function buildScope(
   } catch {
     /* a failing plugin must not break rendering */
   }
+  let hookHead = "";
+  let hookFooter = "";
+  try {
+    hookHead = (await hooks.applyFilters("head", { env, siteId }, "")) ?? "";
+  } catch {
+    /* a failing filter leaves empty hook */
+  }
+  try {
+    hookFooter = (await hooks.applyFilters("footer", { env, siteId }, "")) ?? "";
+  } catch {
+    /* a failing filter leaves empty hook */
+  }
   // hreflang entries become absolute here, where the request origin is known —
   // findContent runs without one. `default` marks the site's default language
   // so a template can emit `hreflang="x-default"` without a lookup.
@@ -717,7 +729,11 @@ export async function buildScope(
     // entry either rather than a control that lists one language.
     lang_current: langNavRows.length > 1 ? langCurrent : null,
     theme: { name: theme.name, version: theme.version, title: theme.manifest.title, strings },
-    "@hooks": (extra["@hooks"] && typeof extra["@hooks"] === "object" ? extra["@hooks"] : {}),
+    "@hooks": {
+      head: hookHead,
+      footer: hookFooter,
+      ...(extra["@hooks"] && typeof extra["@hooks"] === "object" ? (extra["@hooks"] as Record<string, unknown>) : {}),
+    },
     "@translator": (key: string, fallback?: string): string => {
       if (strings && typeof strings === "object") {
         const cleanKey = key.startsWith(`theme.${theme.name}.`) ? key.slice(`theme.${theme.name}.`.length) : key;

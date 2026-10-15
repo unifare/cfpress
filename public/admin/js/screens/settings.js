@@ -109,16 +109,22 @@ export default async function settings(c) {
   // rendered disabled, because a disabled control for something you can never
   // change is noise, not permission UI.
   let platformPanel = "";
-  let platformEditable = false;
   try {
     const p = await api("platform-settings");
     const rows = p.items || [];
-    platformEditable = state.user?.role === "admin";
+    // Editable, unconditionally: this read already required `platform.manage`
+    // (anything else gets a 403, caught below), and the write re-checks it per
+    // request — so a read that succeeded IS the capability proof. Gating on a
+    // role string here (`role === "admin"`) did exactly the wrong thing in both
+    // directions: the install owner is `superadmin`, not `admin`, so they got a
+    // disabled panel for settings only they may change — while a per-site
+    // `admin` without `platform.manage` got an enabled one whose saves the
+    // server rejects. Capability, not title.
     platformPanel = `<div class="panel" style="margin-bottom:1rem;border:1px solid var(--border)">
       <div class="card-title">${esc(t("core.settings.platform", "Platform settings"))}</div>
       <div class="card-desc" style="margin-bottom:1rem">${esc(t("core.settings.platformDesc", "Install-wide. These apply to every site and are not affected by deleting one."))}</div>
-      ${rows.map((x) => `<div class="field"><label>${esc(x.key)}</label><input data-pkey="${attr(x.key)}" value="${attr(x.value ?? "")}" ${platformEditable ? "" : "disabled"}></div>`).join("")}
-      ${platformEditable && rows.length ? `<button class="btn primary sm" data-action="save-platform-settings">${icon("save")}${esc(t("core.settings.savePlatform", "Save platform settings"))}</button>` : ""}
+      ${rows.map((x) => `<div class="field"><label>${esc(x.key)}</label><input data-pkey="${attr(x.key)}" value="${attr(x.value ?? "")}"></div>`).join("")}
+      ${rows.length ? `<button class="btn primary sm" data-action="save-platform-settings">${icon("save")}${esc(t("core.settings.savePlatform", "Save platform settings"))}</button>` : ""}
     </div>`;
   } catch {
     // No `platform.manage`: the panel is not for this role.

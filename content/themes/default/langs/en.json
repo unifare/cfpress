@@ -50,7 +50,6 @@
   "theme.default.footer.robots": "robots.txt",
   "theme.default.footer.about": "About",
   "theme.default.footer.home": "Back to the front page",
-  "theme.default.footer.admin": "Admin",
   "theme.default.notFound.title": "This page does not exist",
   "theme.default.notFound.desc": "It may have moved, or it never existed. The writing is still where you left it.",
   "theme.default.notFound.back": "Back to the front page",

@@ -127,6 +127,11 @@ const ADMIN_SETTINGS = join(ROOT, "public/admin/js/screens/settings.js");
 // structurally apart, so the two live in two files that do not import each
 // other's session table.
 const MEMBERS = join(ROOT, "src/platform/members.ts");
+// Rule 75e's public half: `robots.txt` must name no admin prefix (naming the
+// live one advertises it, naming only the default leaves the real one
+// crawlable), the shell carries `X-Robots-Tag: noindex` instead, and the
+// shipped theme's footer carries no admin anchor at all.
+const SEO = join(ROOT, "src/platform/seo.ts");
 // The migration that creates the member tables. `member_sessions` carrying its
 // own `site_id` is load-bearing: `deleteSite`'s purge loop is
 // `WHERE site_id=?`, so a session table without the column is unreachable.
@@ -1133,6 +1138,72 @@ const SCENARIOS = [
     ],
     after: ["        body: JSON.stringify({ key, value }),\n      });\n    } catch (err) {\n    }"],
     runs: [["tests/suites/admin-spa.test.mjs", "a rejected prefix is reported as a failure"]],
+  },
+  {
+    // Rule 75e's public half, first direction: the old hard-coded
+    // `Disallow: /admin/`. It reads as bot hygiene, but on a hidden admin it
+    // is a claim about where the admin is — and after a move it is a stale one
+    // that leaves the real prefix crawlable. Re-adding it must turn the
+    // at-rest assertion red.
+    label: "robots.txt hard-codes the default admin prefix again",
+    file: SEO,
+    before: ["Disallow: /api/\\n\\nSitemap: "],
+    after: ["Disallow: /api/\\nDisallow: /admin/\\n\\nSitemap: "],
+    runs: [["tests/suites/admin-contract.test.mjs", "robots.txt names no admin prefix at rest either"]],
+  },
+  {
+    // …second direction: "fixing" the above by naming the *live* prefix. That
+    // keeps bots out and hands the address to every scanner that reads this
+    // public file — the exclusion has to work without advertising, which is
+    // what `X-Robots-Tag` on the shell is for. Naming `/manage` must turn the
+    // moved-state assertion red.
+    label: "robots.txt names the live admin prefix",
+    file: SEO,
+    before: ["Disallow: /api/\\n\\nSitemap: "],
+    after: ["Disallow: /api/\\nDisallow: /manage/\\n\\nSitemap: "],
+    runs: [["tests/suites/admin-contract.test.mjs", "robots.txt names no admin prefix"]],
+  },
+  {
+    // The compensating control for the two above: with no admin `Disallow`
+    // anywhere, the shell's `X-Robots-Tag: noindex` is what keeps compliant
+    // bots from listing the login page. Dropping the header must turn the
+    // moved-state assertion red.
+    label: "the admin shell stops sending X-Robots-Tag",
+    file: INDEX,
+    before: ['h.set("X-Robots-Tag","noindex, nofollow");'],
+    after: [""],
+    runs: [["tests/suites/admin-contract.test.mjs", "the moved shell carries X-Robots-Tag: noindex"]],
+  },
+  {
+    // The front end must not reference the admin address at all: a public
+    // anchor is a signpost to scanners, and it 404s the moment the admin
+    // moves. Re-adding the footer link must turn the template scan red. (The
+    // pack keys stay deleted, so §9's referenced-key check goes red with it —
+    // the defect is inconsistent in exactly the way the real one was.)
+    label: "the theme footer links the admin again",
+    file: THEME_FILE("default", "templates/parts/footer.html"),
+    before: [
+      "{{! No admin link here, on purpose. The admin prefix is configurable and\n            hidden (`admin.path`); any address on the public front end is a\n            signpost to scanners — and it 404s the moment the admin moves. The\n            operator knows the prefix because they chose it. }}",
+    ],
+    after: ['<a href="/admin/">{{default(theme.strings.footer.admin, "Admin")}}</a>'],
+    runs: [["tests/suites/theme-default.test.mjs", "no template references /admin"]],
+  },
+  {
+    // The settings screen gating the platform panel on a role string
+    // (`role === "admin"`) instead of on the read that already required
+    // `platform.manage`. The install owner is `superadmin`, so they got a
+    // disabled panel for the one setting only they may change — the shape this
+    // batch removed. Rendering it disabled again must turn both new assertions
+    // red (the field and the save button it takes with it).
+    label: "the platform panel is gated on the admin role title again",
+    file: ADMIN_SETTINGS,
+    before: [
+      '<input data-pkey="${attr(x.key)}" value="${attr(x.value ?? "")}"></div>`).join("")}',
+    ],
+    after: [
+      '<input data-pkey="${attr(x.key)}" value="${attr(x.value ?? "")}" disabled></div>`).join("")}',
+    ],
+    runs: [["tests/suites/admin-spa.test.mjs", "the owner gets an enabled prefix field"]],
   },
   {
     // And the name: a shared `cfpress_session` name is how "an admin is logged

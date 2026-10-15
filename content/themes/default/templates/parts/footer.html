@@ -23,7 +23,10 @@
       <div>
         <h6>{{default(theme.strings.footer.about, "About")}}</h6>
         <a href="/{{locale}}">{{default(theme.strings.footer.home, "Back to the front page")}}</a>
-        <a href="/admin/">{{default(theme.strings.footer.admin, "Admin")}}</a>
+        {{! No admin link here, on purpose. The admin prefix is configurable and
+            hidden (`admin.path`); any address on the public front end is a
+            signpost to scanners — and it 404s the moment the admin moves. The
+            operator knows the prefix because they chose it. }}
       </div>
     </div>
     <div class="copy">

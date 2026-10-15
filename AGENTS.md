@@ -819,10 +819,11 @@ sidebars）；行为断言在 `admin-contract.test.mjs` §14（scoped CRUD + 三
 | 75b | **后台 API 整套挂在前缀之下**（`{前缀}/api/…`），不只是登录门。`index.ts` 剥掉前缀后交给 `handleApi`——一份实现、两个前缀（`/api/*` 旧路径仍在，批次 D 才动）。⚠️ **重写 URL 必须带上 `u.search`**：第一版只从 `u.origin` 重建，于是经前缀进来的请求**所有查询参数全丢**（`?site=`/`?withCounts=1`/`?locale=`/分页），而 `/api/*` 那条因为拿的是原始 request 所以照常工作——「有些参数生效、有些不生效」铺满整个后台，且**没有一个请求会报错**（`?site=` 掉了就是「当前站点」，正是默认值）。批次 28 的站点屏因此看不到计数才发现 |
 | 75c | **旧地址一律 404**，不重定向（重定向把新前缀交给扫描器）。旧 `/admin` 路由、旧 `/admin/*` **资产**、旧 `/api/v1/auth/login` 都要 404——只 404 页面而放行 `/admin/admin.js` 等于留了指路牌 |
 | 75d | **会话 cookie 叫 `cfpress_admin` 且 `Path=<前缀>`**。不用 `cfpress_session`（与批次 D 的 `cfpress_member` 区分）；`Path=/` 会把后台会话带上每个前台请求——验收检查的就是前台响应**不含** `Set-Cookie: cfpress_admin`。**三条 `Set-Cookie` 出口（登录 / 登出 / 前缀改名）共用 `auth.ts::sessionCookie()`**：属性差一个，浏览器就当它是另一个 cookie |
-| 75e | **改前缀是一次搬迁，不是一次赋值。** 这是唯一一条「保存它会让保存它的那张页面失效」的设置——旧前缀一落库就 404（这正是它的用途）。所以三件事缺一不可：① 路由下一请求即改（`index.ts` 每请求 `resetAdminPathMemo`）；② **会话 cookie 跟着搬**（`rescopeSessionCookie`：同一个 id 按新前缀重发 + **显式过期旧前缀那条**；cookie 按「名字 + Path」定位，只发新的不删旧的会留一条会话 cookie 躺在浏览器里）；③ **SPA 自己跳过去**（`settings.js::savePlatformSettings` 写完全部键、无失败后 `location.replace(新前缀 + 当前 hash)`；`replace` 而非 `assign`，否则 Back 落在已 404 的旧地址上）。只做①得到的是「设置成功了，然后我的后台坏了」。⚠️ **被拒的值（400）绝不跳**（地址没变，跳过去就是 404），**也不许吞**（逐键 `await` 到第一个失败就中断，会让被拒的前缀静默跳过它后面的每一个键） |
+| 75e | **改前缀是一次搬迁，不是一次赋值。** 这是唯一一条「保存它会让保存它的那张页面失效」的设置——旧前缀一落库就 404（这正是它的用途）。所以三件事缺一不可：① 路由下一请求即改（`index.ts` 每请求 `resetAdminPathMemo`）；② **会话 cookie 跟着搬**（`rescopeSessionCookie`：同一个 id 按新前缀重发 + **显式过期旧前缀那条**；cookie 按「名字 + Path」定位，只发新的不删旧的会留一条会话 cookie 躺在浏览器里）；③ **SPA 自己跳过去**（`settings.js::savePlatformSettings` 写完全部键、无失败后 `location.replace(新前缀 + 当前 hash)`；`replace` 而非 `assign`，否则 Back 落在已 404 的旧地址上）。只做①得到的是「设置成功了，然后我的后台坏了」。⚠️ **被拒的值（400）绝不跳**（地址没变，跳过去就是 404），**也不许吞**（逐键 `await` 到第一个失败就中断，会让被拒的前缀静默跳过它后面的每一个键）。**公开面不许出现前缀**：`robots.txt` 没有 admin `Disallow`（写活的前缀等于广播，写死的等于留假路牌——靠 shell 的 `X-Robots-Tag: noindex` 挡爬虫），主题 footer 没有后台链接（公开锚点既是路牌，改名后又是死链）。**面板按能力可编辑**：平台读数已要求 `platform.manage`，读成功就是证明——按 `role === "admin"` 设 `disabled` 会把正主（`superadmin`）锁在门外 |
 
-守卫在 `admin-spa.test.mjs`（规则 75 节，**5 条**源码/运行时守卫 + **6 条**改名跳转行为：
-报告 move / 跳到 `新前缀#当前 hash` / 被拒算失败 / 被拒不跳 / 同值不跳 / 同值不报失败）；
+守卫在 `admin-spa.test.mjs`（规则 75 节，**5 条**源码/运行时守卫 + **6 条**改名跳转行为 +
+**2 条**面板可编辑性：正主（`superadmin`）拿到可用输入与保存键）；主题 `theme-default.test.mjs`
+§9b（模板不出现 `/admin`）；
 行为断言在 `admin-contract.test.mjs` §0b/§0c/§15b（cookie Path 是前缀 / 旧登录 404 / 公开端点不
 Set-Cookie / 连错 6 次 429 / 把 `admin.path` 移到 `/manage` 后新前缀可用且旧前缀连资产全 404 /
 **改名重发新前缀 cookie 且旧前缀那条被过期，被拒的改名一条 cookie 都不发** /
@@ -830,7 +831,8 @@ Set-Cookie / 连错 6 次 429 / 把 `admin.path` 移到 `/manage` 后新前缀�
 （规则 75 节，**8 条**，含「前缀挂载带 `u.search`」）；注入场景在 `_skeleton-inject.mjs`
 （`state.js` 硬编码 `/api/v1/` + cookie `Path=/` + cookie 名退回 `cfpress_session` +
 **前缀挂载丢 query** + **改名不带 cookie** + **SPA 停在死前缀** + **跟着被拒的前缀跳** +
-**吞掉失败**——八条都是历史形状）。
+**吞掉失败** + **robots 写死前缀** + **robots 写活前缀** + **shell 掉 noindex** +
+**footer 挂后台链接** + **面板按头衔设 disabled**——十三条都是历史形状）。
 
 > ⚠️ **写守卫时别在 `//` 行注释里写 `/*`。** `architecture.test.mjs` 的 `blankComments()`
 > 用非贪婪 `/\/\*[\s\S]*?\*\//g` 抹注释，行注释里的一个 `/*` 会一路吞到后文某个 `*/`，

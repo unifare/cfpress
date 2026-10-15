@@ -25,7 +25,16 @@ export async function sitemap(env:Env,request:Request,siteId:string){
  for(const r of rows.results as any[])out.push(`<url><loc>${xml(`${url.origin}/${r.locale}/${r.type==="post"?"blog/":""}${r.slug}`)}</loc><lastmod>${new Date(r.updated_at*1000).toISOString()}</lastmod></url>`);
  return new Response(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${out.join("")}</urlset>`,{headers:{"Content-Type":"application/xml;charset=UTF-8"}})
 }
-export async function robots(env:Env,request:Request,siteId:string){const u=new URL(request.url);return new Response(`User-agent: *\nAllow: /\nDisallow: /admin/\nDisallow: /api/\n\nSitemap: ${u.origin}/sitemap.xml\n`,{headers:{"Content-Type":"text/plain;charset=UTF-8"}})}
+export async function robots(env:Env,request:Request,siteId:string){
+  const u=new URL(request.url);
+  // No `Disallow` for the admin, on purpose. The admin prefix is configurable
+  // (`admin.path`) and its whole point is to be unguessable — naming the live
+  // prefix in a public file would hand it to every scanner that reads this,
+  // and naming only the default would leave the real one crawlable. Compliant
+  // bots are kept out by `X-Robots-Tag: noindex` on the shell instead (see
+  // `serveAdminIndex`), which excludes without advertising.
+  return new Response(`User-agent: *\nAllow: /\nDisallow: /api/\n\nSitemap: ${u.origin}/sitemap.xml\n`,{headers:{"Content-Type":"text/plain;charset=UTF-8"}});
+}
 /**
  * RSS 2.0 feed for one site, in ONE locale.
  *

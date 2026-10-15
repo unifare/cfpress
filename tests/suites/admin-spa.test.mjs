@@ -1314,6 +1314,44 @@ if (modules && !bootError) {
 }
 
 // ---------------------------------------------------------------------------
+section("The platform panel is editable by capability, not by role title");
+// ---------------------------------------------------------------------------
+
+// The platform read already required `platform.manage` (anything else gets a
+// 403 and the panel is omitted), and the write re-checks it per request — so a
+// read that succeeded IS the capability proof. Gating the inputs on
+// `role === "admin"` did exactly the wrong thing in both directions: the
+// install owner is `superadmin` and got a disabled panel for the one setting
+// only they may change, while a per-site `admin` without `platform.manage`
+// got an enabled one whose saves the server rejects. Driven through the real
+// screen render: a disabled attribute on the prefix field is the defect.
+if (modules && !bootError) {
+  const { state } = modules.state;
+  const prevUser = state.user;
+  const prevSites = state.sites;
+  const prevSite = state.site;
+  state.sites = [{ id: "default", name: "Default Site", is_default: 1 }];
+  state.site = "default";
+  state.user = { ...(prevUser || {}), role: "superadmin", username: "admin" };
+  routeTable.set("/api/v1/settings", { items: [] });
+  routeTable.set("/api/v1/platform-settings", { items: [{ key: "admin.path", value: "/admin" }], install: "platform" });
+  contentEl.innerHTML = "";
+  await modules.screens.SCREENS.settings(contentEl);
+  const settingsHtml = contentEl.innerHTML;
+  check("the owner gets an enabled prefix field",
+    settingsHtml.includes('data-pkey="admin.path"') && !/data-pkey="admin\.path"[^>]*disabled/.test(settingsHtml),
+    settingsHtml.slice(settingsHtml.indexOf("data-pkey") - 40, settingsHtml.indexOf("data-pkey") + 120));
+  check("and the platform save button",
+    settingsHtml.includes('data-action="save-platform-settings"'));
+  routeTable.delete("/api/v1/settings");
+  routeTable.delete("/api/v1/platform-settings");
+  state.user = prevUser;
+  state.sites = prevSites;
+  state.site = prevSite;
+  contentEl.innerHTML = "";
+}
+
+// ---------------------------------------------------------------------------
 section("Every list scrolls horizontally on a narrow screen");
 // ---------------------------------------------------------------------------
 

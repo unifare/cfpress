@@ -50,7 +50,6 @@
   "theme.default.footer.robots": "robots.txt",
   "theme.default.footer.about": "关于",
   "theme.default.footer.home": "回到首页",
-  "theme.default.footer.admin": "后台",
   "theme.default.notFound.title": "这一页不存在",
   "theme.default.notFound.desc": "它可能被移动过，或者从来没有存在过。文章还在原处等你。",
   "theme.default.notFound.back": "返回首页",

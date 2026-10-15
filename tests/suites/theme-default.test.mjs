@@ -375,6 +375,19 @@ async function main() {
   // back to English for the keys the other pack forgot.
   check("zh-CN and en cover the same keys", zhFlat.slice().sort(), enFlat.slice().sort());
 
+  // -- 9b. no template names the admin prefix ------------------------------ //
+  // The admin prefix is configurable and hidden (`admin.path`): any address on
+  // the public front end is a signpost to scanners — and it 404s the moment the
+  // admin moves, so a hard-coded `/admin/` footer link is both a leak and a
+  // dead link. The footer carries none; this scans every template so a future
+  // "handy shortcut" fails here instead of shipping.
+  section("9b. No template names the admin prefix");
+  const adminRefs = [];
+  for (const f of tplFiles) {
+    if (read(`templates/${f}`).includes("/admin")) adminRefs.push(f);
+  }
+  check("no template references /admin", adminRefs, []);
+
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail) console.log("failures:\n  " + failures.join("\n  "));
   // Unconditional exit — see the same note in `theme-bundled.test.mjs`. Exiting

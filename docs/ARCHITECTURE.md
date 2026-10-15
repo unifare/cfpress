@@ -2348,12 +2348,18 @@ SPA 的 `if (d.error)` 分支因此不可达，错误对话框要 `explain(err.m
       已 404 的旧地址上）。三件都做了才叫「实时生效」；只做①得到的是「设置成功了，然后我的
       后台坏了」。⚠️ **被拒的值（400）绝不能跳**：地址没变，跳过去就是 404——「别动我」是
       操作员唯一的诉求。判据是 `failed.length` 拦在前面，且失败**不许吞**：旧代码逐键
-      `await` 到第一个失败就中断，前缀被拒会静默跳过它后面的每一个键
-   守卫：`admin-spa.test.mjs`（规则 75 节，5 条 + 改名跳转 6 条）；行为：`admin-contract.test.mjs`
+      `await` 到第一个失败就中断，前缀被拒会静默跳过它后面的每一个键。
+      公开面不许出现前缀：`robots.txt` 没有 admin `Disallow`（写活的等于广播，写死
+      的等于留假路牌——爬虫靠 shell 的 `X-Robots-Tag: noindex` 挡），主题 footer 没
+      有后台链接（公开锚点既是路牌，改名后又是死链）
+   守卫：`admin-spa.test.mjs`（规则 75 节，5 条 + 改名跳转 6 条 + 面板可编辑 2 条）；行为：`admin-contract.test.mjs`
    §0b/§0c（cookie Path / 旧登录 404 / 前台不 Set-Cookie / 连错 429 / 移动前缀后旧资产全 404 /
-   **改名重发 cookie 且旧前缀那条被过期**）；
+   **改名重发 cookie 且旧前缀那条被过期** / **robots 不写前缀 + shell 带 noindex**）；主题
+   `theme-default.test.mjs` §9b（模板不出现 `/admin`）；
    注入 `_skeleton-inject.mjs`（SPA 硬编码 `/api/v1/` + cookie `Path=/` + cookie 名 +
-   改名不带 cookie + SPA 停在死前缀 + 跟着被拒的前缀跳 + 吞掉失败，历史形状）
+   改名不带 cookie + SPA 停在死前缀 + 跟着被拒的前缀跳 + 吞掉失败 +
+   robots 写死前缀 + robots 写活前缀 + shell 掉 noindex + footer 挂后台链接 +
+   面板按头衔设 disabled，历史形状）
 
 【计数按站点分组，主题报「选了什么」】（AGENTS.md 规则 76，批次 28）
 76. 站点屏是**管理**视图：每行要答「前台在哪、里面有多少、用什么渲染」。三个错答案

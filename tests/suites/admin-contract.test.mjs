@@ -249,7 +249,7 @@ async function main() {
 
   console.log("\n0c. Moving the admin prefix");
   // The point of `admin.path` is that the admin can be moved somewhere a
-  // scanner will not guess. Four things have to hold when it moves, and each
+  // scanner will not guess. Five things have to hold when it moves, and each
   // was a real way to get it wrong:
   //   1. the new prefix serves the shell and the API;
   //   2. the shell is served with `CFP_ADMIN_BASE` = the new prefix (otherwise
@@ -259,7 +259,11 @@ async function main() {
   //   4. the operator's session moves with it. The cookie's `Path` is the
   //      prefix, so without re-issuing it the rename signs the operator out of
   //      the address they just moved to — and it does so *silently*, because
-  //      the rename itself succeeded.
+  //      the rename itself succeeded;
+  //   5. no public file names the prefix. `robots.txt` must not `Disallow` the
+  //      live prefix (that hands it to every scanner that reads the file), and
+  //      the shell — the only admin URL reachable without a session — carries
+  //      `X-Robots-Tag: noindex` instead.
   // The prefix is restored at the end of this block, in a `finally`, so a
   // failure here cannot leave the operator's own install on `/manage`.
   {
@@ -315,6 +319,17 @@ async function main() {
         body: JSON.stringify({ username: "admin", password: "change-me-now" }),
       });
       check("the old login door answers 404 after the move", oldLogin2.status, 404);
+
+      // 5. no public file names the prefix. Naming the live prefix in
+      //    `robots.txt` would hand it to every scanner that reads the file, so
+      //    there is no admin `Disallow` at all — and the shell (the only admin
+      //    URL reachable without a session) carries `X-Robots-Tag: noindex`.
+      const robots = await req(worker, env, "/robots.txt");
+      check("robots.txt is served while the admin is moved", robots.status, 200);
+      const robotsBody = await robots.text();
+      checkTruthy("robots.txt still declares the sitemap", robotsBody.includes("Sitemap: "));
+      check("robots.txt names no admin prefix", robotsBody.includes("/manage"), false);
+      check("the moved shell carries X-Robots-Tag: noindex", shell.headers.get("x-robots-tag"), "noindex, nofollow");
     } finally {
       // Restore *through the moved prefix*: `/admin` is 404 while it is moved,
       // so a restore aimed there would silently fail and leave the install on
@@ -325,6 +340,10 @@ async function main() {
     // Restored: the default prefix works again.
     const back = await req(worker, env, "/admin/api/v1/health");
     check("the default prefix works again after restore", back.status, 200);
+    // …and at rest the public file names nothing either: the old hard-coded
+    // `Disallow: /admin/` line is gone, so there is no prefix of any kind in it.
+    const robotsBack = await req(worker, env, "/robots.txt");
+    check("robots.txt names no admin prefix at rest either", (await robotsBack.text()).includes("/admin"), false);
   }
 
   console.log("\n1. Theme install + activate on a new site");

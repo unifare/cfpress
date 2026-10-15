@@ -187,8 +187,8 @@ function Test-ConfigOk {
 function Invoke-EnsureConfig {
     Assert-Node
     if (-not (Test-Path $TemplateFile)) { Die "$TemplateFile missing — are you in the project root?" }
-    $rc = Invoke-Npx node scripts/make-local-config.mjs
-    if ($rc -ne 0) {
+    & node scripts/make-local-config.mjs
+    if ($LASTEXITCODE -ne 0) {
         Write-Err2 "could not generate $ConfigFile (see the message above)"
         return 3
     }

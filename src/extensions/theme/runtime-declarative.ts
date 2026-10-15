@@ -820,15 +820,7 @@ const CANVAS_BRIDGE_CSS = `
 
 const CANVAS_BRIDGE_JS = `
 (function(){
-  function initBridge(){
-    var slotElements=document.querySelectorAll('[data-slot]');
-    var slots=[];
-    for(var i=0;i<slotElements.length;i++){
-      var s=slotElements[i].getAttribute('data-slot');
-      if(s&&slots.indexOf(s)===-1)slots.push(s);
-    }
-    window.parent.postMessage({action:'frame:ready',slots:slots},'*');
-
+  function decorateWidgets(){
     var widgetEls=document.querySelectorAll('[data-widget]');
     for(var w=0;w<widgetEls.length;w++){
       var wel=widgetEls[w];
@@ -842,6 +834,52 @@ const CANVAS_BRIDGE_JS = `
         wel.insertBefore(ov,wel.firstChild);
       }
     }
+  }
+
+  function reportSlots(){
+    var slotElements=document.querySelectorAll('[data-slot]');
+    var slots=[];
+    for(var i=0;i<slotElements.length;i++){
+      var s=slotElements[i].getAttribute('data-slot');
+      if(s&&slots.indexOf(s)===-1)slots.push(s);
+    }
+    window.parent.postMessage({action:'frame:ready',slots:slots},'*');
+  }
+
+  function refreshSlotsInPlace(){
+    fetch(window.location.href, { cache: 'no-store' })
+      .then(function(res){ return res.text(); })
+      .then(function(html){
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var newSlots = doc.querySelectorAll('[data-slot]');
+        var map = {};
+        for(var i=0;i<newSlots.length;i++){
+          var s = newSlots[i].getAttribute('data-slot');
+          if(s) map[s] = newSlots[i];
+        }
+        var curSlots = document.querySelectorAll('[data-slot]');
+        for(var j=0;j<curSlots.length;j++){
+          var cs = curSlots[j].getAttribute('data-slot');
+          if(cs && map[cs]){
+            curSlots[j].innerHTML = map[cs].innerHTML;
+          }
+        }
+        decorateWidgets();
+        reportSlots();
+      })
+      .catch(function(err){ console.error('[Canvas Bridge] in-place refresh failed', err); });
+  }
+
+  function initBridge(){
+    reportSlots();
+    decorateWidgets();
+
+    window.addEventListener('message', function(ev){
+      if(!ev.data || typeof ev.data !== 'object') return;
+      if(ev.data.action === 'canvas:refresh-slots'){
+        refreshSlotsInPlace();
+      }
+    });
 
     document.addEventListener('click',function(e){
       var editBtn=e.target.closest('.widget-action-btn[data-action="edit"]');

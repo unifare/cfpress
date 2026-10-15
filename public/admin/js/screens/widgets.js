@@ -3,7 +3,8 @@
  *
  * Supports two view modes:
  *   1. Visual Canvas (WYSIWYG layout with interactive slot anchors,
- *      draggable widget catalog, responsive device viewport, and live bridge).
+ *      draggable widget catalog, responsive device viewport, template selector,
+ *      and in-place live bridge without iframe reloads).
  *   2. Classical List View (grouped tables by declared sidebars).
  *
  * Widgets are grouped by the sidebars the active theme declares
@@ -43,21 +44,38 @@ async function openWidgetDialog(existing, defaultSlot, defaultType) {
   const sidebarOptions = (sbs.items || [{ id: "sidebar" }, { id: "footer" }]).map((s) => ({ value: s.id, label: s.label || s.id }));
   let cfg = {};
   try { cfg = existing ? JSON.parse(String(existing.config || "{}")) : {}; } catch { cfg = {}; }
-  const menuOptions = (menus.items || []).map((m) => ({ value: m.id, label: m.name }));
-  return openDialog({
+  const menuList = menus.items || [];
+  const menuOptions = menuList.map((m) => ({ value: m.id, label: m.name }));
+  const chosenType = existing?.widget_type || defaultType || "text";
+
+  if ((chosenType === "menu" || defaultType === "menu") && menuOptions.length === 0) {
+    toast(t("core.widgets.noMenus", "Create a menu first, then point the widget at it"), "error");
+    return null;
+  }
+
+  const initialMenuId = cfg.menu_id || (menuOptions.length ? menuOptions[0].value : "");
+
+  const res = await openDialog({
     title: existing ? t("core.widgets.editTitle", "Edit widget") : t("core.widgets.addTitle", "Add a widget"),
     description: t("core.widgets.bodyHint", "Text is escaped; HTML is inserted as-is"),
     confirmLabel: t("core.action.save", "Save"),
     fields: [
-      { name: "widget_type", label: t("core.widgets.fieldType", "Type"), type: "select", value: existing?.widget_type || defaultType || "text", options: Object.entries(TYPE_KEY).map(([value, key]) => ({ value, label: t(key, value) })) },
+      { name: "widget_type", label: t("core.widgets.fieldType", "Type"), type: "select", value: chosenType, options: Object.entries(TYPE_KEY).map(([value, key]) => ({ value, label: t(key, value) })) },
       { name: "title", label: t("core.widgets.fieldTitle", "Widget title"), value: existing?.title || "", placeholder: "About this site" },
       { name: "sidebar", label: t("core.widgets.fieldSidebar", "Sidebar"), type: "select", value: existing?.sidebar || defaultSlot || sidebarOptions[0]?.value || "sidebar", options: sidebarOptions },
       { name: "locale", label: t("core.widgets.fieldLocale", "Language"), type: "select", value: existing?.locale || "", options: [{ value: "", label: t("core.widgets.localeAll", "All languages") }, ...(i18n.enabled || []).map((l) => ({ value: l, label: l }))] },
       { name: "body", label: `${t("core.widgets.fieldBody", "Content")} — ${t("core.widgets.typeText", "Text")} / ${t("core.widgets.typeHtml", "HTML")}`, type: "textarea", value: cfg.body || "", placeholder: "…" },
       { name: "count", label: `${t("core.widgets.fieldCount", "Number of posts")} — ${t("core.widgets.typeRecent", "Recent posts")}`, type: "number", value: cfg.count ?? 5 },
-      { name: "menu_id", label: `${t("core.widgets.fieldMenu", "Menu to render")} — ${t("core.widgets.typeMenu", "Menu")}`, type: "select", value: cfg.menu_id || "", options: [{ value: "", label: menuOptions.length ? "—" : t("core.widgets.noMenus", "Create a menu first, then point the widget at it") }, ...menuOptions] },
+      { name: "menu_id", label: `${t("core.widgets.fieldMenu", "Menu to render")} — ${t("core.widgets.typeMenu", "Menu")}`, type: "select", value: initialMenuId, options: [{ value: "", label: menuOptions.length ? "—" : t("core.widgets.noMenus", "Create a menu first, then point the widget at it") }, ...menuOptions] },
     ],
   });
+
+  if (!res) return null;
+  if (res.widget_type === "menu" && !res.menu_id) {
+    toast(t("core.widgets.menuRequired", "Please select a menu to display, or create one under Appearance -> Menus first."), "error");
+    return null;
+  }
+  return res;
 }
 
 /** The config half of a dialog result, per chosen type. */
@@ -70,14 +88,25 @@ function configFor(type, v) {
 
 function reloadCanvasIframe() {
   const ifr = document.querySelector("#canvas-iframe");
-  if (ifr) ifr.src = ifr.src;
+  if (ifr) ifr.src = `${adminBase}/preview?path=${encodeURIComponent(previewPath)}&site=${encodeURIComponent(state.site || "default")}`;
+}
+
+function refreshCanvasSlots() {
+  const ifr = document.querySelector("#canvas-iframe");
+  if (ifr && ifr.contentWindow) {
+    ifr.contentWindow.postMessage({ action: "canvas:refresh-slots" }, "*");
+  } else {
+    reloadCanvasIframe();
+  }
 }
 
 export default async function widgets(c) {
-  const [d, sbs, widgetTypesRes] = await Promise.all([
+  const [d, sbs, widgetTypesRes, pagesRes, routesRes] = await Promise.all([
     api(scoped("widgets")),
     api(scoped("theme/sidebars")).catch(() => ({ items: [{ id: "sidebar" }, { id: "footer" }] })),
     api("widgets/types").catch(() => ({ items: [] })),
+    api(scoped("content?type=page&limit=50")).catch(() => ({ items: [] })),
+    api(scoped("theme/routes")).catch(() => ({ items: [] })),
   ]);
   const items = d.items || [];
   const declared = sbs.items || [{ id: "sidebar" }, { id: "footer" }];
@@ -140,6 +169,24 @@ export default async function widgets(c) {
     </div>`;
   }).join("");
 
+  const pages = pagesRes.items || [];
+  const themeRoutes = routesRes.items || [];
+
+  const pageSelectOptions = [
+    `<optgroup label="${esc(t("core.widgets.groupStandard", "Standard templates"))}">`,
+    `  <option value="/" ${previewPath === "/" ? "selected" : ""}>🏠 ${esc(t("core.widgets.tplHome", "Home (front-page)"))}</option>`,
+    `  <option value="/blog" ${previewPath === "/blog" ? "selected" : ""}>📰 ${esc(t("core.widgets.tplBlog", "Blog archive (home)"))}</option>`,
+    `</optgroup>`,
+    pages.length ? `<optgroup label="${esc(t("core.widgets.groupPages", "Pages"))}">` + pages.map((p) => {
+      const u = "/" + p.slug;
+      return `<option value="${attr(u)}" ${previewPath === u ? "selected" : ""}>📄 ${esc(p.title || p.slug)}</option>`;
+    }).join("") + `</optgroup>` : "",
+    themeRoutes.length ? `<optgroup label="${esc(t("core.widgets.groupRoutes", "Theme routes"))}">` + themeRoutes.map((r) => {
+      const u = r.route_path || "/";
+      return `<option value="${attr(u)}" ${previewPath === u ? "selected" : ""}>🎨 ${esc(r.title || r.route_path)} (${esc(r.template || "")})</option>`;
+    }).join("") + `</optgroup>` : "",
+  ].join("");
+
   const previewUrl = `${adminBase}/preview?path=${encodeURIComponent(previewPath)}&site=${encodeURIComponent(state.site || "default")}`;
   const iframeWidth = VIEWPORT_WIDTHS[currentViewport] || "100%";
 
@@ -171,9 +218,12 @@ export default async function widgets(c) {
             <button class="btn ${currentViewport === "tablet" ? "primary" : "outline"} sm" data-action="set-viewport" data-viewport="tablet" title="${esc(t("core.widgets.viewportTablet", "Tablet"))}">768px</button>
             <button class="btn ${currentViewport === "mobile" ? "primary" : "outline"} sm" data-action="set-viewport" data-viewport="mobile" title="${esc(t("core.widgets.viewportMobile", "Mobile"))}">375px</button>
           </div>
-          <div style="display:flex;align-items:center;gap:8px;flex:1;max-width:380px;">
-            <input type="text" id="canvas-path-input" class="input sm" value="${esc(previewPath)}" placeholder="/" style="flex:1;" />
-            <button class="btn outline sm" data-action="navigate-preview">${icon("arrow-right")}</button>
+          <div style="display:flex;align-items:center;gap:8px;flex:1;max-width:540px;">
+            <select id="canvas-page-select" class="input sm" style="max-width:240px;height:32px;padding:3px 8px;font-size:12px;">
+              ${pageSelectOptions}
+            </select>
+            <input type="text" id="canvas-path-input" class="input sm" value="${esc(previewPath)}" placeholder="/" style="flex:1;min-width:80px;" />
+            <button class="btn outline sm" data-action="navigate-preview" title="${esc(t("core.widgets.previewPage", "Navigate"))}">${icon("arrow-right")}</button>
             <button class="btn outline sm" data-action="reload-preview" title="${esc(t("core.widgets.refreshPreview", "Refresh preview"))}">${icon("refresh")}</button>
           </div>
         </div>
@@ -221,6 +271,16 @@ async function move(id, dir) {
   render();
 }
 
+// Global change delegation (for template select)
+document.addEventListener("change", (e) => {
+  if (e.target && e.target.id === "canvas-page-select") {
+    previewPath = e.target.value || "/";
+    const input = document.querySelector("#canvas-path-input");
+    if (input) input.value = previewPath;
+    reloadCanvasIframe();
+  }
+});
+
 // Global click delegation
 document.addEventListener("click", async (e) => {
   const toggleBtn = e.target.closest("[data-action=toggle-view]");
@@ -247,6 +307,11 @@ document.addEventListener("click", async (e) => {
     const input = document.querySelector("#canvas-path-input");
     if (input) {
       previewPath = input.value || "/";
+      const sel = document.querySelector("#canvas-page-select");
+      if (sel) {
+        const matchOpt = Array.from(sel.options).find((o) => o.value === previewPath);
+        if (matchOpt) sel.value = previewPath;
+      }
       reloadCanvasIframe();
     }
     return;
@@ -260,7 +325,7 @@ document.addEventListener("click", async (e) => {
     const payload = { widget_type: v.widget_type, title: v.title, sidebar: v.sidebar, locale: v.locale || "", config: configFor(v.widget_type, v) };
     await api(scoped("widgets"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     toast(t("core.widgets.added", "Widget added"));
-    if (currentView === "canvas") reloadCanvasIframe();
+    if (currentView === "canvas") refreshCanvasSlots();
     else render();
     return;
   }
@@ -279,7 +344,7 @@ document.addEventListener("click", async (e) => {
       await api(scoped("widgets"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       toast(t("core.widgets.added", "Widget added"));
     }
-    if (currentView === "canvas") reloadCanvasIframe();
+    if (currentView === "canvas") refreshCanvasSlots();
     else render();
     return;
   }
@@ -298,7 +363,8 @@ document.addEventListener("click", async (e) => {
     if (!okDel) return;
     await api(scoped(`widgets/${del.dataset.wDel}`), { method: "DELETE" });
     toast(t("core.widgets.deleted", "Widget deleted"));
-    render();
+    if (currentView === "canvas") refreshCanvasSlots();
+    else render();
   }
 });
 
@@ -328,7 +394,7 @@ if (typeof window !== "undefined") {
       const payload = { widget_type: v.widget_type, title: v.title, sidebar: v.sidebar, locale: v.locale || "", config: configFor(v.widget_type, v) };
       await api(scoped("widgets"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       toast(t("core.widgets.added", "Widget added"));
-      reloadCanvasIframe();
+      refreshCanvasSlots();
       return;
     }
     if (data.action === "widget:edit") {
@@ -339,7 +405,7 @@ if (typeof window !== "undefined") {
       const payload = { widget_type: v.widget_type, title: v.title, sidebar: v.sidebar, locale: v.locale || "", config: configFor(v.widget_type, v) };
       await api(scoped(`widgets/${existing.id}`), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       toast(t("core.widgets.saved", "Widget saved"));
-      reloadCanvasIframe();
+      refreshCanvasSlots();
       return;
     }
     if (data.action === "widget:delete") {
@@ -351,7 +417,7 @@ if (typeof window !== "undefined") {
       if (!okDel) return;
       await api(scoped(`widgets/${data.widgetId}`), { method: "DELETE" });
       toast(t("core.widgets.deleted", "Widget deleted"));
-      reloadCanvasIframe();
+      refreshCanvasSlots();
       return;
     }
     if (data.action === "slot:add") {
@@ -361,7 +427,7 @@ if (typeof window !== "undefined") {
       const payload = { widget_type: v.widget_type, title: v.title, sidebar: v.sidebar, locale: v.locale || "", config: configFor(v.widget_type, v) };
       await api(scoped("widgets"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       toast(t("core.widgets.added", "Widget added"));
-      reloadCanvasIframe();
+      refreshCanvasSlots();
       return;
     }
     if (data.action === "navigate") {
@@ -369,6 +435,11 @@ if (typeof window !== "undefined") {
         previewPath = data.url;
         const input = document.querySelector("#canvas-path-input");
         if (input) input.value = previewPath;
+        const sel = document.querySelector("#canvas-page-select");
+        if (sel) {
+          const matchOpt = Array.from(sel.options).find((o) => o.value === previewPath);
+          if (matchOpt) sel.value = previewPath;
+        }
         reloadCanvasIframe();
       }
     }

@@ -17,8 +17,8 @@ export function renderLogin() {
     <h1>${esc(t("core.auth.title", "Sign in to CFPress"))}</h1>
     <p class="muted">${esc(t("core.auth.subtitle", "Manage content, themes and sites."))}</p>
     <div class="login-shell">
-      <div class="field"><label for="u">${esc(t("core.auth.username", "Username"))}</label><input id="u" value="admin" autocomplete="username"></div>
-      <div class="field" style="margin-bottom:0"><label for="p">${esc(t("core.auth.password", "Password"))}</label><input id="p" type="password" value="change-me-now" autocomplete="current-password"></div>
+      <div class="field"><label for="u">${esc(t("core.auth.username", "Username"))}</label><input id="u" autocomplete="username"></div>
+      <div class="field" style="margin-bottom:0"><label for="p">${esc(t("core.auth.password", "Password"))}</label><input id="p" type="password" autocomplete="current-password"></div>
     </div>
     <button class="btn primary" style="width:100%" id="signin">${esc(t("core.action.login", "Sign in"))}</button>
   </div></div>`;

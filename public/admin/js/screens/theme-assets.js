@@ -144,14 +144,14 @@ function renderLayout(c, themeInfo, isBundled) {
             <div style="display:flex;align-items:center;gap:.5rem">
               ${!activeFile.readonly ? `
                 <button class="btn outline danger sm" data-file-delete="${attr(activeFile.path)}">${icon("trash")}${esc(t("core.action.delete", "Delete"))}</button>
-                <button class="btn primary sm" data-file-save id="btnSaveFile">${icon("check")}${esc(t("core.action.save", "Save"))} <span class="muted" style="font-size:.7rem">(Ctrl+S)</span></button>
+                <button class="btn primary sm" data-file-save data-path="${attr(activeFile.path)}" id="btnSaveFile">${icon("check")}${esc(t("core.action.save", "Save"))} <span class="muted" style="font-size:.7rem">(Ctrl+S)</span></button>
               ` : `
                 <button class="btn outline sm" data-theme-clone="${attr(currentTheme)}">${icon("copy")}${esc(t("core.themes.duplicateTheme", "Duplicate theme"))}</button>
               `}
             </div>
           </div>
           <div style="flex:1;position:relative">
-            <textarea id="themeCodeEditor" spellcheck="false" style="width:100%;height:100%;min-height:480px;border:none;outline:none;padding:1rem;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:.875rem;line-height:1.5;background:transparent;color:inherit;resize:vertical;box-sizing:border-box">${esc(fileContent)}</textarea>
+            <textarea id="themeCodeEditor" data-path="${attr(activeFile.path)}" spellcheck="false" style="width:100%;height:100%;min-height:480px;border:none;outline:none;padding:1rem;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:.875rem;line-height:1.5;background:transparent;color:inherit;resize:vertical;box-sizing:border-box">${esc(fileContent)}</textarea>
           </div>
         ` : `
           <div class="empty" style="padding:4rem;text-align:center;color:var(--muted-foreground)">
@@ -186,15 +186,23 @@ function renderLayout(c, themeInfo, isBundled) {
 }
 
 async function saveActiveFile() {
-  if (!activeFile || activeFile.readonly) return;
   const editor = document.querySelector("#themeCodeEditor");
   if (!editor) return;
+  const filePath = editor.dataset.path || (activeFile && activeFile.path) || "";
+  if (!filePath) {
+    await alertDialog({
+      title: t("core.themes.saveFailed", "Failed to save file"),
+      description: t("core.themes.selectFileToEdit", "Select a template or asset on the left to inspect or edit."),
+    });
+    return;
+  }
+  if (activeFile && activeFile.readonly) return;
 
   const content = editor.value;
   try {
     await api(scoped(`extensions/themes/${encodeURIComponent(currentTheme)}/file`), {
       method: "PUT",
-      body: { path: activeFile.path, content },
+      body: { path: filePath, content },
     });
     fileContent = content;
     isDirty = false;

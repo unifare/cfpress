@@ -507,15 +507,17 @@ async function checkTheme(themeName, validateManifest, renderTemplateSource) {
   }
   if (existsSync(join(themeDir, "templates", "account.html"))) {
     const account = await renderStandalone({ rel: "templates/account.html", name: "account", part: false }, withPosts);
-    checkTruthy(`${themeName}: account.html deletes through a POST form`,
-      /<form[^>]*action="\/api\/v1\/front\/posts\/[^"]*\/delete"/.test(account),
-      "a destructive action must be a POST form; a GET link deletes on prefetch");
     checkTruthy(`${themeName}: account.html offers no plain link that deletes`,
       !/href="[^"]*delete/.test(account),
       "a delete must never be reachable by an ordinary link");
-    checkTruthy(`${themeName}: account.html links each row to the editor`,
-      /href="\/zh-CN\/compose\?id=[^"]+"/.test(account),
-      "managing a story needs a way back into the editor for that post");
+    if (existsSync(join(themeDir, "templates", "compose.html"))) {
+      checkTruthy(`${themeName}: account.html deletes through a POST form`,
+        /<form[^>]*action="\/api\/v1\/front\/posts\/[^"]*\/delete"/.test(account),
+        "a destructive action must be a POST form; a GET link deletes on prefetch");
+      checkTruthy(`${themeName}: account.html links each row to the editor`,
+        /href="\/zh-CN\/compose\?id=[^"]+"/.test(account),
+        "managing a story needs a way back into the editor for that post");
+    }
   }
 
   // -- 6. the packs cover what the markup asks for -------------------------

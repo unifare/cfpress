@@ -868,8 +868,18 @@ const SCENARIOS = [
     // half-answer that shipped before this batch.
     label: "the single page stops attaching custom fields",
     file: FRONTEND,
-    before: ["    row.meta=resolveMetaByPost((mr.results as any[])??[],locale,dflt).get(row.id)??{};"],
-    after: ["    row.meta={};"],
+    before: [
+      "    // through the same ladder as the listing — one definition, two readers.\n" +
+      "    const dflt=await defaultLocale(env,siteId);\n" +
+      "    const mr=await env.DB.prepare(\"SELECT post_id, meta_key, locale, meta_value FROM post_meta WHERE post_id=?\").bind(row.id).all().catch(()=>({results:[] as any[]}));\n" +
+      "    row.meta=resolveMetaByPost((mr.results as any[])??[],locale,dflt).get(row.id)??{};"
+    ],
+    after: [
+      "    // through the same ladder as the listing — one definition, two readers.\n" +
+      "    const dflt=await defaultLocale(env,siteId);\n" +
+      "    const mr=await env.DB.prepare(\"SELECT post_id, meta_key, locale, meta_value FROM post_meta WHERE post_id=?\").bind(row.id).all().catch(()=>({results:[] as any[]}));\n" +
+      "    row.meta={};"
+    ],
     runs: [["tests/suites/locale-url.test.mjs", "the single page shows the default language's own value"]],
   },
   {

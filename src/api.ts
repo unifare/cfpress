@@ -899,7 +899,7 @@ async function saveFeature(env: Env, userId: string, body: any, siteId: string) 
 
   const next = JSON.stringify(current);
   if (existing) {
-    await env.DB.prepare("UPDATE settings SET value=? WHERE id=?").bind(next, existing.id).run();
+    await env.DB.prepare("UPDATE settings SET value=? WHERE site_id=? AND id=?").bind(next, siteId, existing.id).run();
   } else {
     await env.DB.prepare("INSERT INTO settings (id, site_id, key, value, autoload) VALUES (?, ?, ?, ?, 1)")
       .bind(await randomId(), siteId, FEATURE_SETTINGS_KEY, next).run();
@@ -1787,11 +1787,68 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   // Malformed `?site=` never falls back to another tenant's data (MS-2.4).
   if (siteParamMalformed(url)) return ok({ error: "invalid site" }, 400);
 
+  // Cross-cutting gates
+  if ((path === "posts" || path === "pages" || /^posts\//.test(path) || /^pages\//.test(path)) && method !== "GET") {
+    if (!(await requirePermission(env, user, "content.write", siteId))) return ok({ error: "Forbidden" }, 403);
+  }
+  if (path === "media" && method === "POST" && !(await requirePermission(env, user, "media.write", siteId))) return ok({ error: "Forbidden" }, 403);
+
+  if (method === "GET" && /^(posts|pages|content\/|search|media|settings|features|dashboard|widgets|menus|menu_items|redirects|rewrites|locales|theme\/|theme-tables|i18n\/(locales|overrides|translations|messages|ui-locale))/.test(path)) {
+    if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
+  }
+
+  // Domain dispatchers
+  const resAuth = await dispatchAuthAdminRoutes(env, request, user, path, method);
+  if (resAuth) return resAuth;
+
+  const resMenu = await dispatchAdminMenuCustomRoutes(env, request, user, siteId, path, method);
+  if (resMenu) return resMenu;
+
+  const resSite = await dispatchSiteAdminRoutes(env, request, user, siteId, path, method, url);
+  if (resSite) return resSite;
+
+  const resI18n = await dispatchI18nAdminRoutes(env, request, user, siteId, path, method, url);
+  if (resI18n) return resI18n;
+
+  const resThemeTable = await dispatchThemeTableAdminRoutes(env, request, user, siteId, path, method, url);
+  if (resThemeTable) return resThemeTable;
+
+  const resDash = await dispatchDashboardAndBlockRoutes(env, request, user, siteId, path, method, url);
+  if (resDash) return resDash;
+
+  const resContent = await dispatchContentAdminRoutes(env, request, user, siteId, path, method, url);
+  if (resContent) return resContent;
+
+  const resMedia = await dispatchMediaAdminRoutes(env, request, user, siteId, path, method, url);
+  if (resMedia) return resMedia;
+
+  const resSettings = await dispatchSettingsAdminRoutes(env, request, user, siteId, path, method, url);
+  if (resSettings) return resSettings;
+
+  const resNav = await dispatchNavAndWidgetRoutes(env, request, user, siteId, path, method, url);
+  if (resNav) return resNav;
+
+  const resExt = await dispatchExtensionAdminRoutes(env, request, user, siteId, path, method, url);
+  if (resExt) return resExt;
+
+  const resUsers = await dispatchUserAndActivityRoutes(env, request, user, siteId, path, method);
+  if (resUsers) return resUsers;
+
+  return ok({ error: "Not found" }, 404);
+}
+
+// ---------------------------------------------------------------------------
+// Domain Route Dispatchers
+// ---------------------------------------------------------------------------
+
+async function dispatchAuthAdminRoutes(
+  env: Env,
+  request: Request,
+  user: SessionUser,
+  path: string,
+  method: string
+): Promise<Response | null> {
   // -- self-service credentials (any signed-in role) -----------------------
-  // Change-own-password / change-own-username. The current password is
-  // verified inside `platform/auth.ts` so every caller gets the same gate.
-  // The `error` field is a stable code, not prose: the SPA maps it to a
-  // translated message via the UI dictionary.
   if (path === "auth/password" && method === "POST") {
     const b = await jsonBody(request);
     const result = await changePassword(env, user.id, String(b.current_password ?? ""), String(b.new_password ?? ""));
@@ -1812,8 +1869,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   }
 
   // -- per-user sidebar menu configuration ---------------------------------
-  // UI-level only. The hidden set never widens or narrows what the API
-  // answers: capability filtering happens per endpoint, not per menu.
   if (path === "admin-menus/prefs" && method === "GET") {
     return ok({ hidden: await getMenuPrefs(env, user.id) });
   }
@@ -1826,14 +1881,18 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     return ok({ ok: true, hidden });
   }
 
+  return null;
+}
+
+async function dispatchAdminMenuCustomRoutes(
+  env: Env,
+  request: Request,
+  user: SessionUser,
+  siteId: string,
+  path: string,
+  method: string
+): Promise<Response | null> {
   // -- site-level admin menu customization (batch 5) ------------------------
-  // A per-site JSON blob in `settings`: item label overrides (per UI locale),
-  // item ordering, cross-group moves, site-wide hiding; the same for groups.
-  // This is a *display* layer consumed by the SPA (`nav.js applyMenuCustom`):
-  // it never widens what an endpoint answers — capability filtering stays per
-  // endpoint. Editing changes what every admin of the site sees, so it needs
-  // `settings.manage`; reading needs no extra permission because every
-  // sidebar is rendered from it.
   if (path === "admin-menus/custom" && method === "GET") {
     if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
     const row = await env.DB.prepare("SELECT value FROM settings WHERE site_id=? AND key=?").bind(siteId, MENU_CUSTOM_KEY).first<any>();
@@ -1866,61 +1925,25 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     return ok({ ok: true, items: {}, groups: {} });
   }
 
-  if((path === "posts" || path === "pages" || /^posts\//.test(path) || /^pages\//.test(path)) && method !== "GET") {
-    if(!(await requirePermission(env,user,"content.write",siteId))) return ok({error:"Forbidden"},403);
-  }
-  if(path === "media" && method === "POST" && !(await requirePermission(env,user,"media.write",siteId))) return ok({error:"Forbidden"},403);
+  return null;
+}
 
-  // Site-scoped reads: the switcher (`GET sites`) hides unmembered sites, and
-  // `?site=` must not reopen them (MS-3.1). Every list/detail/stats read below
-  // filters by `site_id` but never asked `can()` — so an editor on A read B's
-  // posts, settings, dashboard counts, media, search and translations with 200.
-  // Platform-global reads (sites registry, users, activity, extension packages,
-  // the static block palette, the platform dictionary) are not in this list
-  // and keep their own gates below.
-  if (method === "GET" && /^(posts|pages|content\/|search|media|settings|features|dashboard|widgets|menus|menu_items|redirects|rewrites|locales|theme\/|theme-tables|i18n\/(locales|overrides|translations|messages|ui-locale))/.test(path)) {
-    if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
-  }
-
+async function dispatchSiteAdminRoutes(
+  env: Env,
+  request: Request,
+  user: SessionUser,
+  siteId: string,
+  path: string,
+  method: string,
+  url: URL
+): Promise<Response | null> {
   // Sites registry (multi-site)
   if (path === "sites" && method === "GET") {
-    // The list is **filtered to the sites this user may act on** (rule 78). It
-    // used to be unfiltered — every logged-in user could enumerate every
-    // tenant, which is a leak the moment a second person exists. A superadmin
-    // sees all (`accessibleSiteIds` returns null); everyone else sees exactly
-    // the sites they hold a membership row for, which is the same set the
-    // switcher offers and the same set `can()` will answer `true` for. Anything
-    // else makes the screen offer a site that 403s on first click.
     const allowed = await accessibleSiteIds(env, user);
     const items = (await listSites(env)).filter(
       (s: any) => allowed === null || allowed.includes(String(s.id))
     );
-    // `?withCounts=1` adds, for **every** site, its content volumes and the
-    // theme it has chosen. The Sites screen needs per-row figures, and the only
-    // alternatives are an N+1 (one request per site, per row) or a client that
-    // counts nothing — the first is a query storm, the second is the "declared
-    // but never provided" shape this codebase keeps paying for.
-    //
-    // Three things this deliberately does NOT do:
-    //   - it does not count only the requested site: the screen lists every
-    //     site, so a count for one of them is the N+1 in a different costume;
-    //   - it does not use `activeTheme()` for the theme column: that answers
-    //     "which theme should *render*", probes R2, and would name a theme that
-    //     merely happens to be installed for a report of "what did this site
-    //     choose" (see the note on `extensions/themes`);
-    //   - it does not invent a media count. Media goes through the same policy
-    //     and owner clause the media list and the dashboard card use, so the
-    //     figure here is the figure the library will show.
-    //
-    // The counts are **one query per measure, grouped by site**, so the cost is
-    // constant in the number of sites rather than linear in it.
     if (url.searchParams.get("withCounts") === "1") {
-      // Media counts honour **each site's own** policy: the owner clause is a
-      // function of the site's `cfpress.media` row, and using the requesting
-      // site's policy for every other site both mis-counts (owner-isolated B
-      // counted under A's site-wide rule) and leaks (rows the B library hides
-      // show up in B's number). `items` is already filtered to the caller's
-      // sites, so per-site policy reads stay linear in *visible* sites.
       const [posts, pages, themeRows] = await Promise.all([
         env.DB.prepare("SELECT site_id, COUNT(*) AS count FROM posts WHERE type='post' GROUP BY site_id").all(),
         env.DB.prepare("SELECT site_id, COUNT(*) AS count FROM posts WHERE type='page' GROUP BY site_id").all(),
@@ -1938,15 +1961,10 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
           mediaCounts[sid] = 0;
         }
       }
-      // Absent is 0, not `undefined`: the screen renders a number for every
-      // row, and a site with no rows at all is exactly the empty site the
-      // screen exists to make visible.
       const bySite = (r: any) => Object.fromEntries(((r.results as any[]) ?? []).map((x) => [String(x.site_id), Number(x.count) || 0]));
       const postCounts = bySite(posts);
       const pageCounts = bySite(pages);
       const themes = Object.fromEntries(((themeRows.results as any[]) ?? []).map((r) => [String(r.site_id), String(r.value ?? "")]));
-      // `theme.active` rows for sites the caller may not see are dropped with
-      // the items (MS-4.2: counts must not leak unmembered sites' names).
       return ok({
         items: items.map((s) => ({
           ...s,
@@ -1955,9 +1973,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
             pages: pageCounts[s.id] ?? 0,
             media: mediaCounts[s.id] ?? 0,
           },
-          // Empty string, not null, when the site has never chosen: the column
-          // is "which theme did this site select", and "none yet" is a real
-          // answer the screen has to be able to say out loud.
           theme: themes[s.id] ?? "",
         })),
       });
@@ -1965,10 +1980,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     return ok({ items });
   }
   if (path === "sites" && method === "POST") {
-    // Creating a site is an **install-wide** operation: the site does not exist
-    // yet, so there is no membership row to satisfy and no `siteId` to check
-    // against. `platform.manage` is the permission for managing the tenant
-    // registry itself, and it belongs to `superadmin` alone (rule 78).
     if(!(await requirePermission(env,user,"platform.manage",siteId))) return ok({error:"Forbidden"},403);
     const b = await jsonBody(request);
     const r = await createSite(env, { id: b.id, name: String(b.name ?? ""), host: b.host ?? null, pathPrefix: b.path_prefix ?? b.pathPrefix ?? null });
@@ -1979,9 +1990,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   const siteMatch = path.match(/^sites\/([^/]+)$/);
   if (siteMatch) {
     if (method === "PUT" || method === "PATCH") {
-      // Retyping or re-hosting a site edits the tenant registry — install-wide,
-      // like creating one. Managing *your own* site's settings is
-      // `settings.manage` on that site; this is not that.
       if(!(await requirePermission(env,user,"platform.manage",siteId))) return ok({error:"Forbidden"},403);
       const b = await jsonBody(request);
       const r = await updateSite(env, siteMatch[1], { name: b.name, host: b.host, pathPrefix: b.path_prefix ?? b.pathPrefix, status: b.status });
@@ -1990,21 +1998,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
       return ok({ ok: true });
     }
     if (method === "DELETE") {
-      // Deleting a site purges every tenant-scoped table for it (see
-      // `PURGE_ON_SITE_DELETE`). That is the most destructive operation in the
-      // product and it is install-wide by definition.
       if(!(await requirePermission(env,user,"platform.manage",siteId))) return ok({error:"Forbidden"},403);
-      // `api.ts` is the composition root — the one place allowed to know every
-      // layer — so it is where the declared purge list is injected into the
-      // platform function (rule 2: `platform/` may not import `extensions/`).
-      //
-      // Generated extension tables (`theme_{owner}_{table}`) are NOT in
-      // `PLATFORM_SCHEMA`, so `deleteSite()` cannot see them — yet every one of
-      // their rows carries `site_id`. Collect this site's physical tables
-      // BEFORE the purge deletes the `theme_table_defs` mapping rows, then
-      // remove the deleted site's rows afterwards. Table names come from our
-      // own registry (validated against the generated-name shape), never from
-      // the caller, so there is no injection surface.
       let generatedTables: string[] = [];
       let generatedSidecars: string[] = [];
       try {
@@ -2026,9 +2020,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
         try { await env.DB.prepare(`DELETE FROM ${t} WHERE site_id=?`).bind(siteMatch[1]).run(); }
         catch { /* a dropped/missing physical table is already gone */ }
       }
-      // Sidecars carry no `site_id` — they hang off the parent row. The parents
-      // above are gone, so sweep sidecar rows whose parent no longer exists
-      // (scoped to sidecars this site actually used, not global).
       for (const s of generatedSidecars) {
         const parent = s.replace(/_i18n$/, "");
         if (!generatedTables.includes(parent)) continue;
@@ -2040,13 +2031,18 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     }
   }
 
-  // -- Languages: L0 site switch + L2 dictionary (ARCHITECTURE.md §2.2/§2.4) --
-  //
-  // L0 and L2 are separate concerns and are kept as separate endpoints on
-  // purpose. `i18n/locales` is what the *site* serves to visitors;
-  // `i18n/dictionary` is what the platform knows; `i18n/ui-locale` is what one
-  // admin wants to read. Collapsing them is how "content language" and "UI
-  // language" get welded together, which §2.4 forbids.
+  return null;
+}
+
+async function dispatchI18nAdminRoutes(
+  env: Env,
+  request: Request,
+  user: SessionUser,
+  siteId: string,
+  path: string,
+  method: string,
+  url: URL
+): Promise<Response | null> {
   if (path === "i18n/locales" && method === "GET") {
     const [rows, enabled, dictionary, uiLocales] = await Promise.all([
       siteLocaleRows(env, siteId),
@@ -2062,14 +2058,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
       multilingual: enabled.length >= 2,
       dictionary,
       ui_locales: uiLocales,
-      // Codes only, for anything that just needs to know which UI packs exist.
       core_locales: corePackLocales(),
-      // The same bundled languages as *rows*. `dictionary` is the `locales`
-      // table, which a fresh install seeds with `en` alone — so without this
-      // the Languages screen could not offer the Chinese pack the platform
-      // ships, and the panel titled "Platform dictionary — not enabled here"
-      // was empty on every new deployment. Consumed by
-      // `public/admin/js/screens/languages.js`.
       core_entries: corePackLocaleEntries(),
     });
   }
@@ -2078,8 +2067,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     const b = await jsonBody(request);
     const code = String(b.code ?? "").trim();
     if (!isLocaleCode(code)) return ok({ error: `invalid locale code: ${code}` }, 400);
-    // Enabling a language nobody has a name for would leave the switcher blank,
-    // so the dictionary entry is created from the same request.
     if (b.name) {
       await upsertPlatformLocale(env, {
         code,
@@ -2090,8 +2077,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
       });
     }
     await enableSiteLocale(env, siteId, code, { isDefault: b.is_default === true });
-    // A second language is exactly the event that makes theme `_i18n` tables
-    // exist (§2.5.3). Nothing else has to remember to do this.
     const created = await refreshThemeTableI18n(env, siteId);
     await activity(env, user.id, "enable", "locale", code, { site: siteId, i18nTables: created });
     return ok({ ok: true, code, created_i18n_tables: created }, 201);
@@ -2103,11 +2088,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     if (method === "PATCH" || method === "PUT") {
       const b = await jsonBody(request);
       if (b.is_default === true) {
-        // The route regex is wider than `isLocaleCode` (`12` passes both),
-        // so a malformed code reaches here. `setSiteDefaultLocale` rejects it
-        // by throwing — which, uncaught, surfaced as a 500. Answer 400 like the
-        // sibling DELETE branch instead: the client sent a bad code, that is
-        // not a server fault.
         try {
           await setSiteDefaultLocale(env, siteId, code);
         } catch (e: any) {
@@ -2145,9 +2125,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     });
     return ok({ ok: true, code }, 201);
   }
-  // The admin's own interface language. Resolved through the pack stack, so a
-  // language with no pack is refused rather than accepted and then rendered as
-  // raw keys.
   if (path === "i18n/ui-locale") {
     if (method === "GET") {
       const ui = await resolveUiLocale(env, siteId, {
@@ -2175,9 +2152,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
       return ok({ ok: true, locale: wanted });
     }
   }
-  // The admin SPA fetches its strings once per session. Returning the whole
-  // merged stack (rather than one key per call) keeps the client free of a
-  // per-string round trip and makes the layer precedence observable.
   if (path === "i18n/messages" && method === "GET") {
     const available = await availableUiLocales(env, siteId);
     const wanted = String(url.searchParams.get("locale") ?? "").trim();
@@ -2190,7 +2164,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     const packs = await loadUiPacks(env, siteId, locale);
     return ok({ locale, available, ui_locales: await availableUiLocaleEntries(env, siteId), layers: packs.length, messages: mergePacks(packs) });
   }
-  // Database override layer (§2.4 layer ④).
   if (path === "i18n/overrides") {
     if (method === "GET") {
       const locale = String(url.searchParams.get("locale") ?? "").trim();
@@ -2227,7 +2200,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
       return ok({ ok: true }, 201);
     }
   }
-  // -- Content translation groups (L1) ------------------------------------
   if (path === "i18n/translations" && method === "GET") {
     const id = String(url.searchParams.get("id") ?? "").trim();
     if (!id) return ok({ error: "id required" }, 400);
@@ -2262,10 +2234,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     if (already) return ok({ error: `a ${locale} version already exists`, post_id: already.id }, 409);
 
     const newId = `${source.type}_${await randomId()}`;
-    // A client may name the new version's URL segment. The natural default is
-    // the source slug — slugs are per language now, so /en/blog/hello and
-    // /zh-CN/blog/hello can coexist — but another version may already hold
-    // that segment in this locale, in which case a suffixed one is minted.
     const desired = String(b.slug ?? "").trim() || String(source.slug);
     const slugTaken = await env.DB.prepare(
       `SELECT p.id FROM posts p JOIN post_translations t ON t.post_id=p.id
@@ -2300,13 +2268,23 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     await activity(env, user.id, "translate", String(source.type), newId, { from: id, locale, mode, site: siteId });
     return ok({ id: newId, locale, slug, mode, group }, 201);
   }
+
+  return null;
+}
+
+async function dispatchThemeTableAdminRoutes(
+  env: Env,
+  request: Request,
+  user: SessionUser,
+  siteId: string,
+  path: string,
+  method: string,
+  url: URL
+): Promise<Response | null> {
   // -- Extension-owned tables (L3) ----------------------------------------
   if (path === "theme-tables" && method === "GET") {
     const theme = await activeTheme(env, siteId).catch(() => null);
     const defs = await listOwnerTableDefs(env, siteId);
-    // Which plugins are running, so a plugin-owned table can report whether it
-    // is live. `bootPluginRuntime` is the same source the hook wiring uses, so
-    // the flag cannot drift from what actually executes.
     const enabledPlugins = new Set(
       (await bootPluginRuntime(env).catch(() => [])).map((p) => p.name)
     );
@@ -2315,11 +2293,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
       active_theme: theme?.name ?? null,
       items: defs.map((d) => ({
         ...d,
-        // "Active" means the declaring owner is the one running now. A theme's
-        // table is active when its theme is the active theme; a plugin's table
-        // is active when the plugin is enabled. Comparing only the name would
-        // mark plugin `notify`'s table as active whenever a theme named
-        // `notify` happened to be active — two different owners, one name.
         active:
           d.owner_type === "theme"
             ? d.owner_name === theme?.name
@@ -2333,11 +2306,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     if (!def) return ok({ error: `no table "${ttMatch[1]}" is declared for this site` }, 404);
     const locale = String(url.searchParams.get("locale") ?? "").trim() || (await siteDefaultLocale(env, siteId));
     if (method === "GET") {
-      // A `stats` block asks for an aggregate instead of rows: `?aggregate=count`
-      // or `?aggregate=sum&field=<numeric>`, optionally `&groupBy=<field>`. The
-      // aggregate and both columns are validated against the declaration inside
-      // `tableAggregate` — never interpolated — and an unsupported combination
-      // answers 400 rather than a fabricated zero.
       const agg = url.searchParams.get("aggregate");
       if (agg) {
         const result = await tableAggregate(env, def, {
@@ -2363,10 +2331,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
       if (!(await requirePermission(env, user, "content.write", siteId))) return ok({ error: "Forbidden" }, 403);
       const body = await jsonBody(request);
       try {
-        // A plugin page's `form` block offers only the fields its manifest
-        // declared, and a plugin never declares the platform's `slug` — so a
-        // write from that path arrives slugless. Derive one rather than
-        // rejecting, while the built-in table screens keep their explicit slug.
         const withSlug = body?.slug || method === "PUT" ? body : { ...body, slug: deriveSlug(def, body) };
         const row = await tableSave(env, def, withSlug, locale);
         return ok({ ok: true, locale, row }, 201);
@@ -2394,17 +2358,19 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     }
   }
 
+  return null;
+}
+
+async function dispatchDashboardAndBlockRoutes(
+  env: Env,
+  request: Request,
+  user: SessionUser,
+  siteId: string,
+  path: string,
+  method: string,
+  url: URL
+): Promise<Response | null> {
   if (path === "dashboard" && method === "GET") {
-    // Every field the dashboard screen reads has to be produced here. `recent`
-    // and `published` were read by `screens/dashboard.js` but never sent, so
-    // the "Recent content" panel was permanently empty and the Posts card's
-    // "N published" read 0 on a site that did have published posts — the same
-    // "declared but never provided" shape as the plugin manifest fields.
-    // `media_files` gained a `site_id` column in a later migration, so its
-    // count is scoped like the rest instead of counting every site's uploads.
-    // It also honours the owner axis, through the same clause the media list
-    // uses: a card that counts files the library will not show is a number
-    // nobody can reconcile.
     const mediaPolicy = await readMediaPolicy(env, siteId);
     const mediaOwner = mediaOwnerClause(mediaPolicy, user.id);
     const [posts, pages, media, drafts, published, recent] = await Promise.all([
@@ -2421,9 +2387,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
       ).bind(siteId).all()
     ]);
     return ok({
-      // The stat cards are DATA, not client markup: labels come from the UI
-      // dictionary and plugins may add or reorder cards through the
-      // `dashboardCards` filter — the screen renders whatever arrives.
       cards: await (async () => {
         const uiLocale = await resolveUiLocale(env, siteId, {
           userLang: (user as any).ui_lang ?? null,
@@ -2444,7 +2407,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
           const filtered = await applyFilters("dashboardCards", { env, siteId }, cards);
           return Array.isArray(filtered) ? filtered : cards;
         } catch {
-          /* a failing plugin must not blank the dashboard */
           return cards;
         }
       })(),
@@ -2453,12 +2415,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     });
   }
 
-  // The editor's insert palette. One definition: the renderable set is
-  // `CORE_BLOCKS` in `rendering/blocks.ts` — the same array `renderBlocks`
-  // switches on — so the palette can never offer a block the front end cannot
-  // draw (the hand-written SPA list this endpoint replaced had already lost
-  // three). Labels come from the UI dictionary (`core.block.*`) resolved for
-  // this admin's interface locale, like every other admin string.
   if (path === "blocks" && method === "GET") {
     const available = await availableUiLocales(env, siteId);
     const wanted = String(url.searchParams.get("locale") ?? "").trim();
@@ -2473,40 +2429,39 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
       const v = dict[key];
       return typeof v === "string" && v ? v : fallback;
     };
-    // The palette ships the **attribute contract** too, not just the block
-    // list. The editor used to render one `<textarea>` per block and write
-    // `attrs.text` for all twelve types, so six of them produced empty output
-    // at HTTP 200 — the renderer reads `url` / `items` / `html` / `content` for
-    // those. Shipping the declared attributes means the editor cannot disagree
-    // with the renderer about what a block holds; `architecture.test.mjs`
-    // checks that these two lists are the same one.
     const items = CORE_BLOCKS.map((b) => ({
       type: b.name,
       label: t(`core.block.${b.name.slice("core/".length)}`, b.title),
       category: b.category,
-      // A nesting block holds child blocks in `block.content`, not attribute
-      // values — the editor needs to know which container to draw.
       children: b.children === true,
       attrs: b.attrs.map((a) => ({
         key: a.key,
         type: a.type,
         label: t(a.labelKey, a.fallback),
         required: a.required === true,
-        // Forwarded, not invented: a `media-list` attribute declares its item
-        // keys in the contract (`rendering/blocks.ts`), and the editor's
-        // repeatable row renders one input per key. Dropping it here would make
-        // the control render an empty field with no inputs at all.
         ...(a.itemKeys ? { itemKeys: a.itemKeys } : {}),
       })),
     }));
     return ok({ items, site: siteId });
   }
+
+  return null;
+}
+
+async function dispatchContentAdminRoutes(
+  env: Env,
+  request: Request,
+  user: SessionUser,
+  siteId: string,
+  path: string,
+  method: string,
+  url: URL
+): Promise<Response | null> {
   if (path === "posts" && method === "GET") return listPosts(env, url, "post", siteId);
   if (path === "pages" && method === "GET") return listPosts(env, url, "page", siteId);
   if (path === "posts" && method === "POST") return savePost(env, user.id, null, await jsonBody(request), "post", siteId);
   if (path === "pages" && method === "POST") return savePost(env, user.id, null, await jsonBody(request), "page", siteId);
 
-  // Theme-declared custom post type content: /api/v1/content/{type}
   const contentMatch = path.match(/^content\/([a-z][a-z0-9_-]{0,63})$/);
   if (contentMatch && method === "GET") {
     const type = contentMatch[1];
@@ -2536,10 +2491,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
       return savePost(env, user.id, id, await jsonBody(request), type, siteId);
     }
     if (method === "GET") {
-      // Default language first: `items[0]` is what the editor opens, and it
-      // used to be whichever translation sorted first — "en" by alphabet, not
-      // by site policy. The editor can still ask for a specific language; this
-      // only fixes what an unqualified open shows.
       if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
       const dflt = await defaultLocale(env, siteId);
       const row = await env.DB.prepare(`
@@ -2548,9 +2499,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
         WHERE p.id=? AND p.site_id=? ORDER BY CASE WHEN t.locale = ? THEN 0 ELSE 1 END, t.locale
       `).bind(id, siteId, dflt).all();
       const items = (row.results as any[]) ?? [];
-      // One meta map per language row, resolved through the ladder — the editor
-      // edits a language, so it must see that language's field values, not a
-      // blend of whichever row the query returned first.
       const metaRows = await postMetaRows(env, id);
       return ok({ items: items.map((i) => ({ ...i, meta: resolveMetaByPost(metaRows, String(i.locale ?? ""), dflt).get(id) ?? {} })) });
     }
@@ -2563,10 +2511,6 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     if (method === "DELETE") return deletePost(env, user.id, id, siteId);
     if (method === "PUT") return savePost(env, user.id, id, await jsonBody(request), kind, siteId);
     if (method === "GET") {
-      // Default language first: `items[0]` is what the editor opens, and it
-      // used to be whichever translation sorted first — "en" by alphabet, not
-      // by site policy. The editor can still ask for a specific language; this
-      // only fixes what an unqualified open shows.
       if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
       const dflt = await defaultLocale(env, siteId);
       const row = await env.DB.prepare(`
@@ -2575,386 +2519,246 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
         WHERE p.id=? AND p.site_id=? ORDER BY CASE WHEN t.locale = ? THEN 0 ELSE 1 END, t.locale
       `).bind(id, siteId, dflt).all();
       const items = (row.results as any[]) ?? [];
-      // Attach theme-declared custom fields for the editor, per language row.
       const metaRows = await postMetaRows(env, id);
       return ok({ items: items.map((i) => ({ ...i, meta: resolveMetaByPost(metaRows, String(i.locale ?? ""), dflt).get(id) ?? {} })) });
     }
   }
 
-  if (path === "search" && method === "GET") {
-    const q=String(url.searchParams.get("q")||"").trim(); const locale=await resolveContentLocale(env,siteId,url.searchParams.get("locale"));
-    if(!q)return ok({items:[]});
-    const r=await env.DB.prepare(`SELECT p.id,p.type,COALESCE(t.slug,p.slug) AS slug,p.status,t.locale,t.title,t.excerpt FROM posts p JOIN post_translations t ON t.post_id=p.id WHERE p.site_id=? AND p.status='published' AND t.locale=? AND (t.title LIKE ? OR t.excerpt LIKE ? OR t.content LIKE ?) ORDER BY p.updated_at DESC LIMIT 50`).bind(siteId,locale,`%${q}%`,`%${q}%`,`%${q}%`).all();
-    return ok({items:r.results});
+  const revm = path.match(/^(posts|pages)\/([^/]+)\/revisions$/);
+  if (revm && method === "GET") {
+    if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
+    const r = await env.DB.prepare("SELECT r.* FROM post_revisions r JOIN posts p ON p.id=r.post_id WHERE r.post_id=? AND p.site_id=? ORDER BY r.locale,r.version DESC LIMIT 200").bind(revm[2],siteId).all();
+    return ok({ items: r.results });
+  }
+  if (revm && method === "POST") {
+    if (!(await requirePermission(env, user, "content.write", siteId))) return ok({ error: "Forbidden" }, 403);
+    const owned = await env.DB.prepare("SELECT id FROM posts WHERE id=? AND site_id=? LIMIT 1").bind(revm[2], siteId).first<any>();
+    if (!owned) return ok({ error: "not found" }, 404);
+    const b = await jsonBody(request);
+    const v = await createRevision(env, revm[2], user.id, await resolveContentLocale(env, siteId, b.locale), String(b.title || ""), String(b.excerpt || ""), typeof b.content === "string" ? b.content : JSON.stringify(b.content || []));
+    return ok({ version: v }, 201);
   }
 
+  const am = path.match(/^(posts|pages)\/([^/]+)\/autosave$/);
+  if (am && method === "GET") {
+    if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
+    const locale = await resolveContentLocale(env, siteId, url.searchParams.get("locale"));
+    const r = await env.DB.prepare("SELECT a.* FROM post_autosaves a JOIN posts p ON p.id=a.post_id WHERE a.post_id=? AND p.site_id=? AND a.user_id=? AND a.locale=?").bind(am[2], siteId, user.id, locale).first();
+    return ok({ item: r || null });
+  }
+  if (am && method === "POST") {
+    if (!(await requirePermission(env, user, "content.write", siteId))) return ok({ error: "Forbidden" }, 403);
+    const owned = await env.DB.prepare("SELECT id FROM posts WHERE id=? AND site_id=? LIMIT 1").bind(am[2], siteId).first<any>();
+    if (!owned) return ok({ error: "not found" }, 404);
+    const b = await jsonBody(request);
+    await autosave(env, am[2], user.id, await resolveContentLocale(env, siteId, b.locale), b);
+    return ok({ ok: true, updated_at: now() });
+  }
+
+  const restore = path.match(/^(posts|pages)\/([^/]+)\/revisions\/([^/]+)\/restore$/);
+  if (restore && method === "POST") {
+    if (!(await requirePermission(env, user, "content.write", siteId))) return ok({ error: "Forbidden" }, 403);
+    const r = await env.DB.prepare("SELECT r.* FROM post_revisions r JOIN posts p ON p.id=r.post_id WHERE r.id=? AND r.post_id=? AND p.site_id=?").bind(restore[3], restore[2], siteId).first<any>();
+    if (!r) return ok({ error: "revision not found" }, 404);
+    return savePost(env, user.id, restore[2], { locale: r.locale, title: r.title, excerpt: r.excerpt, content: r.content }, restore[1] === "posts" ? "post" : "page", siteId);
+  }
+
+  if (path === "search" && method === "GET") {
+    const q = String(url.searchParams.get("q") || "").trim();
+    const locale = await resolveContentLocale(env, siteId, url.searchParams.get("locale"));
+    if (!q) return ok({ items: [] });
+    const r = await env.DB.prepare(`SELECT p.id,p.type,COALESCE(t.slug,p.slug) AS slug,p.status,t.locale,t.title,t.excerpt FROM posts p JOIN post_translations t ON t.post_id=p.id WHERE p.site_id=? AND p.status='published' AND t.locale=? AND (t.title LIKE ? OR t.excerpt LIKE ? OR t.content LIKE ?) ORDER BY p.updated_at DESC LIMIT 50`).bind(siteId, locale, `%${q}%`, `%${q}%`, `%${q}%`).all();
+    return ok({ items: r.results });
+  }
+
+  return null;
+}
+
+async function dispatchMediaAdminRoutes(
+  env: Env,
+  request: Request,
+  user: SessionUser,
+  siteId: string,
+  path: string,
+  method: string,
+  url: URL
+): Promise<Response | null> {
   if (path === "media" && method === "GET") return mediaList(env, url, siteId, user.id);
-  if (path === "media" && method === "POST") { if(!(await requirePermission(env,user,"media.write",siteId))) return ok({error:"Forbidden"},403); return mediaUpload(env, user.id, request, siteId); }
-  // One row addressed by id. Mutations need `media.write`; reads of a single
-  // row go through the list, so there is nothing to add here.
+  if (path === "media" && method === "POST") {
+    if (!(await requirePermission(env, user, "media.write", siteId))) return ok({ error: "Forbidden" }, 403);
+    return mediaUpload(env, user.id, request, siteId);
+  }
   const mediaItem = path.match(/^media\/([^/]+)$/);
-  if (mediaItem && method === "PATCH") { if(!(await requirePermission(env,user,"media.write",siteId))) return ok({error:"Forbidden"},403); return mediaUpdate(env, user.id, decodeURIComponent(mediaItem[1]), await jsonBody(request), siteId); }
-  if (mediaItem && method === "DELETE") { if(!(await requirePermission(env,user,"media.write",siteId))) return ok({error:"Forbidden"},403); return mediaDelete(env, user.id, decodeURIComponent(mediaItem[1]), siteId); }
+  if (mediaItem && method === "PATCH") {
+    if (!(await requirePermission(env, user, "media.write", siteId))) return ok({ error: "Forbidden" }, 403);
+    return mediaUpdate(env, user.id, decodeURIComponent(mediaItem[1]), await jsonBody(request), siteId);
+  }
+  if (mediaItem && method === "DELETE") {
+    if (!(await requirePermission(env, user, "media.write", siteId))) return ok({ error: "Forbidden" }, 403);
+    return mediaDelete(env, user.id, decodeURIComponent(mediaItem[1]), siteId);
+  }
+
+  return null;
+}
+
+async function dispatchSettingsAdminRoutes(
+  env: Env,
+  request: Request,
+  user: SessionUser,
+  siteId: string,
+  path: string,
+  method: string,
+  url: URL
+): Promise<Response | null> {
   if (path === "settings" && method === "GET") return settings(env, siteId);
-  if (path === "settings" && method === "POST") { if(!(await requirePermission(env,user,"settings.manage",siteId))) return ok({error:"Forbidden"},403); return saveSetting(env, user.id, await jsonBody(request), siteId); }
-  // Demo content restore — site-shaping (writes published content and enables
-  // the demo languages), so it answers to `settings.manage`, the same gate the
-  // locale-enabling endpoint it calls internally sits behind. The body may
-  // scope the run ({key, locale}); an empty body writes everything.
+  if (path === "settings" && method === "POST") {
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    return saveSetting(env, user.id, await jsonBody(request), siteId);
+  }
   if (path === "seed-demo" && method === "POST") {
     if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     const b = await jsonBody(request);
     return seedDemoContent(env, siteId, user.id, { key: b?.key ? String(b.key) : undefined, locale: b?.locale ? String(b.locale) : undefined });
   }
   if (path === "platform-settings" && method === "GET") {
-    if(!(await requirePermission(env,user,"platform.manage",siteId))) return ok({error:"Forbidden"},403);
+    if (!(await requirePermission(env, user, "platform.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     return platformSettingsList(env);
   }
   if (path === "platform-settings" && method === "POST") {
-    if(!(await requirePermission(env,user,"platform.manage",siteId))) return ok({error:"Forbidden"},403);
+    if (!(await requirePermission(env, user, "platform.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     return savePlatformSetting(env, user, request);
   }
 
-  // Platform feature switches. GET needs no extra permission beyond being
-  // logged in (the same call `settings` makes); POST needs `settings.manage`,
-  // because the write is stored as a normal setting row with a fixed key.
   if (path === "features" && method === "GET") return features(env, siteId);
   if (path === "features" && method === "POST") {
     if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     return saveFeature(env, user.id, await jsonBody(request), siteId);
   }
 
+  return null;
+}
+
+const WIDGET_TYPES = new Set(["text", "html", "recent-posts", "menu"]);
+
+async function normaliseWidgetConfig(siteId: string, env: Env, type: string, cfg: unknown): Promise<Record<string, unknown>> {
+  const c = (cfg && typeof cfg === "object" && !Array.isArray(cfg)) ? cfg as Record<string, unknown> : {};
+  if (type === "text" || type === "html") return { body: String(c.body ?? "") };
+  if (type === "recent-posts") {
+    const n = Math.round(Number(c.count ?? 5));
+    if (!Number.isFinite(n) || n < 1 || n > 20) throw new Error("recent-posts count must be 1-20");
+    return { count: n };
+  }
+  const menuId = String(c.menu_id ?? "");
+  if (!menuId) throw new Error("menu widget needs menu_id");
+  const m = await env.DB.prepare("SELECT id FROM menus WHERE site_id=? AND id=?").bind(siteId, menuId).first<any>();
+  if (!m) throw new Error("menu_id does not exist on this site");
+  return { menu_id: menuId };
+}
+
+async function dispatchNavAndWidgetRoutes(
+  env: Env,
+  request: Request,
+  user: SessionUser,
+  siteId: string,
+  path: string,
+  method: string,
+  url: URL
+): Promise<Response | null> {
   const resourceMatch = path.match(/^(locales|redirects|rewrites|plugins|themes|menus|menu_items)$/);
   if (resourceMatch && method === "GET") return genericTable(env, resourceMatch[1], url, siteId);
 
   if (path === "menus" && method === "GET") {
-    const rows=await env.DB.prepare("SELECT * FROM menus WHERE site_id=? ORDER BY name").bind(siteId).all(); return ok({items:rows.results,site:siteId});
+    const rows = await env.DB.prepare("SELECT * FROM menus WHERE site_id=? ORDER BY name").bind(siteId).all();
+    return ok({ items: rows.results, site: siteId });
   }
   if (path === "menus" && method === "POST") {
-    // Site navigation is site config: editing it needs `settings.manage` on
-    // this site (same bar as `admin-menus/custom`). Without this any staff on
-    // any site rewrote any other site's nav (no gate at all).
     if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
-    const b=await jsonBody(request),id=b.id||`menu_${await randomId()}`;
-    // Idempotent: re-declaring the same menu for a site updates it rather than
-    // failing on the (site_id, id) primary key.
+    const b = await jsonBody(request);
+    const id = b.id || `menu_${await randomId()}`;
     await env.DB.prepare(
       "INSERT INTO menus (id,site_id,name,location,created_at,updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(site_id,id) DO UPDATE SET name=excluded.name,location=excluded.location,updated_at=excluded.updated_at"
-    ).bind(id,siteId,String(b.name||"Menu"),b.location||"header",now(),now()).run();
-    return ok({id,site:siteId},201);
+    ).bind(id, siteId, String(b.name || "Menu"), b.location || "header", now(), now()).run();
+    return ok({ id, site: siteId }, 201);
   }
-  const mm=path.match(/^menus\/([^/]+)\/items$/);
-  if(mm&&method==="GET"){const r=await env.DB.prepare("SELECT * FROM menu_items WHERE site_id=? AND menu_id=? ORDER BY sort_order,id").bind(siteId,mm[1]).all();return ok({items:r.results,site:siteId});}
-  if(mm&&method==="POST"){if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);const b=await jsonBody(request),id=await randomId();await env.DB.prepare("INSERT INTO menu_items (id,site_id,menu_id,parent_id,title,url,target,sort_order,locale,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)").bind(id,siteId,mm[1],b.parent_id||null,String(b.title||""),String(b.url||"#"),b.target||null,Number(b.sort_order||0),b.locale||null,now(),now()).run();return ok({id,site:siteId},201);}
-  // Batch reorder: the SPA submits the full rendered sequence in one call, so
-  // a drag cannot interleave with another writer. Every id is verified to
-  // belong to this menu *on this site* before anything is written.
-  if(mm&&method==="PUT"){
+  const mm = path.match(/^menus\/([^/]+)\/items$/);
+  if (mm && method === "GET") {
+    const r = await env.DB.prepare("SELECT * FROM menu_items WHERE site_id=? AND menu_id=? ORDER BY sort_order,id").bind(siteId, mm[1]).all();
+    return ok({ items: r.results, site: siteId });
+  }
+  if (mm && method === "POST") {
     if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
-    const b=await jsonBody(request);
-    if(!Array.isArray(b.order)) return ok({error:"order array required"},400);
-    const ids=(b.order as unknown[]).map(String);
-    const rows=await env.DB.prepare("SELECT id FROM menu_items WHERE site_id=? AND menu_id=?").bind(siteId,mm[1]).all();
-    const known=new Set(((rows.results as any[])??[]).map(r=>String(r.id)));
-    if(ids.some(id=>!known.has(id))) return ok({error:"unknown item in order"},400);
-    let n=0;
-    for(const id of ids){
-      await env.DB.prepare("UPDATE menu_items SET sort_order=?,updated_at=? WHERE site_id=? AND menu_id=? AND id=?").bind(n++,now(),siteId,mm[1],id).run();
+    const b = await jsonBody(request);
+    const id = await randomId();
+    await env.DB.prepare("INSERT INTO menu_items (id,site_id,menu_id,parent_id,title,url,target,sort_order,locale,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)").bind(id, siteId, mm[1], b.parent_id || null, String(b.title || ""), String(b.url || "#"), b.target || null, Number(b.sort_order || 0), b.locale || null, now(), now()).run();
+    return ok({ id, site: siteId }, 201);
+  }
+  if (mm && method === "PUT") {
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const b = await jsonBody(request);
+    if (!Array.isArray(b.order)) return ok({ error: "order array required" }, 400);
+    const ids = (b.order as unknown[]).map(String);
+    const rows = await env.DB.prepare("SELECT id FROM menu_items WHERE site_id=? AND menu_id=?").bind(siteId, mm[1]).all();
+    const known = new Set(((rows.results as any[]) ?? []).map(r => String(r.id)));
+    if (ids.some(id => !known.has(id))) return ok({ error: "unknown item in order" }, 400);
+    let n = 0;
+    for (const id of ids) {
+      await env.DB.prepare("UPDATE menu_items SET sort_order=?,updated_at=? WHERE site_id=? AND menu_id=? AND id=?").bind(n++, now(), siteId, mm[1], id).run();
     }
-    await activity(env,user.id,"update","menu_items",mm[1],{count:ids.length});
-    return ok({ok:true,count:ids.length});
+    await activity(env, user.id, "update", "menu_items", mm[1], { count: ids.length });
+    return ok({ ok: true, count: ids.length });
   }
-  // Menu update/delete. Both are site-scoped: the `menus` PK is
-  // (site_id, id), and deleting a menu must take its items with it or they
-  // would linger pointing at a menu that no longer exists.
-  const mdm=path.match(/^menus\/([^/]+)$/);
-  if(mdm&&method==="PUT"){
+  const mdm = path.match(/^menus\/([^/]+)$/);
+  if (mdm && method === "PUT") {
     if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
-    const b=await jsonBody(request);
-    const location=String(b.location||"").trim();
-    if(!location) return ok({error:"location required"},400);
-    const r=await env.DB.prepare("UPDATE menus SET name=?,location=?,updated_at=? WHERE site_id=? AND id=?").bind(String(b.name||"Menu"),location,now(),siteId,mdm[1]).run();
-    if(!r.meta.changes) return ok({error:"menu not found"},404);
-    await activity(env,user.id,"update","menu",mdm[1]);
-    return ok({ok:true});
+    const b = await jsonBody(request);
+    const location = String(b.location || "").trim();
+    if (!location) return ok({ error: "location required" }, 400);
+    const r = await env.DB.prepare("UPDATE menus SET name=?,location=?,updated_at=? WHERE site_id=? AND id=?").bind(String(b.name || "Menu"), location, now(), siteId, mdm[1]).run();
+    if (!r.meta.changes) return ok({ error: "menu not found" }, 404);
+    await activity(env, user.id, "update", "menu", mdm[1]);
+    return ok({ ok: true });
   }
-  if(mdm&&method==="DELETE"){
+  if (mdm && method === "DELETE") {
     if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
-    await env.DB.prepare("DELETE FROM menu_items WHERE site_id=? AND menu_id=?").bind(siteId,mdm[1]).run();
-    const r=await env.DB.prepare("DELETE FROM menus WHERE site_id=? AND id=?").bind(siteId,mdm[1]).run();
-    if(!r.meta.changes) return ok({error:"menu not found"},404);
-    await activity(env,user.id,"delete","menu",mdm[1]);
-    return ok({ok:true});
+    await env.DB.prepare("DELETE FROM menu_items WHERE site_id=? AND menu_id=?").bind(siteId, mdm[1]).run();
+    const r = await env.DB.prepare("DELETE FROM menus WHERE site_id=? AND id=?").bind(siteId, mdm[1]).run();
+    if (!r.meta.changes) return ok({ error: "menu not found" }, 404);
+    await activity(env, user.id, "delete", "menu", mdm[1]);
+    return ok({ ok: true });
   }
-  const mim=path.match(/^menu_items\/([^/]+)$/);
-  if(mim&&method==="PUT"){
+  const mim = path.match(/^menu_items\/([^/]+)$/);
+  if (mim && method === "PUT") {
     if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
-    const b=await jsonBody(request);
-    const cur=await env.DB.prepare("SELECT id,menu_id,parent_id,title,url,target,locale FROM menu_items WHERE site_id=? AND id=?").bind(siteId,mim[1]).first<any>();
-    if(!cur) return ok({error:"item not found"},404);
-    // Nesting contract: one level only. The parent must live in the same menu
-    // on the same site, must not be the item itself, and must be top-level —
-    // deeper trees are rejected rather than silently rendered wrong.
-    let parentId:string|null;
-    if(b.parent_id===undefined){ parentId=cur.parent_id??null; }
-    else{
-      parentId=b.parent_id?String(b.parent_id):null;
-      if(parentId){
-        if(parentId===mim[1]) return ok({error:"item cannot be its own parent"},400);
-        const p=await env.DB.prepare("SELECT parent_id FROM menu_items WHERE site_id=? AND menu_id=? AND id=?").bind(siteId,cur.menu_id,parentId).first<any>();
-        if(!p) return ok({error:"parent not in the same menu"},400);
-        if(p.parent_id) return ok({error:"nesting beyond one level is not supported"},400);
+    const b = await jsonBody(request);
+    const cur = await env.DB.prepare("SELECT id,menu_id,parent_id,title,url,target,locale FROM menu_items WHERE site_id=? AND id=?").bind(siteId, mim[1]).first<any>();
+    if (!cur) return ok({ error: "item not found" }, 404);
+    let parentId: string | null;
+    if (b.parent_id === undefined) { parentId = cur.parent_id ?? null; }
+    else {
+      parentId = b.parent_id ? String(b.parent_id) : null;
+      if (parentId) {
+        if (parentId === mim[1]) return ok({ error: "item cannot be its own parent" }, 400);
+        const p = await env.DB.prepare("SELECT parent_id FROM menu_items WHERE site_id=? AND menu_id=? AND id=?").bind(siteId, cur.menu_id, parentId).first<any>();
+        if (!p) return ok({ error: "parent not in the same menu" }, 400);
+        if (p.parent_id) return ok({ error: "nesting beyond one level is not supported" }, 400);
       }
     }
     await env.DB.prepare("UPDATE menu_items SET title=?,url=?,target=?,locale=?,parent_id=?,updated_at=? WHERE site_id=? AND id=?")
-      .bind(b.title===undefined?String(cur.title??""):String(b.title),b.url===undefined?String(cur.url??"#"):String(b.url),b.target===undefined?(cur.target??null):(b.target||null),b.locale===undefined?(cur.locale??null):(b.locale||null),parentId,now(),siteId,mim[1]).run();
-    await activity(env,user.id,"update","menu_item",mim[1]);
-    return ok({ok:true});
+      .bind(b.title === undefined ? String(cur.title ?? "") : String(b.title), b.url === undefined ? String(cur.url ?? "#") : String(b.url), b.target === undefined ? (cur.target ?? null) : (b.target || null), b.locale === undefined ? (cur.locale ?? null) : (b.locale || null), parentId, now(), siteId, mim[1]).run();
+    await activity(env, user.id, "update", "menu_item", mim[1]);
+    return ok({ ok: true });
   }
-  if(mim&&method==="DELETE"){
+  if (mim && method === "DELETE") {
     if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
-    const r=await env.DB.prepare("DELETE FROM menu_items WHERE site_id=? AND id=?").bind(siteId,mim[1]).run();
-    if(!r.meta.changes) return ok({error:"item not found"},404);
-    // Children of a removed item become top-level rather than orphaned.
-    await env.DB.prepare("UPDATE menu_items SET parent_id=NULL WHERE site_id=? AND parent_id=?").bind(siteId,mim[1]).run();
-    await activity(env,user.id,"delete","menu_item",mim[1]);
-    return ok({ok:true});
-  }
-  if (path === "extensions/bootstrap" && method === "POST") {
-    // Re-seeding bundled extensions rewrites install-wide registries; it is
-    // extension management, not content editing.
-    if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403);
-    await seedBundledExtensions(env); return ok({ok:true});
-  }
-  if (path === "extensions/plugins" && method === "GET") {
-    // The installed-plugin registry is install-wide: a site-scoped editor has
-    // no business enumerating it (MS-3.2 family; versions list was the filed
-    // gap, same shape).
-    if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403);
-    const rows=await env.DB.prepare("SELECT * FROM plugin_installs ORDER BY title").all();
-    const runtime=await pluginRuntimeStatus(env).catch(()=>[]);
-    const wired=Object.fromEntries(runtime.map(r=>[r.name,r.hooks]));
-    return ok({items:((rows.results as any[])??[]).map(r=>{
-      // The manifest is stored as a JSON string; the admin SPA renders plugin
-      // pages and channel forms straight from the declaration, so the two
-      // arrays it needs are surfaced parsed rather than left for every caller
-      // to JSON.parse. Nobody read the raw string — it was shipped but unusable.
-      let m:any={};try{m=JSON.parse(String(r.manifest||"{}"))}catch{}
-      return {...r,manifest:m,
-        adminPages:Array.isArray(m.adminPages)?m.adminPages:[],
-        channels:Array.isArray(m.channels)?m.channels:[],
-        hooks_wired:wired[r.name]??[]};
-    })});
-  }
-  const pm=path.match(/^extensions\/plugins\/([^/]+)\/(enable|disable)$/);
-  if(pm&&method==="POST"){
-    // Enabling/disabling flips every site's runtime at once (plus the shared
-    // menu registry): install-wide by definition. Ungated, any editor toggled
-    // all sites' plugins.
-    if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403);
-    await env.DB.prepare("UPDATE plugin_installs SET enabled=?,updated_at=? WHERE name=?").bind(pm[2]==="enable"?1:0,now(),pm[1]).run();
-    if(pm[2]==="disable"){
-      // Drop this plugin's menus — and only this plugin's. The registry is
-      // keyed by owner so that disabling one extension cannot disturb a theme
-      // or a different plugin. Re-enabling re-registers them from the manifest
-      // in `loadEnabledPlugins`, so nothing is lost by deleting here.
-      await clearPluginMenus(env,pm[1]);
-    }
-    // Rebuild the hook registry so the change is live for this isolate; the
-    // memoised payload would otherwise keep the previous enabled-set for up
-    // to `ENABLED_TTL_MS`.
-    resetPluginRuntime();
-    await bootPluginRuntime(env);
-    await activity(env,user.id,pm[2],"plugin",pm[1]); return ok({ok:true});
-  }
-  if(path==="extensions/themes"&&method==="GET"){
-    // Per-site `active` reporting, so the gate is site access (not the
-    // install-wide extensions.manage that `activate` needs): a member of this
-    // site may see what this site chose, but not another site's answer.
-    // `active_by_site` only covers sites the caller may see — superadmin gets
-    // the full map, everyone else gets their own sites.
-    if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
-    // `active` on theme_installs is a *global* flag and cannot express which
-    // site uses which theme, so report per-site usage explicitly instead.
-    const rows=await env.DB.prepare("SELECT * FROM theme_installs ORDER BY title").all();
-    const active=await env.DB.prepare("SELECT site_id,value FROM settings WHERE key='theme.active'").all();
-    const fullBySite=Object.fromEntries(((active.results as any[])??[]).map(r=>[r.site_id,r.value]));
-    // `active_by_site` is cross-tenant enumeration in a trench coat: filter it
-    // to the caller's sites like `GET sites` does (MS-4.2 family).
-    const allowedSites = await accessibleSiteIds(env, user);
-    const bySite = allowedSites === null ? fullBySite
-      : Object.fromEntries(Object.entries(fullBySite).filter(([sid]) => (allowedSites as string[]).includes(String(sid))));
-    // Per-site reporting reads the `theme.active` row and nothing else.
-    //
-    // Deliberately NOT `activeTheme()` here: that function exists to answer
-    // "which theme should *render* this site" — it probes R2 and will name a
-    // theme that merely happens to be installed. For a *report* that would be
-    // wrong: a theme installed for another site would show as active on this
-    // one. This endpoint's contract is "what did this site choose", so an
-    // unset row must report empty rather than borrowed.
-    const activeForSite=bySite[siteId] ?? "";
-    return ok({
-      items:((rows.results as any[])??[]).map(r=>({
-        ...r,
-        active:r.name===activeForSite?1:0,
-        // A bundled theme's files live in the Worker's own assets, so there is
-        // no package to remove and the uninstall route answers 400. Reporting
-        // it lets the screen stop offering a button whose only possible answer
-        // is a refusal — the same reason the per-site map above is reported
-        // instead of leaving the client to guess.
-        bundled:(BUNDLED_THEMES as readonly string[]).includes(String(r.name))?1:0,
-      })),
-      active:activeForSite,
-      active_by_site:bySite,
-      site:siteId,
-    });
-  }
-  const tm=path.match(/^extensions\/themes\/([^/]+)\/activate$/);
-  if(tm&&method==="POST"){
-    if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403);
-    const target=tm[1];    const row=await env.DB.prepare("SELECT name,version,manifest FROM theme_installs WHERE name=? LIMIT 1").bind(target).first<any>();
-    if(!row)return ok({error:"theme not found"},404);
-    let manifest:any;try{manifest=JSON.parse(String(row.manifest||"{}"))}catch{manifest={name:target,version:row.version}}
-
-    // Activation is *per site*. The outgoing theme is whatever this site had
-    // selected (from settings), not a global `active` flag — two sites may
-    // legitimately run two different themes at once.
-    const previousRow=await env.DB.prepare("SELECT value FROM settings WHERE site_id=? AND key='theme.active'").bind(siteId).first<any>();
-    const previous=previousRow?.value?String(previousRow.value):null;
-    if(previous && previous!==target){
-      await clearThemeCapabilities(env,previous,siteId);
-      // Drop the outgoing theme's loaded Worker so a later re-activation
-      // re-reads the module from R2 instead of reusing the cached stub.
-      invalidateThemeWorker(env,previous);
-    }
-    await env.DB.prepare("INSERT INTO settings(id,site_id,key,value,autoload) VALUES(?,?,?,?,1) ON CONFLICT(site_id,key) DO UPDATE SET value=excluded.value")
-      .bind(`theme-active-${siteId}`,siteId,"theme.active",target).run();
-    // A fresh activation must not reuse a stale module (the package may have
-    // been re-uploaded between activations).
-    invalidateThemeWorker(env,target);
-    // `active` stays meaningful only as "some site uses this theme", which the
-    // bundled-install seeding relies on; recompute it from the settings table.
-    await env.DB.prepare("UPDATE theme_installs SET active=0").run();
-    await env.DB.prepare("UPDATE theme_installs SET active=1, updated_at=? WHERE name IN (SELECT value FROM settings WHERE key='theme.active')").bind(now()).run();
-
-    const applied=await applyThemeCapabilities(env,target,manifest,siteId);
-    await bumpContentCache(env,siteId);
-    await activity(env,user.id,"activate","theme",target,{previous,siteId,...applied});
-    return ok({ok:true,theme:target,site:siteId,previous,applied});
-  }
-
-  const td=path.match(/^extensions\/themes\/([^/]+)$/);
-  if(td&&method==="DELETE"){
-    if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403);
-    return uninstallTheme(env,user.id,decodeURIComponent(td[1]),url.searchParams.get("force")==="1");
-  }
-  // Theme business-capability introspection
-  if(path==="theme/post-types"&&method==="GET") return ok({items:await listPostTypes(env,siteId),site:siteId});
-  // Declared menu locations of the active theme (rule 73 input). Read from
-  // the manifest, not from registered rows — the SPA needs the same list the
-  // renderer will use, and a manifest read cannot drift from rendering.
-  if(path==="theme/menu-locations"&&method==="GET"){
-    const t=await activeTheme(env,siteId).catch(()=>null);
-    const locs=t?.manifest?.menuLocations?.length?t.manifest.menuLocations:[{id:"header"}];
-    return ok({items:locs,site:siteId});
-  }
-  // Declared widget sidebars of the active theme — the SPA groups the widgets
-  // screen by this list, so the groups it offers are exactly what renders.
-  if(path==="theme/sidebars"&&method==="GET"){
-    const t=await activeTheme(env,siteId).catch(()=>null);
-    const declaredAreas=t?.manifest?.widgets?.areas?.map((a:any)=>({id:a.id,label:a.label||a.name||a.id}));
-    const sbs=t?.manifest?.sidebars?.length?t.manifest.sidebars:(declaredAreas?.length?declaredAreas:[{id:"sidebar"},{id:"footer"}]);
-    return ok({items:sbs,site:siteId});
-  }
-  if(path==="theme/routes"&&method==="GET") return ok({items:await listRoutes(env,siteId),site:siteId});
-  if(path==="theme/menus"&&method==="GET") return ok({items:await listThemeAdminMenus(env,siteId),site:siteId});
-  // The unified view: theme menus and plugin menus in one list, grouped by
-  // owner and already filtered by what this user may see (§4.4). The SPA
-  // renders it verbatim rather than asking which extension kind produced each
-  // item — that is the whole reason the registry exists.
-  if(path==="admin-menus"&&method==="GET"){
-    // One lookup per distinct capability, not per menu.
-    const memo=new Map<string,boolean>();
-    const canView=async(capability:string)=>{
-      if(memo.has(capability)) return memo.get(capability)!;
-      const allowed=await can(env,user,capability,siteId).catch(()=>false);
-      memo.set(capability,allowed);
-      return allowed;
-    };
-    const groups=await listAdminMenuGroups(env,siteId,{can:canView});
-    // Labels translate through the UI dictionary (§2.4). A declared
-    // `label_key` wins when the current interface language has a translation
-    // for it; otherwise the literal label is returned unchanged, so a menu
-    // that declares a key nobody ships still reads correctly. The resolved UI
-    // locale rides along so the client can show what it got.
-    const uiLocale=await resolveUiLocale(env,siteId,{
-      userLang:(user as any).ui_lang??null,
-      defaultLocale:await siteDefaultLocale(env,siteId),
-    });
-    const dict=mergePacks(await loadUiPacks(env,siteId,uiLocale)) as Record<string,unknown>;
-    const translated=groups.map(g=>({...g,items:g.items.map(m=>{
-      let label=m.label;
-      if(m.label_key){
-        const v=dict[m.label_key];
-        if(typeof v==="string"&&v)label=v;
-      }
-      return {...m,label};
-    })}));
-    return ok({site:siteId,ui_locale:uiLocale,groups:translated,items:translated.flatMap(g=>g.items)});
-  }
-  if(path==="theme/blocks"&&method==="GET") return ok({items:await listThemeBlocks(env,siteId),site:siteId});
-  if(path==="theme/fields"&&method==="GET") return ok({items:await listFieldDefs(env,siteId),site:siteId});
-  if(path==="theme/taxonomies"&&method==="GET") return ok({items:await listTaxonomies(env,siteId),site:siteId});
-
-  const tsm=path.match(/^theme\/([^/]+)\/settings$/);
-  if(tsm&&method==="GET") return ok({items:await themeSettings(env,tsm[1])});
-  if(tsm&&method==="POST"){
-    if(!(await requirePermission(env,user,"settings.manage",siteId))) return ok({error:"Forbidden"},403);
-    const b=await jsonBody(request);
-    const def=await env.DB.prepare("SELECT key FROM theme_setting_defs WHERE theme_name=? AND key=?").bind(tsm[1],String(b.key||"")).first<any>();
-    if(!def)return ok({error:"setting not declared"},400);
-    await env.DB.prepare("INSERT INTO theme_settings(theme_name,key,value,updated_at) VALUES(?,?,?,?) ON CONFLICT(theme_name,key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
-      .bind(tsm[1],String(b.key),String(b.value??""),now()).run();
-    await activity(env,user.id,"update","theme_setting",tsm[1],{key:b.key});
-    return ok({ok:true});
-  }
-  const psm=path.match(/^extensions\/plugins\/([^/]+)\/settings$/);
-  // Plugin settings are install-wide (keyed by plugin, not by site), so they
-  // are gated by `extensions.manage` — like enable/disable below — not by a
-  // site-scoped permission. Ungated, any editor rewrote every site's config.
-  if(psm&&method==="GET") {
-    if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403);
-    return pluginSettings(env,psm[1]);
-  }
-  if(psm&&method==="POST") {
-    if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403);
-    return savePluginSetting(env,user.id,psm[1],await jsonBody(request));
+    const r = await env.DB.prepare("DELETE FROM menu_items WHERE site_id=? AND id=?").bind(siteId, mim[1]).run();
+    if (!r.meta.changes) return ok({ error: "item not found" }, 404);
+    await env.DB.prepare("UPDATE menu_items SET parent_id=NULL WHERE site_id=? AND parent_id=?").bind(siteId, mim[1]).run();
+    await activity(env, user.id, "delete", "menu_item", mim[1]);
+    return ok({ ok: true });
   }
 
   // -- widgets ----------------------------------------------------------------
-  // Site-scoped since 0020. Before that this table was install-wide and the
-  // one read path had no tenant filter at all — on a multi-site install every
-  // site's sidebar showed every site's widgets, the exact leak §10 rule 6
-  // forbids (see the comment on `menusForLocation` for the menu twin).
-  const widgetTypes = new Set(["text", "html", "recent-posts", "menu"]);
-  /** Validate a widget payload's config against its type. Throws with a
-   * user-facing message; the route turns that into a 400. */
-  async function normaliseWidgetConfig(type: string, cfg: unknown): Promise<Record<string, unknown>> {
-    const c = (cfg && typeof cfg === "object" && !Array.isArray(cfg)) ? cfg as Record<string, unknown> : {};
-    if (type === "text" || type === "html") return { body: String(c.body ?? "") };
-    if (type === "recent-posts") {
-      const n = Math.round(Number(c.count ?? 5));
-      if (!Number.isFinite(n) || n < 1 || n > 20) throw new Error("recent-posts count must be 1-20");
-      return { count: n };
-    }
-    // type === "menu"
-    const menuId = String(c.menu_id ?? "");
-    if (!menuId) throw new Error("menu widget needs menu_id");
-    const m = await env.DB.prepare("SELECT id FROM menus WHERE site_id=? AND id=?").bind(siteId, menuId).first<any>();
-    if (!m) throw new Error("menu_id does not exist on this site");
-    return { menu_id: menuId };
-  }
-  if(path==="widgets/types"&&method==="GET"){
+  if (path === "widgets/types" && method === "GET") {
     return ok({
       items: [
         {
@@ -3000,107 +2804,249 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
       ]
     });
   }
-  if(path==="widgets"&&method==="GET"){
-    const rows=await env.DB.prepare("SELECT * FROM widget_instances WHERE site_id=? ORDER BY sidebar,sort_order,id").bind(siteId).all();return ok({items:rows.results,site:siteId});
+  if (path === "widgets" && method === "GET") {
+    const rows = await env.DB.prepare("SELECT * FROM widget_instances WHERE site_id=? ORDER BY sidebar,sort_order,id").bind(siteId).all();
+    return ok({ items: rows.results, site: siteId });
   }
-  if(path==="widgets"&&method==="POST"){
-    // Same bar as menus above: sidebar placement is site config.
+  if (path === "widgets" && method === "POST") {
     if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
-    const b=await jsonBody(request);
-    const type=String(b.widget_type||"text");
-    if(!widgetTypes.has(type)) return ok({error:"unknown widget_type"},400);
-    let cfg:Record<string,unknown>;
-    try{ cfg=await normaliseWidgetConfig(type,b.config); }catch(e:any){ return ok({error:e?.message||"invalid config"},400); }
-    const id=await randomId();
+    const b = await jsonBody(request);
+    const type = String(b.widget_type || "text");
+    if (!WIDGET_TYPES.has(type)) return ok({ error: "unknown widget_type" }, 400);
+    let cfg: Record<string, unknown>;
+    try { cfg = await normaliseWidgetConfig(siteId, env, type, b.config); } catch (e: any) { return ok({ error: e?.message || "invalid config" }, 400); }
+    const id = await randomId();
     await env.DB.prepare("INSERT INTO widget_instances (id,site_id,sidebar,widget_type,title,config,sort_order,enabled,locale) VALUES (?,?,?,?,?,?,?,?,?)")
-      .bind(id,siteId,String(b.sidebar||"sidebar"),type,String(b.title||""),JSON.stringify(cfg),Number(b.sort_order||0),b.enabled===false?0:1,String(b.locale||"")).run();
+      .bind(id, siteId, String(b.sidebar || "sidebar"), type, String(b.title || ""), JSON.stringify(cfg), Number(b.sort_order || 0), b.enabled === false ? 0 : 1, String(b.locale || "")).run();
     await bumpContentCache(env, siteId);
-    await activity(env,user.id,"create","widget",id);
-    return ok({id,site:siteId},201);
+    await activity(env, user.id, "create", "widget", id);
+    return ok({ id, site: siteId }, 201);
   }
-  const wim=path.match(/^widgets\/([^/]+)$/);
-  if(wim&&method==="PUT"){
+  const wim = path.match(/^widgets\/([^/]+)$/);
+  if (wim && method === "PUT") {
     if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
-    const cur=await env.DB.prepare("SELECT * FROM widget_instances WHERE site_id=? AND id=?").bind(siteId,wim[1]).first<any>();
-    if(!cur) return ok({error:"widget not found"},404);
-    const b=await jsonBody(request);
-    const type=String(b.widget_type||cur.widget_type);
-    if(!widgetTypes.has(type)) return ok({error:"unknown widget_type"},400);
-    let cfg:Record<string,unknown>;
-    try{ cfg=await normaliseWidgetConfig(type,b.config===undefined?JSON.parse(String(cur.config||"{}")):b.config); }catch(e:any){ return ok({error:e?.message||"invalid config"},400); }
+    const cur = await env.DB.prepare("SELECT * FROM widget_instances WHERE site_id=? AND id=?").bind(siteId, wim[1]).first<any>();
+    if (!cur) return ok({ error: "widget not found" }, 404);
+    const b = await jsonBody(request);
+    const type = String(b.widget_type || cur.widget_type);
+    if (!WIDGET_TYPES.has(type)) return ok({ error: "unknown widget_type" }, 400);
+    let cfg: Record<string, unknown>;
+    try { cfg = await normaliseWidgetConfig(siteId, env, type, b.config === undefined ? JSON.parse(String(cur.config || "{}")) : b.config); } catch (e: any) { return ok({ error: e?.message || "invalid config" }, 400); }
     await env.DB.prepare("UPDATE widget_instances SET sidebar=?,widget_type=?,title=?,config=?,sort_order=?,enabled=?,locale=? WHERE site_id=? AND id=?")
-      .bind(String(b.sidebar||cur.sidebar),type,b.title===undefined?String(cur.title??""):String(b.title),JSON.stringify(cfg),b.sort_order===undefined?Number(cur.sort_order||0):Number(b.sort_order),b.enabled===undefined?Number(cur.enabled??1):(b.enabled?1:0),b.locale===undefined?String(cur.locale||""):String(b.locale||""),siteId,wim[1]).run();
+      .bind(String(b.sidebar || cur.sidebar), type, b.title === undefined ? String(cur.title ?? "") : String(b.title), JSON.stringify(cfg), b.sort_order === undefined ? Number(cur.sort_order || 0) : Number(b.sort_order), b.enabled === undefined ? Number(cur.enabled ?? 1) : (b.enabled ? 1 : 0), b.locale === undefined ? String(cur.locale || "") : String(b.locale || ""), siteId, wim[1]).run();
     await bumpContentCache(env, siteId);
-    await activity(env,user.id,"update","widget",wim[1]);
-    return ok({ok:true});
+    await activity(env, user.id, "update", "widget", wim[1]);
+    return ok({ ok: true });
   }
-  if(wim&&method==="DELETE"){
+  if (wim && method === "DELETE") {
     if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
-    const r=await env.DB.prepare("DELETE FROM widget_instances WHERE site_id=? AND id=?").bind(siteId,wim[1]).run();
-    if(!r.meta.changes) return ok({error:"widget not found"},404);
+    const r = await env.DB.prepare("DELETE FROM widget_instances WHERE site_id=? AND id=?").bind(siteId, wim[1]).run();
+    if (!r.meta.changes) return ok({ error: "widget not found" }, 404);
     await bumpContentCache(env, siteId);
-    await activity(env,user.id,"delete","widget",wim[1]);
-    return ok({ok:true});
-  }
-  const uploadMatch=path.match(/^extensions\/(plugins|themes)\/upload$/);
-  if(uploadMatch&&method==="POST") { if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403); return uploadExtension(env,user.id,request,uploadMatch[1]==="plugins"?"plugin":"theme"); }
-  if(path==="extensions/versions"&&method==="GET"){
-    // Platform package registry — same bar as the plugin list (the filed gap:
-    // a site-scoped editor got 200 and the whole registry).
-    if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403);
-    const type=url.searchParams.get("type");const name=url.searchParams.get("name");
-    const r= type&&name ? await env.DB.prepare("SELECT * FROM extension_versions WHERE extension_type=? AND extension_name=? ORDER BY installed_at DESC").bind(type,name).all() : await env.DB.prepare("SELECT * FROM extension_versions ORDER BY installed_at DESC LIMIT 200").all();
-    return ok({items:r.results});
-  }
-  const capm=path.match(/^extensions\/(plugins|themes)\/([^/]+)\/capabilities$/);
-  if(capm&&method==="GET") {
-    if(!(await requirePermission(env,user,"extensions.manage",siteId))) return ok({error:"Forbidden"},403);
-    return ok({items:await capabilityList(env,capm[1]==="plugins"?"plugin":"theme",capm[2])});
-  }
-  const revm=path.match(/^(posts|pages)\/([^/]+)\/revisions$/);
-  // Revisions inherit their tenant from the post (no local site_id), so the
-  // site filter comes from the JOIN — a plain `WHERE post_id=?` answered for
-  // every site at once, and a scoped editor could read another site's drafts
-  // by id. The same JOIN guards autosave and the restore read below.
-  if(revm&&method==="GET") {if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);const r=await env.DB.prepare("SELECT r.* FROM post_revisions r JOIN posts p ON p.id=r.post_id WHERE r.post_id=? AND p.site_id=? ORDER BY r.locale,r.version DESC LIMIT 200").bind(revm[2],siteId).all();return ok({items:r.results});}
-  if(revm&&method==="POST") {
-    if(!(await requirePermission(env,user,"content.write",siteId))) return ok({error:"Forbidden"},403);
-    // The revision inherits its tenant from the post: verify the post is on
-    // this site before minting a row for it, or `?site=A` mints rows on B's post.
-    const owned = await env.DB.prepare("SELECT id FROM posts WHERE id=? AND site_id=? LIMIT 1").bind(revm[2],siteId).first<any>();
-    if(!owned) return ok({error:"not found"},404);
-    const b=await jsonBody(request);const v=await createRevision(env,revm[2],user.id,await resolveContentLocale(env,siteId,b.locale),String(b.title||""),String(b.excerpt||""),typeof b.content==="string"?b.content:JSON.stringify(b.content||[]));return ok({version:v},201);}
-  const am=path.match(/^(posts|pages)\/([^/]+)\/autosave$/);
-  if(am&&method==="GET"){if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);const locale=await resolveContentLocale(env,siteId,url.searchParams.get("locale"));const r=await env.DB.prepare("SELECT a.* FROM post_autosaves a JOIN posts p ON p.id=a.post_id WHERE a.post_id=? AND p.site_id=? AND a.user_id=? AND a.locale=?").bind(am[2],siteId,user.id,locale).first();return ok({item:r||null});}
-  if(am&&method==="POST"){
-    if(!(await requirePermission(env,user,"content.write",siteId))) return ok({error:"Forbidden"},403);
-    const owned = await env.DB.prepare("SELECT id FROM posts WHERE id=? AND site_id=? LIMIT 1").bind(am[2],siteId).first<any>();
-    if(!owned) return ok({error:"not found"},404);
-    const b=await jsonBody(request);await autosave(env,am[2],user.id,await resolveContentLocale(env,siteId,b.locale),b);return ok({ok:true,updated_at:now()});}
-  const restore=path.match(/^(posts|pages)\/([^/]+)\/revisions\/([^/]+)\/restore$/);
-  if(restore&&method==="POST"){
-    if(!(await requirePermission(env,user,"content.write",siteId))) return ok({error:"Forbidden"},403);
-    // The read is site-filtered for the same reason as revisions GET above:
-    // a revision of another site's post must not be resolvable here at all,
-    // even though the write that follows is already site-scoped.
-    const r=await env.DB.prepare("SELECT r.* FROM post_revisions r JOIN posts p ON p.id=r.post_id WHERE r.id=? AND r.post_id=? AND p.site_id=?").bind(restore[3],restore[2],siteId).first<any>();
-    if(!r)return ok({error:"revision not found"},404);
-    return savePost(env,user.id,restore[2],{locale:r.locale,title:r.title,excerpt:r.excerpt,content:r.content},restore[1]==="posts"?"post":"page",siteId);
+    await activity(env, user.id, "delete", "widget", wim[1]);
+    return ok({ ok: true });
   }
 
+  return null;
+}
+
+async function dispatchExtensionAdminRoutes(
+  env: Env,
+  request: Request,
+  user: SessionUser,
+  siteId: string,
+  path: string,
+  method: string,
+  url: URL
+): Promise<Response | null> {
+  if (path === "extensions/bootstrap" && method === "POST") {
+    if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    await seedBundledExtensions(env);
+    return ok({ ok: true });
+  }
+  if (path === "extensions/plugins" && method === "GET") {
+    if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const rows = await env.DB.prepare("SELECT * FROM plugin_installs ORDER BY title").all();
+    const runtime = await pluginRuntimeStatus(env).catch(() => []);
+    const wired = Object.fromEntries(runtime.map(r => [r.name, r.hooks]));
+    return ok({ items: ((rows.results as any[]) ?? []).map(r => {
+      let m: any = {};
+      try { m = JSON.parse(String(r.manifest || "{}")); } catch {}
+      return {
+        ...r,
+        manifest: m,
+        adminPages: Array.isArray(m.adminPages) ? m.adminPages : [],
+        channels: Array.isArray(m.channels) ? m.channels : [],
+        hooks_wired: wired[r.name] ?? []
+      };
+    }) });
+  }
+  const pm = path.match(/^extensions\/plugins\/([^/]+)\/(enable|disable)$/);
+  if (pm && method === "POST") {
+    if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    await env.DB.prepare("UPDATE plugin_installs SET enabled=?,updated_at=? WHERE name=?").bind(pm[2] === "enable" ? 1 : 0, now(), pm[1]).run();
+    if (pm[2] === "disable") {
+      await clearPluginMenus(env, pm[1]);
+    }
+    resetPluginRuntime();
+    await bootPluginRuntime(env);
+    await activity(env, user.id, pm[2], "plugin", pm[1]);
+    return ok({ ok: true });
+  }
+  if (path === "extensions/themes" && method === "GET") {
+    if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
+    const rows = await env.DB.prepare("SELECT * FROM theme_installs ORDER BY title").all();
+    const active = await env.DB.prepare("SELECT site_id,value FROM settings WHERE key='theme.active'").all();
+    const fullBySite = Object.fromEntries(((active.results as any[]) ?? []).map(r => [r.site_id, r.value]));
+    const allowedSites = await accessibleSiteIds(env, user);
+    const bySite = allowedSites === null ? fullBySite
+      : Object.fromEntries(Object.entries(fullBySite).filter(([sid]) => (allowedSites as string[]).includes(String(sid))));
+    const activeForSite = bySite[siteId] ?? "";
+    return ok({
+      items: ((rows.results as any[]) ?? []).map(r => ({
+        ...r,
+        active: r.name === activeForSite ? 1 : 0,
+        bundled:(BUNDLED_THEMES as readonly string[]).includes(String(r.name))?1:0,
+      })),
+      active: activeForSite,
+      active_by_site: bySite,
+      site: siteId,
+    });
+  }
+  const tm = path.match(/^extensions\/themes\/([^/]+)\/activate$/);
+  if (tm && method === "POST") {
+    if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const target = tm[1];
+    const row = await env.DB.prepare("SELECT name,version,manifest FROM theme_installs WHERE name=? LIMIT 1").bind(target).first<any>();
+    if (!row) return ok({ error: "theme not found" }, 404);
+    let manifest: any;
+    try { manifest = JSON.parse(String(row.manifest || "{}")); } catch { manifest = { name: target, version: row.version }; }
+
+    const previousRow = await env.DB.prepare("SELECT value FROM settings WHERE site_id=? AND key='theme.active'").bind(siteId).first<any>();
+    const previous = previousRow?.value ? String(previousRow.value) : null;
+    if (previous && previous !== target) {
+      await clearThemeCapabilities(env, previous, siteId);
+      invalidateThemeWorker(env, previous);
+    }
+    await env.DB.prepare("INSERT INTO settings(id,site_id,key,value,autoload) VALUES(?,?,?,?,1) ON CONFLICT(site_id,key) DO UPDATE SET value=excluded.value")
+      .bind(`theme-active-${siteId}`, siteId, "theme.active", target).run();
+    invalidateThemeWorker(env, target);
+    await env.DB.prepare("UPDATE theme_installs SET active=0").run();
+    await env.DB.prepare("UPDATE theme_installs SET active=1, updated_at=? WHERE name IN (SELECT value FROM settings WHERE key='theme.active')").bind(now()).run();
+
+    const applied = await applyThemeCapabilities(env, target, manifest, siteId);
+    await bumpContentCache(env, siteId);
+    await activity(env, user.id, "activate", "theme", target, { previous, siteId, ...applied });
+    return ok({ ok: true, theme: target, site: siteId, previous, applied });
+  }
+
+  const td = path.match(/^extensions\/themes\/([^/]+)$/);
+  if (td && method === "DELETE") {
+    if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    return uninstallTheme(env, user.id, decodeURIComponent(td[1]), url.searchParams.get("force") === "1");
+  }
+
+  if (path === "theme/post-types" && method === "GET") return ok({ items: await listPostTypes(env, siteId), site: siteId });
+  if (path === "theme/menu-locations" && method === "GET") {
+    const t = await activeTheme(env, siteId).catch(() => null);
+    const locs = t?.manifest?.menuLocations?.length ? t.manifest.menuLocations : [{ id: "header" }];
+    return ok({ items: locs, site: siteId });
+  }
+  if (path === "theme/sidebars" && method === "GET") {
+    const t = await activeTheme(env, siteId).catch(() => null);
+    const declaredAreas = t?.manifest?.widgets?.areas?.map((a: any) => ({ id: a.id, label: a.label || a.name || a.id }));
+    const sbs = t?.manifest?.sidebars?.length ? t.manifest.sidebars : (declaredAreas?.length ? declaredAreas : [{ id: "sidebar" }, { id: "footer" }]);
+    return ok({ items: sbs, site: siteId });
+  }
+  if (path === "theme/routes" && method === "GET") return ok({ items: await listRoutes(env, siteId), site: siteId });
+  if (path === "theme/menus" && method === "GET") return ok({ items: await listThemeAdminMenus(env, siteId), site: siteId });
+
+  if (path === "admin-menus" && method === "GET") {
+    const memo = new Map<string, boolean>();
+    const canView = async (capability: string) => {
+      if (memo.has(capability)) return memo.get(capability)!;
+      const allowed = await can(env, user, capability, siteId).catch(() => false);
+      memo.set(capability, allowed);
+      return allowed;
+    };
+    const groups = await listAdminMenuGroups(env, siteId, { can: canView });
+    const uiLocale = await resolveUiLocale(env, siteId, {
+      userLang: (user as any).ui_lang ?? null,
+      defaultLocale: await siteDefaultLocale(env, siteId),
+    });
+    const dict = mergePacks(await loadUiPacks(env, siteId, uiLocale)) as Record<string, unknown>;
+    const translated = groups.map(g => ({ ...g, items: g.items.map(m => {
+      let label = m.label;
+      if (m.label_key) {
+        const v = dict[m.label_key];
+        if (typeof v === "string" && v) label = v;
+      }
+      return { ...m, label };
+    }) }));
+    return ok({ site: siteId, ui_locale: uiLocale, groups: translated, items: translated.flatMap(g => g.items) });
+  }
+  if (path === "theme/blocks" && method === "GET") return ok({ items: await listThemeBlocks(env, siteId), site: siteId });
+  if (path === "theme/fields" && method === "GET") return ok({ items: await listFieldDefs(env, siteId), site: siteId });
+  if (path === "theme/taxonomies" && method === "GET") return ok({ items: await listTaxonomies(env, siteId), site: siteId });
+
+  const tsm = path.match(/^theme\/([^/]+)\/settings$/);
+  if (tsm && method === "GET") return ok({ items: await themeSettings(env, tsm[1]) });
+  if (tsm && method === "POST") {
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const b = await jsonBody(request);
+    const def = await env.DB.prepare("SELECT key FROM theme_setting_defs WHERE theme_name=? AND key=?").bind(tsm[1], String(b.key || "")).first<any>();
+    if (!def) return ok({ error: "setting not declared" }, 400);
+    await env.DB.prepare("INSERT INTO theme_settings(theme_name,key,value,updated_at) VALUES(?,?,?,?) ON CONFLICT(theme_name,key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
+      .bind(tsm[1], String(b.key), String(b.value ?? ""), now()).run();
+    await activity(env, user.id, "update", "theme_setting", tsm[1], { key: b.key });
+    return ok({ ok: true });
+  }
+  const psm = path.match(/^extensions\/plugins\/([^/]+)\/settings$/);
+  if (psm && method === "GET") {
+    if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    return pluginSettings(env, psm[1]);
+  }
+  if (psm && method === "POST") {
+    if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    return savePluginSetting(env, user.id, psm[1], await jsonBody(request));
+  }
+
+  const uploadMatch = path.match(/^extensions\/(plugins|themes)\/upload$/);
+  if (uploadMatch && method === "POST") {
+    if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    return uploadExtension(env, user.id, request, uploadMatch[1] === "plugins" ? "plugin" : "theme");
+  }
+  if (path === "extensions/versions" && method === "GET") {
+    if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const type = url.searchParams.get("type");
+    const name = url.searchParams.get("name");
+    const r = type && name
+      ? await env.DB.prepare("SELECT * FROM extension_versions WHERE extension_type=? AND extension_name=? ORDER BY installed_at DESC").bind(type, name).all()
+      : await env.DB.prepare("SELECT * FROM extension_versions ORDER BY installed_at DESC LIMIT 200").all();
+    return ok({ items: r.results });
+  }
+  const capm = path.match(/^extensions\/(plugins|themes)\/([^/]+)\/capabilities$/);
+  if (capm && method === "GET") {
+    if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    return ok({ items: await capabilityList(env, capm[1] === "plugins" ? "plugin" : "theme", capm[2]) });
+  }
+
+  return null;
+}
+
+async function dispatchUserAndActivityRoutes(
+  env: Env,
+  request: Request,
+  user: SessionUser,
+  siteId: string,
+  path: string,
+  method: string
+): Promise<Response | null> {
   if (path === "users" && method === "GET") {
-    if(!(await requirePermission(env,user,"users.manage",siteId))) return ok({error:"Forbidden"},403);
-    const r=await env.DB.prepare("SELECT id,username,email,role,status,created_at,updated_at FROM site_users ORDER BY username").all();
-    // Each row carries the user's role **on the site being viewed** plus every
-    // (site, role) membership they hold. The screen needs both: the flat list
-    // answers "who is on this site", and the map answers "what else can they
-    // reach" — which is the question that catches an accidental cross-site
-    // grant. `role` (the install-wide column) is still returned so the UI can
-    // mark a `superadmin`.
+    if (!(await requirePermission(env, user, "users.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const r = await env.DB.prepare("SELECT id,username,email,role,status,created_at,updated_at FROM site_users ORDER BY username").all();
     const rows = ((r.results as any[]) ?? []);
-    const memberships = await env.DB.prepare(
-      "SELECT user_id, site_id, role FROM site_users_sites"
-    ).all<any>();
+    const memberships = await env.DB.prepare("SELECT user_id, site_id, role FROM site_users_sites").all<any>();
     const byUser: Record<string, Record<string, string>> = {};
     for (const m of (memberships.results as any[]) ?? []) {
       (byUser[String(m.user_id)] ??= {})[String(m.site_id)] = String(m.role);
@@ -3115,61 +3061,52 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
     });
   }
   if (path === "users" && method === "POST") {
-    if(!(await requirePermission(env,user,"users.manage",siteId))) return ok({error:"Forbidden"},403);
-    const b=await jsonBody(request); const role=String(b.role||"author");
-    // `superadmin` is deliberately not an assignable role here: it is
-    // install-wide and one per install, and letting a site screen hand it out
-    // is how a scoped administrator escalates. It is granted by migration or
-    // by the owner editing the identity directly (rule 78).
-    if(!SITE_ROLES.includes(role as any)) return ok({error:"invalid role"},400);
-    const username=String(b.username||"").trim(); const password=String(b.password||"");
-    if(!username||password.length<8)return ok({error:"username and password(min 8) required"},400);
-    const {hashPassword}=await import("./shared/crypto"); const id="user_"+await randomId();
-    // The identity is install-wide, the membership is per site. Creating a user
-    // from a site screen creates them **on that site** — which is the only
-    // membership the request is entitled to grant. Additional sites are added
-    // by the per-site role endpoint below, one deliberate grant at a time.
+    if (!(await requirePermission(env, user, "users.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const b = await jsonBody(request);
+    const role = String(b.role || "author");
+    if (!SITE_ROLES.includes(role as any)) return ok({ error: "invalid role" }, 400);
+    const username = String(b.username || "").trim();
+    const password = String(b.password || "");
+    if (!username || password.length < 8) return ok({ error: "username and password(min 8) required" }, 400);
+    const { hashPassword } = await import("./shared/crypto");
+    const id = "user_" + await randomId();
     const stmts = [
       env.DB.prepare("INSERT INTO site_users(id,username,email,password_hash,role,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)")
-        .bind(id,username,b.email||null,await hashPassword(password),role,"active",now(),now()),
+        .bind(id, username, b.email || null, await hashPassword(password), role, "active", now(), now()),
       env.DB.prepare("INSERT INTO site_users_sites(user_id,site_id,role,created_at) VALUES(?,?,?,?)")
-        .bind(id,siteId,role,now()),
+        .bind(id, siteId, role, now()),
     ];
     await env.DB.batch(stmts);
-    await activity(env,user.id,"create","user",id,{username,role,site:siteId}); return ok({id},201);
+    await activity(env, user.id, "create", "user", id, { username, role, site: siteId });
+    return ok({ id }, 201);
   }
-  // Per-site role edit. `null` role removes the membership — the denial is the
-  // absence of the row, so "take this person off that site" is a DELETE, not a
-  // role with a value meaning "none".
   const userSite = path.match(/^users\/([^/]+)\/sites\/([^/]+)$/);
   if (userSite && (method === "PUT" || method === "PATCH")) {
-    if(!(await requirePermission(env,user,"users.manage",siteId))) return ok({error:"Forbidden"},403);
+    if (!(await requirePermission(env, user, "users.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     const targetUser = userSite[1];
     const targetSite = decodeURIComponent(userSite[2]);
     const b = await jsonBody(request);
     const role = b.role === null || b.role === "" ? null : String(b.role);
-    if (role !== null && !SITE_ROLES.includes(role as any)) return ok({error:"invalid role"},400);
+    if (role !== null && !SITE_ROLES.includes(role as any)) return ok({ error: "invalid role" }, 400);
     const exists = await env.DB.prepare("SELECT id FROM site_users WHERE id=?").bind(targetUser).first<any>();
-    if (!exists) return ok({error:"user not found"},404);
+    if (!exists) return ok({ error: "user not found" }, 404);
     if (role === null) {
       await env.DB.prepare("DELETE FROM site_users_sites WHERE user_id=? AND site_id=?").bind(targetUser, targetSite).run();
-      await activity(env,user.id,"revoke","user_site",targetUser,{site:targetSite});
-      return ok({ok:true,role:null});
+      await activity(env, user.id, "revoke", "user_site", targetUser, { site: targetSite });
+      return ok({ ok: true, role: null });
     }
     await env.DB.prepare(
       "INSERT INTO site_users_sites(user_id,site_id,role,created_at) VALUES(?,?,?,?) ON CONFLICT(user_id,site_id) DO UPDATE SET role=excluded.role"
     ).bind(targetUser, targetSite, role, now()).run();
-    await activity(env,user.id,"grant","user_site",targetUser,{site:targetSite,role});
-    return ok({ok:true,role});
+    await activity(env, user.id, "grant", "user_site", targetUser, { site: targetSite, role });
+    return ok({ ok: true, role });
   }
 
   if (path === "activity" && method === "GET") {
-    // Install-wide audit trail: any authenticated editor could enumerate every
-    // site's admin actions. Same bar as the install-wide user registry.
-    if(!(await requirePermission(env,user,"platform.manage",siteId))) return ok({error:"Forbidden"},403);
+    if (!(await requirePermission(env, user, "platform.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     const rows = await env.DB.prepare("SELECT * FROM admin_activity ORDER BY created_at DESC LIMIT 100").all();
     return ok({ items: rows.results });
   }
 
-  return ok({ error: "Not found" }, 404);
+  return null;
 }

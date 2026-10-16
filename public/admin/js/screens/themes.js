@@ -168,7 +168,8 @@ document.addEventListener("click", async (e) => {
     try {
       await api(scoped(`extensions/themes/${encodeURIComponent(srcName)}/copy`), {
         method: "POST",
-        body: { name: clean, title: newTitle || clean },
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: clean, title: newTitle || clean }),
       });
       toast(t("core.themes.clonedSuccess", "Theme duplicated successfully"));
       render();

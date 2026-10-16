@@ -202,7 +202,8 @@ async function saveActiveFile() {
   try {
     await api(scoped(`extensions/themes/${encodeURIComponent(currentTheme)}/file`), {
       method: "PUT",
-      body: { path: filePath, content },
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: filePath, content }),
     });
     fileContent = content;
     isDirty = false;
@@ -245,7 +246,8 @@ document.addEventListener("click", async (e) => {
     try {
       await api(scoped(`extensions/themes/${encodeURIComponent(srcName)}/copy`), {
         method: "POST",
-        body: { name: clean, title: newTitle || clean },
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: clean, title: newTitle || clean }),
       });
       toast(t("core.themes.clonedSuccess", "Theme duplicated successfully"));
       state.page = `theme-assets:${clean}`;
@@ -321,7 +323,8 @@ document.addEventListener("click", async (e) => {
     try {
       await api(scoped(`extensions/themes/${encodeURIComponent(currentTheme)}/file`), {
         method: "PUT",
-        body: { path: norm, content: initContent },
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: norm, content: initContent }),
       });
       toast(t("core.themes.fileCreated", "File created"));
       activeFile = { path: norm, size: initContent.length, type: "template", readonly: false };

@@ -311,6 +311,9 @@ async function renderScreen(c, page) {
     // means the plugin was disabled after its menu was written, not a bad link.
     return screens.get("plugin-page")(c, page.slice("plugin-page:".length) || null);
   }
+  if (page.startsWith("theme-assets:")) {
+    return screens.get("theme-assets")(c, page.slice("theme-assets:".length) || null);
+  }
   const screen = screens.get(page);
   if (!screen) {
     c.innerHTML = `<div class="panel">${esc(page)} ${esc(t("core.msg.notAScreen", "is not a screen."))}</div>`;

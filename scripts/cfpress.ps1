@@ -348,6 +348,7 @@ $Script:Suites = [ordered]@{
     'permalink'          = 'tests/suites/permalink.test.mjs'
     'hook-tester'        = 'tests/suites/hook-tester.test.mjs'
     'shop-theme'         = 'tests/suites/shop-theme.test.mjs'
+    'theme-assets'       = 'tests/suites/theme-assets.test.mjs'
     'launcher-parity'    = 'tests/suites/launcher-parity.test.mjs'
 }
 

@@ -27,6 +27,7 @@ import menuConfig from "./menu-config.js";
 import { tableListScreen } from "./table-list.js";
 import { tableEditScreen } from "./table-edit.js";
 import { pluginPageScreen } from "./plugin-page.js";
+import { themeAssetsScreen } from "./theme-assets.js";
 
 export const SCREENS = {
   dashboard,
@@ -61,4 +62,5 @@ export const SCREENS = {
   // shell. Registered directly as well so the structure test renders it;
   // reached without an id it shows an explanatory panel.
   "plugin-page": pluginPageScreen,
+  "theme-assets": themeAssetsScreen,
 };

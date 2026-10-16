@@ -46,13 +46,13 @@ export default async function themes(c) {
         : `<div class="muted text-sm">${others.length ? esc(t("core.themes.alsoUsed", "Also used by: {sites}", { sites: others.join(", ") })) : esc(t("core.themes.notInUse", "Not in use"))}</div>
            <button class="btn primary sm" style="margin-top:.75rem" data-theme-activate="${attr(x.name)}">${icon("check")}${esc(t("core.themes.activateHere", "Activate here"))}</button>
            ${x.bundled
-             // A bundled theme (`BUNDLED_THEMES`) ships inside the Worker's
-             // assets, so there is no package to remove. Offering Uninstall here
-             // meant every click ended in a 400 ("ships with the product") — an
-             // action with exactly one possible answer, which is a refusal. Say
-             // why instead of offering it.
              ? `<div class="muted text-sm" style="margin-top:.5rem">${esc(t("core.themes.bundled", "Ships with CFPress — cannot be uninstalled"))}</div>`
              : `<button class="btn outline danger sm" style="margin-top:.5rem" data-theme-del="${attr(x.name)}" data-theme-del-sites="${attr(others.join(","))}">${icon("trash")}${esc(t("core.themes.uninstall", "Uninstall"))}</button>`}`}
+      <div style="display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.75rem">
+        <button class="btn outline sm" data-theme-manage="${attr(x.name)}">${icon("code")}${esc(t("core.themes.manageAssets", "Templates"))}</button>
+        <button class="btn outline sm" data-theme-copy="${attr(x.name)}">${icon("copy")}${esc(t("core.themes.copy", "Duplicate"))}</button>
+        <button class="btn outline sm" data-theme-export="${attr(x.name)}">${icon("download")}${esc(t("core.themes.export", "Export"))}</button>
+      </div>
     </div>`;
   }).join("");
 
@@ -145,5 +145,44 @@ document.addEventListener("click", async (e) => {
       // actionable part.
       await alertDialog({ title: t("core.themes.uninstallFailed", "Could not uninstall theme"), description: err.message });
     }
+  }
+
+  const mng = e.target.closest("[data-theme-manage]");
+  if (mng) {
+    state.page = `theme-assets:${mng.dataset.themeManage}`;
+    render();
+    return;
+  }
+
+  const cpy = e.target.closest("[data-theme-copy]");
+  if (cpy) {
+    const srcName = cpy.dataset.themeCopy;
+    const defaultNewName = `${srcName}-copy`;
+    const newName = window.prompt(t("core.themes.promptCloneName", "Enter identifier for the new theme (lowercase, numbers, hyphen):"), defaultNewName);
+    if (!newName) return;
+    const clean = newName.trim().toLowerCase();
+    const newTitle = window.prompt(t("core.themes.promptCloneTitle", "Enter title for the new theme:"), `${srcName.toUpperCase()} Custom`);
+
+    try {
+      await api(scoped(`extensions/themes/${encodeURIComponent(srcName)}/copy`), {
+        method: "POST",
+        body: { name: clean, title: newTitle || clean },
+      });
+      toast(t("core.themes.clonedSuccess", "Theme duplicated successfully"));
+      render();
+    } catch (err) {
+      await alertDialog({
+        title: t("core.themes.cloneFailed", "Failed to duplicate theme"),
+        description: err.message,
+      });
+    }
+    return;
+  }
+
+  const exp = e.target.closest("[data-theme-export]");
+  if (exp) {
+    const name = exp.dataset.themeExport;
+    window.open(scoped(`extensions/themes/${encodeURIComponent(name)}/export`));
+    return;
   }
 });

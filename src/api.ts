@@ -37,6 +37,7 @@ import { readMediaPolicy, mediaOwnerClause } from "./platform/media-policy";
 import { mediaProviderOf, isMediaStorageProvider, remoteObjectKey, readMediaStorage, readMediaKeys, uploadToImgbb, uploadToPostimages, deleteRemoteImage, type MediaStorageProvider } from "./platform/media-hosts";
 import { invalidateThemeWorker } from "./extensions/theme/runtime-worker";
 import {applyThemeCapabilities, clearThemeCapabilities, listPostTypes, listTaxonomies, listRoutes, listThemeAdminMenus, listThemeBlocks, listFieldDefs, themeSettings, parseSettingOptions} from "./extensions/theme/capabilities";
+import { listThemeFiles, readThemeFile, writeThemeFile, deleteThemeFile, copyTheme, exportThemeZip } from "./extensions/theme/assets";
 import {
   availableUiLocaleEntries,
   availableUiLocales,
@@ -2944,6 +2945,72 @@ async function dispatchExtensionAdminRoutes(
   if (td && method === "DELETE") {
     if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     return uninstallTheme(env, user.id, decodeURIComponent(td[1]), url.searchParams.get("force") === "1");
+  }
+
+  const tfl = path.match(/^extensions\/themes\/([^/]+)\/files$/);
+  if (tfl && method === "GET") {
+    if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const res = await listThemeFiles(env, decodeURIComponent(tfl[1])).catch((e) => ({ error: e.message }));
+    if ("error" in res) return ok({ error: res.error }, 400);
+    return ok(res);
+  }
+
+  const tfile = path.match(/^extensions\/themes\/([^/]+)\/file$/);
+  if (tfile && method === "GET") {
+    if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const rel = url.searchParams.get("path") || "";
+    const res = await readThemeFile(env, decodeURIComponent(tfile[1]), rel).catch((e) => ({ error: e.message }));
+    if ("error" in res) return ok({ error: res.error }, 400);
+    return ok(res);
+  }
+  if (tfile && method === "PUT") {
+    if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const body = await jsonBody(request);
+    const target = decodeURIComponent(tfile[1]);
+    const res = await writeThemeFile(env, target, String(body.path || ""), String(body.content ?? "")).catch((e) => ({ error: e.message }));
+    if ("error" in res) return ok({ error: res.error }, 400);
+    await bumpContentCache(env, siteId);
+    await activity(env, user.id, "update_theme_file", "theme", target, { path: body.path });
+    return ok(res);
+  }
+  if (tfile && method === "DELETE") {
+    if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const rel = url.searchParams.get("path") || "";
+    const target = decodeURIComponent(tfile[1]);
+    const res = await deleteThemeFile(env, target, rel).catch((e) => ({ error: e.message }));
+    if ("error" in res) return ok({ error: res.error }, 400);
+    await bumpContentCache(env, siteId);
+    await activity(env, user.id, "delete_theme_file", "theme", target, { path: rel });
+    return ok(res);
+  }
+
+  const tcopy = path.match(/^extensions\/themes\/([^/]+)\/copy$/);
+  if (tcopy && method === "POST") {
+    if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const body = await jsonBody(request);
+    const src = decodeURIComponent(tcopy[1]);
+    const res = await copyTheme(env, src, String(body.name || ""), String(body.title || ""), user.id).catch((e) => ({ error: e.message }));
+    if ("error" in res) return ok({ error: res.error }, 400);
+    await activity(env, user.id, "copy", "theme", res.name, { from: src });
+    return ok(res, 201);
+  }
+
+  const texp = path.match(/^extensions\/themes\/([^/]+)\/export$/);
+  if (texp && method === "GET") {
+    if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const target = decodeURIComponent(texp[1]);
+    try {
+      const zipBytes = await exportThemeZip(env, target);
+      return new Response(zipBytes.buffer.slice(zipBytes.byteOffset, zipBytes.byteOffset + zipBytes.byteLength) as ArrayBuffer, {
+        headers: {
+          "Content-Type": "application/zip",
+          "Content-Disposition": `attachment; filename="${encodeURIComponent(target)}.zip"`,
+          "Cache-Control": "private, max-age=0",
+        },
+      });
+    } catch (e: any) {
+      return ok({ error: e.message || "Export failed" }, 400);
+    }
   }
 
   if (path === "theme/post-types" && method === "GET") return ok({ items: await listPostTypes(env, siteId), site: siteId });

@@ -10,33 +10,96 @@
 import { api, state } from "../state.js";
 import { pageHead, render } from "../shell.js";
 import { icon } from "../../icons.js";
-import { alertDialog, esc, toast } from "../../ui.js";
+import { alertDialog, confirmDialog, emptyRow, esc, fmtDate, fmtRelative, openDialog, toast } from "../../ui.js";
 import { t } from "../i18n.js";
 
 export default async function account(c) {
+  let keys = [];
+  try {
+    const res = await api("auth/api-keys");
+    keys = Array.isArray(res?.items) ? res.items : [];
+  } catch {
+    keys = [];
+  }
+
+  const keyRows = keys.length === 0
+    ? emptyRow(5, t("core.apiKeys.noKeys", "No API keys created yet."))
+    : keys.map((k) => `
+      <tr>
+        <td style="font-weight:600">${esc(k.name)}</td>
+        <td><code>${esc(k.key_prefix)}...</code></td>
+        <td>${esc(fmtDate(k.created_at))}</td>
+        <td>${esc(k.last_used_at ? fmtRelative(k.last_used_at) : t("core.apiKeys.neverUsed", "Never"))}</td>
+        <td>
+          <button class="btn outline sm danger" data-action="revoke-api-key" data-id="${esc(k.id)}" data-name="${esc(k.name)}">
+            ${icon("trash")}${esc(t("core.action.revoke", "Revoke"))}
+          </button>
+        </td>
+      </tr>
+    `).join("");
+
   c.innerHTML = `${pageHead({
     title: t("core.account.title", "Account"),
     sub: t("core.account.sub", "Change your own login credentials. They apply to every site on this install."),
     crumbs: [{ label: t("core.account.title", "Account") }],
   })}
-  <div class="panel" style="max-width:34rem">
-    <h2 style="font-size:1rem;font-weight:600;margin-bottom:1rem">${esc(t("core.account.changePassword", "Change password"))}</h2>
-    <div class="field"><label for="acc-cur">${esc(t("core.account.currentPassword", "Current password"))}</label>
-      <input id="acc-cur" type="password" autocomplete="current-password"></div>
-    <div class="field"><label for="acc-new">${esc(t("core.account.newPassword", "New password"))}</label>
-      <input id="acc-new" type="password" autocomplete="new-password"></div>
-    <div class="field" style="margin-bottom:1rem"><label for="acc-confirm">${esc(t("core.account.confirmPassword", "Confirm new password"))}</label>
-      <input id="acc-confirm" type="password" autocomplete="new-password"></div>
-    <button class="btn primary" data-action="account-password">${icon("key-round")}${esc(t("core.account.changePassword", "Change password"))}</button>
-  </div>
-  <div class="panel" style="max-width:34rem;margin-top:1rem">
-    <h2 style="font-size:1rem;font-weight:600;margin-bottom:1rem">${esc(t("core.account.changeUsername", "Change username"))}</h2>
-    <div class="field"><label for="acc-user">${esc(t("core.account.username", "Username"))}</label>
-      <input id="acc-user" value="${esc(state.user?.username || "")}" autocomplete="username">
-      <span class="hint">${esc(t("core.account.usernameHint", "3–32 characters: letters, digits, dot, dash, underscore."))}</span></div>
-    <div class="field" style="margin-bottom:1rem"><label for="acc-user-cur">${esc(t("core.account.currentPassword", "Current password"))}</label>
-      <input id="acc-user-cur" type="password" autocomplete="current-password"></div>
-    <button class="btn primary" data-action="account-username">${icon("user")}${esc(t("core.account.changeUsername", "Change username"))}</button>
+  <div style="display:flex;flex-direction:column;gap:1.5rem;max-width:56rem">
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1rem">
+        <div>
+          <h2 style="font-size:1rem;font-weight:600;margin:0 0 .25rem">${esc(t("core.apiKeys.title", "API Keys"))}</h2>
+          <p style="color:var(--muted);font-size:.875rem;margin:0">${esc(t("core.apiKeys.sub", "Create API keys for AI assistants, agents, or remote scripts to access CFPress APIs."))}</p>
+        </div>
+        <button class="btn primary sm" data-action="account-new-apikey">
+          ${icon("plus")}${esc(t("core.apiKeys.createBtn", "Create Key"))}
+        </button>
+      </div>
+
+      <div style="margin-bottom:1rem;padding:.75rem 1rem;background:var(--accent);border-radius:var(--radius);font-size:.85rem;display:flex;justify-content:space-between;align-items:center">
+        <span>${icon("sparkles")} <strong>OpenAPI 3.1 Spec</strong>: <code style="margin-left:.25rem">/api/v1/openapi.json</code></span>
+        <a class="btn outline sm" href="${window.CFP_ADMIN_BASE ? window.CFP_ADMIN_BASE.replace(/\/admin.*$/, "") : ""}/api/v1/openapi.json" target="_blank" rel="noopener">
+          ${icon("external")} ${esc(t("core.apiKeys.viewOpenApi", "View OpenAPI Spec"))}
+        </a>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>${esc(t("core.apiKeys.name", "Name"))}</th>
+              <th>${esc(t("core.apiKeys.prefix", "Prefix"))}</th>
+              <th>${esc(t("core.apiKeys.created", "Created"))}</th>
+              <th>${esc(t("core.apiKeys.lastUsed", "Last used"))}</th>
+              <th style="width:5rem">${esc(t("core.action.actions", "Actions"))}</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${keyRows}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel" style="max-width:34rem">
+      <h2 style="font-size:1rem;font-weight:600;margin-bottom:1rem">${esc(t("core.account.changePassword", "Change password"))}</h2>
+      <div class="field"><label for="acc-cur">${esc(t("core.account.currentPassword", "Current password"))}</label>
+        <input id="acc-cur" type="password" autocomplete="current-password"></div>
+      <div class="field"><label for="acc-new">${esc(t("core.account.newPassword", "New password"))}</label>
+        <input id="acc-new" type="password" autocomplete="new-password"></div>
+      <div class="field" style="margin-bottom:1rem"><label for="acc-confirm">${esc(t("core.account.confirmPassword", "Confirm new password"))}</label>
+        <input id="acc-confirm" type="password" autocomplete="new-password"></div>
+      <button class="btn primary" data-action="account-password">${icon("key-round")}${esc(t("core.account.changePassword", "Change password"))}</button>
+    </div>
+
+    <div class="panel" style="max-width:34rem">
+      <h2 style="font-size:1rem;font-weight:600;margin-bottom:1rem">${esc(t("core.account.changeUsername", "Change username"))}</h2>
+      <div class="field"><label for="acc-user">${esc(t("core.account.username", "Username"))}</label>
+        <input id="acc-user" value="${esc(state.user?.username || "")}" autocomplete="username">
+        <span class="hint">${esc(t("core.account.usernameHint", "3–32 characters: letters, digits, dot, dash, underscore."))}</span></div>
+      <div class="field" style="margin-bottom:1rem"><label for="acc-user-cur">${esc(t("core.account.currentPassword", "Current password"))}</label>
+        <input id="acc-user-cur" type="password" autocomplete="current-password"></div>
+      <button class="btn primary" data-action="account-username">${icon("user")}${esc(t("core.account.changeUsername", "Change username"))}</button>
+    </div>
   </div>`;
 }
 
@@ -54,6 +117,70 @@ function explain(code) {
 document.addEventListener("click", async (e) => {
   const btn = e.target.closest("[data-action]");
   if (!btn) return;
+
+  if (btn.dataset.action === "account-new-apikey") {
+    const vals = await openDialog({
+      title: t("core.apiKeys.createTitle", "Create API Key"),
+      description: t("core.apiKeys.createSub", "Generate an API Key for an external AI Agent or integration."),
+      fields: [
+        { name: "name", label: t("core.apiKeys.keyName", "Key name"), placeholder: "e.g. Cursor / Claude / Script", required: true },
+      ],
+      confirmLabel: t("core.action.create", "Create"),
+    });
+    if (!vals || !vals.name) return;
+
+    try {
+      const res = await api("auth/api-keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: vals.name }),
+      });
+      if (res.error) {
+        await alertDialog({ title: t("core.apiKeys.createTitle", "Create API Key"), description: res.error });
+        return;
+      }
+      await openDialog({
+        title: t("core.apiKeys.createdTitle", "API Key Created"),
+        description: t("core.apiKeys.createdHint", "Copy your API key now. You will not be able to see it again!"),
+        confirmLabel: t("core.action.ok", "OK"),
+        fields: [],
+        bodyHtml: `
+          <div style="margin:1rem 0">
+            <input type="text" readonly value="${esc(res.token)}" id="new-token-val" style="width:100%;font-family:monospace;padding:.5rem;background:var(--accent);border:1px solid var(--border);border-radius:var(--radius);font-size:.85rem;user-select:all" onclick="this.select()">
+          </div>
+        `,
+      });
+      render();
+    } catch (err) {
+      await alertDialog({ title: t("core.apiKeys.createTitle", "Create API Key"), description: err.message });
+    }
+    return;
+  }
+
+  if (btn.dataset.action === "revoke-api-key") {
+    const id = btn.dataset.id;
+    const name = btn.dataset.name;
+    const ok = await confirmDialog({
+      title: t("core.apiKeys.revokeTitle", "Revoke API Key"),
+      description: t("core.apiKeys.revokeConfirm", `Are you sure you want to revoke the key "${name}"? Any agent using it will immediately lose access.`),
+      confirmLabel: t("core.action.revoke", "Revoke"),
+      danger: true,
+    });
+    if (!ok) return;
+
+    try {
+      const res = await api(`auth/api-keys/${id}`, { method: "DELETE" });
+      if (res.error) {
+        await alertDialog({ title: t("core.apiKeys.revokeTitle", "Revoke API Key"), description: res.error });
+        return;
+      }
+      toast(t("core.apiKeys.revokedToast", "API key revoked."));
+      render();
+    } catch (err) {
+      await alertDialog({ title: t("core.apiKeys.revokeTitle", "Revoke API Key"), description: err.message });
+    }
+    return;
+  }
 
   if (btn.dataset.action === "account-password") {
     const cur = document.querySelector("#acc-cur")?.value ?? "";

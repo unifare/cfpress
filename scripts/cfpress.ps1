@@ -349,6 +349,7 @@ $Script:Suites = [ordered]@{
     'hook-tester'        = 'tests/suites/hook-tester.test.mjs'
     'shop-theme'         = 'tests/suites/shop-theme.test.mjs'
     'theme-assets'       = 'tests/suites/theme-assets.test.mjs'
+    'api-keys'           = 'tests/suites/api-keys.test.mjs'
     'launcher-parity'    = 'tests/suites/launcher-parity.test.mjs'
 }
 

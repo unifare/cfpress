@@ -90,6 +90,16 @@ export async function can(
   permission: string,
   siteId: string
 ): Promise<boolean> {
+  // If request is authenticated via an API Key, check key-level scope and site boundaries first
+  if (user.apiKeyId) {
+    if (user.sites && !user.sites.includes("*") && !user.sites.includes(siteId)) {
+      return false;
+    }
+    if (user.scopes && !user.scopes.includes("*") && !user.scopes.includes(permission)) {
+      return false;
+    }
+  }
+
   // Install-wide first: a superadmin may act on every site, including one
   // created after their role was granted. Nothing else short-circuits.
   if (user.role === SUPERADMIN_ROLE) return true;
@@ -136,6 +146,9 @@ export async function requirePermission(
  * than appearing there and failing on first click.
  */
 export async function accessibleSiteIds(env: Env, user: SessionUser): Promise<string[] | null> {
+  if (user.apiKeyId && user.sites && !user.sites.includes("*")) {
+    return user.sites;
+  }
   if (user.role === SUPERADMIN_ROLE) return null; // null = every site
   const rows = await env.DB.prepare(
     "SELECT site_id FROM site_users_sites WHERE user_id = ? ORDER BY site_id"

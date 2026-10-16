@@ -38,6 +38,8 @@ import { mediaProviderOf, isMediaStorageProvider, remoteObjectKey, readMediaStor
 import { invalidateThemeWorker } from "./extensions/theme/runtime-worker";
 import {applyThemeCapabilities, clearThemeCapabilities, listPostTypes, listTaxonomies, listRoutes, listThemeAdminMenus, listThemeBlocks, listFieldDefs, themeSettings, parseSettingOptions} from "./extensions/theme/capabilities";
 import { listThemeFiles, readThemeFile, writeThemeFile, deleteThemeFile, copyTheme, exportThemeZip } from "./extensions/theme/assets";
+import { authenticateApiKey, createApiKey, listApiKeys, revokeApiKey } from "./platform/api-keys";
+import { generateOpenApiSchema } from "./platform/openapi";
 import {
   availableUiLocaleEntries,
   availableUiLocales,
@@ -247,7 +249,11 @@ function siteParamMalformed(url: URL): boolean {
  * not "may do X here". Write paths keep their own `requirePermission` check
  * on top; reads need at least this.
  */
-async function requireSiteAccess(env: Env, user: { id: string; role: string }, siteId: string): Promise<boolean> {
+async function requireSiteAccess(env: Env, user: { id: string; role: string; apiKeyId?: string; sites?: string[] }, siteId: string): Promise<boolean> {
+  // Machine-to-machine API keys: if bound to specific sites, that limit applies even to superadmin keys
+  if (user.apiKeyId && Array.isArray(user.sites) && !user.sites.includes("*") && !user.sites.includes(siteId)) {
+    return false;
+  }
   if (user.role === SUPERADMIN_ROLE) return true;
   const allowed = await accessibleSiteIds(env, user as any);
   return allowed !== null && allowed.includes(siteId);
@@ -1773,17 +1779,31 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   const method = request.method;
 
   if (path === "health" && method === "GET") return ok({ ok: true, version: "0.7.0" });
+  if ((path === "openapi.json" || path === "openapi") && method === "GET") {
+    return ok(generateOpenApiSchema(url.origin));
+  }
   // ⚠️ 登录端点已迁至 `/{admin.path}/api/login`（见 index.ts）——这里是后台唯一
   // 未鉴权、可被爆破的端点，因此必须与后台前缀一起隐身。旧路径一律 404。
   if (path === "auth/logout" && method === "POST") return logout(env, request, await adminPath(env));
+
+  let user: SessionUser | null = null;
+  const authHeader = request.headers.get("Authorization") || "";
+  if (authHeader.startsWith("Bearer cfp_")) {
+    const apiKeyUser = await authenticateApiKey(env, authHeader.slice(7).trim());
+    if (!apiKeyUser) return ok({ error: "Unauthorized" }, 401);
+    user = apiKeyUser;
+  } else {
+    const adminUser = await currentUser(env, request);
+    if (adminUser) user = adminUser;
+  }
+
   if (path === "auth/me" && method === "GET") {
-    const user = await currentUser(env, request);
     return user ? ok({ user }) : ok({ user: null }, 401);
   }
 
-  const auth = await requireAdmin(env, request);
-  if (auth instanceof Response) return auth;
-  const user = auth;
+  if (!user) {
+    return ok({ error: "Unauthorized" }, 401);
+  }
   const siteId = requestSiteId(url);
   // Malformed `?site=` never falls back to another tenant's data (MS-2.4).
   if (siteParamMalformed(url)) return ok({ error: "invalid site" }, 400);
@@ -1880,6 +1900,31 @@ async function dispatchAuthAdminRoutes(
     await setMenuPrefs(env, user.id, hidden);
     await activity(env, user.id, "update", "menu_prefs", user.id, { count: hidden.length });
     return ok({ ok: true, hidden });
+  }
+
+  // -- machine-to-machine API keys (for AI Agents and automation) ----------
+  if (path === "auth/api-keys" && method === "GET") {
+    const keys = await listApiKeys(env, user.role === SUPERADMIN_ROLE ? undefined : user.id);
+    return ok({ items: keys, keys });
+  }
+  if (path === "auth/api-keys" && method === "POST") {
+    const b = await jsonBody(request);
+    const name = String(b.name || "").trim();
+    if (!name) return ok({ error: "Name is required" }, 400);
+    const scopes = Array.isArray(b.scopes) ? b.scopes.map(String) : ["*"];
+    const sites = Array.isArray(b.sites) ? b.sites.map(String) : ["*"];
+    const expiresInDays = b.expires_in_days ? Number(b.expires_in_days) : null;
+    const created = await createApiKey(env, user.id, name, scopes, sites, expiresInDays);
+    await activity(env, user.id, "create", "api_key", created.id, { name, scopes, sites });
+    return ok({ key: created, token: created.token, ...created }, 201);
+  }
+  const matchRevokeKey = path.match(/^auth\/api-keys\/([^/]+)$/);
+  if (matchRevokeKey && method === "DELETE") {
+    const keyId = decodeURIComponent(matchRevokeKey[1]);
+    const success = await revokeApiKey(env, keyId, user.role === SUPERADMIN_ROLE ? undefined : user.id);
+    if (!success) return ok({ error: "API key not found" }, 404);
+    await activity(env, user.id, "revoke", "api_key", keyId, {});
+    return ok({ ok: true });
   }
 
   return null;

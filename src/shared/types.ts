@@ -65,6 +65,9 @@ export interface User {
 
 export interface SessionUser extends User {
   sessionId: string;
+  apiKeyId?: string;
+  scopes?: string[];
+  sites?: string[];
 }
 
 export type Json = string | number | boolean | null | Json[] | { [key: string]: Json };

@@ -125,6 +125,7 @@ export function baseGroups() {
         { key: "urls", title: t("core.nav.urls", "URL Manager"), icon: "route", active: core("urls") },
         { key: "settings", title: t("core.nav.settings", "Settings"), icon: "settings", active: core("settings") },
         { key: "features", title: t("core.nav.features", "Features"), icon: "sliders-horizontal", active: core("features") },
+        { key: "api-keys", title: t("core.nav.apiKeys", "AI & API Keys"), icon: "sparkles", active: core("api-keys") },
       ],
     },
   ];

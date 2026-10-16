@@ -28,6 +28,7 @@ import { tableListScreen } from "./table-list.js";
 import { tableEditScreen } from "./table-edit.js";
 import { pluginPageScreen } from "./plugin-page.js";
 import { themeAssetsScreen } from "./theme-assets.js";
+import apiKeys from "./api-keys.js";
 
 export const SCREENS = {
   dashboard,
@@ -49,6 +50,7 @@ export const SCREENS = {
   urls,
   settings,
   features,
+  "api-keys": apiKeys,
 
   // Targets of the dynamic `cpt:` / `menu:` / `table:` prefixes, resolved by
   // the shell. `table-list` and `table-edit` are also registered directly so

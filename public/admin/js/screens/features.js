@@ -38,12 +38,16 @@ import { api, scoped, state } from "../state.js";
 import { pageHead } from "../shell.js";
 import { icon } from "../../icons.js";
 import { attr, esc, toast, confirmDialog } from "../../ui.js";
+import { t } from "../i18n.js";
 
-const SOURCE_LABEL = {
-  site: "set for this site",
-  var: "from wrangler config",
-  default: "platform default",
-};
+function sourceLabel(source) {
+  const map = {
+    site: t("core.features.sourceSite", "set for this site"),
+    var: t("core.features.sourceVar", "from wrangler config"),
+    default: t("core.features.sourceDefault", "platform default"),
+  };
+  return map[source] || source;
+}
 
 /** Reads are cheap but not free; render from state once loaded so the row
  *  markup and the click handler cannot disagree about a switch's value. */
@@ -62,14 +66,14 @@ export default async function features(c) {
         <div style="display:flex;gap:1rem;align-items:flex-start;justify-content:space-between">
           <div style="flex:1;min-width:0">
             <div class="card-title" style="margin-bottom:.25rem">${esc(x.label)}</div>
-            <div class="muted text-sm">key <code>${esc(x.key)}</code> · ${esc(SOURCE_LABEL[x.source] || x.source)}${
+            <div class="muted text-sm">key <code>${esc(x.key)}</code> · ${esc(sourceLabel(x.source))}${
               overridden
-                ? ` <button class="btn outline sm" data-feature-reset="${attr(x.key)}" style="margin-left:.5rem">Reset to inherited</button>`
+                ? ` <button class="btn outline sm" data-feature-reset="${attr(x.key)}" style="margin-left:.5rem">${esc(t("core.features.resetBtn", "Reset to inherited"))}</button>`
                 : ""
             }</div>
             <div class="muted text-sm" style="margin-top:.35rem">
-              Deploy fallback <code>${esc(x.var)}</code> · default <b>${x.default_on ? "on" : "off"}</b>
-              ${x.inherited && x.inherited.source === "var" ? ` · config says <b>${x.inherited.enabled ? "on" : "off"}</b>` : ""}
+              ${esc(t("core.features.deployFallback", "Deploy fallback"))} <code>${esc(x.var)}</code> · ${esc(t("core.features.default", "default"))} <b>${x.default_on ? esc(t("core.features.on", "on")) : esc(t("core.features.off", "off"))}</b>
+              ${x.inherited && x.inherited.source === "var" ? ` · ${esc(t("core.features.configSays", "config says"))} <b>${x.inherited.enabled ? esc(t("core.features.on", "on")) : esc(t("core.features.off", "off"))}</b>` : ""}
             </div>
           </div>
           <button class="btn ${x.enabled ? "primary" : "outline"}"
@@ -77,7 +81,7 @@ export default async function features(c) {
                   data-feature-on="${x.enabled ? "1" : "0"}"
                   aria-pressed="${x.enabled ? "true" : "false"}"
                   style="flex:0 0 auto">
-            ${icon(x.enabled ? "check" : "x")}${x.enabled ? "On" : "Off"}
+            ${icon(x.enabled ? "check" : "x")}${x.enabled ? esc(t("core.features.on", "On")) : esc(t("core.features.off", "Off"))}
           </button>
         </div>
       </div>`;
@@ -85,16 +89,16 @@ export default async function features(c) {
     .join("");
 
   c.innerHTML = `${pageHead({
-    title: "Features",
-    sub: `Platform capability switches · ${site?.name || state.site}`,
-    crumbs: [{ label: "Tools" }, { label: "Features" }],
+    title: t("core.features.title", "Features"),
+    sub: `${t("core.features.sub", "Platform capability switches")} · ${site?.name || state.site}`,
+    crumbs: [{ label: t("core.nav.tools", "Tools") }, { label: t("core.features.title", "Features") }],
   })}
   <div class="panel" style="margin-bottom:1rem">
-    <div class="card-desc">These switches are stored per site and take effect on the next request — no redeploy. A site with no stored value inherits the wrangler config, then the platform default. All default to <b>off</b>.</div>
+    <div class="card-desc">${esc(t("core.features.panelDesc", "These switches are stored per site and take effect on the next request — no redeploy. A site with no stored value inherits the wrangler config, then the platform default. All default to off."))}</div>
   </div>
-  ${rows || `<div class="panel"><div class="empty">No feature switches are declared.</div></div>`}
-  <p class="muted text-sm">Turning <code>cache_mirror_kv</code> off stops the mirror being written. Values already mirrored stay readable, so switching it off never orphans cached entries — and switching it on cannot resurrect a stale one, because the authoritative version lives in the database either way.</p>
-  <p class="muted text-sm"><code>ui_locale_follow_site</code> off is the platform default: the interface-language menu offers every language the platform knows, so an English-only site whose owner reads Chinese can still read the admin in Chinese. Turning it on narrows that menu to the languages this site serves — and with it the set the server will accept, because the menu and the validation set are one definition.</p>`;
+  ${rows || `<div class="panel"><div class="empty">${esc(t("core.features.empty", "No feature switches are declared."))}</div></div>`}
+  <p class="muted text-sm">${esc(t("core.features.cacheMirrorNote", "Turning cache_mirror_kv off stops the mirror being written. Values already mirrored stay readable, so switching it off never orphans cached entries — and switching it on cannot resurrect a stale one, because the authoritative version lives in the database either way."))}</p>
+  <p class="muted text-sm">${esc(t("core.features.uiLocaleNote", "ui_locale_follow_site off is the platform default: the interface-language menu offers every language the platform knows, so an English-only site whose owner reads Chinese can still read the admin in Chinese. Turning it on narrows that menu to the languages this site serves — and with it the set the server will accept, because the menu and the validation set are one definition."))}</p>`;
 }
 
 async function saveFeature(key, value) {

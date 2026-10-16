@@ -291,7 +291,11 @@ export async function copyTheme(
   destTitle: string,
   userId: string
 ): Promise<{ ok: boolean; name: string; title: string; files: number }> {
-  const cleanName = String(destThemeName || "").trim().toLowerCase();
+  let cleanName = String(destThemeName || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  if (!cleanName) cleanName = `${srcThemeName}-copy`;
+  if (cleanName.length < 2) cleanName = `${cleanName}-v2`;
+  if (cleanName.length > 32) cleanName = cleanName.slice(0, 32);
+
   if (!/^[a-z0-9_-]{2,32}$/.test(cleanName)) {
     throw new Error("New theme identifier must be 2-32 lowercase characters (a-z, 0-9, _, -)");
   }

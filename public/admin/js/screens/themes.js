@@ -160,7 +160,9 @@ document.addEventListener("click", async (e) => {
     const defaultNewName = `${srcName}-copy`;
     const newName = window.prompt(t("core.themes.promptCloneName", "Enter identifier for the new theme (lowercase, numbers, hyphen):"), defaultNewName);
     if (!newName) return;
-    const clean = newName.trim().toLowerCase();
+    let clean = (newName || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+    if (!clean || clean.length < 2) clean = `${srcName}-copy`;
+    if (clean.length > 32) clean = clean.slice(0, 32);
     const newTitle = window.prompt(t("core.themes.promptCloneTitle", "Enter title for the new theme:"), `${srcName.toUpperCase()} Custom`);
 
     try {

@@ -143,8 +143,8 @@ function renderLayout(c, themeInfo, isBundled) {
             </div>
             <div style="display:flex;align-items:center;gap:.5rem">
               ${!activeFile.readonly ? `
-                <button class="btn outline danger sm" data-file-delete="${attr(activeFile.path)}">${icon("trash")}${esc(t("core.crud.delete", "Delete"))}</button>
-                <button class="btn primary sm" data-file-save id="btnSaveFile">${icon("check")}${esc(t("core.crud.save", "Save"))} <span class="muted" style="font-size:.7rem">(Ctrl+S)</span></button>
+                <button class="btn outline danger sm" data-file-delete="${attr(activeFile.path)}">${icon("trash")}${esc(t("core.action.delete", "Delete"))}</button>
+                <button class="btn primary sm" data-file-save id="btnSaveFile">${icon("check")}${esc(t("core.action.save", "Save"))} <span class="muted" style="font-size:.7rem">(Ctrl+S)</span></button>
               ` : `
                 <button class="btn outline sm" data-theme-clone="${attr(currentTheme)}">${icon("copy")}${esc(t("core.themes.duplicateTheme", "Duplicate theme"))}</button>
               `}
@@ -229,7 +229,9 @@ document.addEventListener("click", async (e) => {
     const defaultNewName = `${srcName}-copy`;
     const newName = window.prompt(t("core.themes.promptCloneName", "Enter identifier for the new theme (lowercase, numbers, hyphen):"), defaultNewName);
     if (!newName) return;
-    const clean = newName.trim().toLowerCase();
+    let clean = (newName || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+    if (!clean || clean.length < 2) clean = `${srcName}-copy`;
+    if (clean.length > 32) clean = clean.slice(0, 32);
     const newTitle = window.prompt(t("core.themes.promptCloneTitle", "Enter title for the new theme:"), `${srcName.toUpperCase()} Custom`);
 
     try {
@@ -281,7 +283,7 @@ document.addEventListener("click", async (e) => {
     const ok = await confirmDialog({
       title: t("core.themes.deleteFileTitle", "Delete this file?"),
       description: t("core.themes.deleteFileDesc", "Are you sure you want to delete {path}?", { path: p }),
-      confirmLabel: t("core.crud.delete", "Delete"),
+      confirmLabel: t("core.action.delete", "Delete"),
     });
     if (!ok) return;
 

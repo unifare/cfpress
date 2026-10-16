@@ -13,6 +13,9 @@ import { t } from "../i18n.js";
 import { attr, confirmDialog, emptyRow, esc, fmtDate, statusBadge, toast } from "../../ui.js";
 import { formatValue } from "../table-form.js";
 
+/** Active locale filter for the current list view. */
+let tableLocaleFilter = "";
+
 /** The menu that pointed here, so the page can borrow its label. */
 function menuForTable(logical) {
   return state.adminMenus.find(
@@ -34,7 +37,10 @@ export async function tableListScreen(c, table) {
     return;
   }
 
-  const d = await api(scoped(`theme-tables/${encodeURIComponent(logical)}?limit=100`));
+  const query = tableLocaleFilter
+    ? `?locale=${encodeURIComponent(tableLocaleFilter)}&limit=100`
+    : "?limit=100";
+  const d = await api(scoped(`theme-tables/${encodeURIComponent(logical)}${query}`));
   const def = d.def;
   if (!def) {
     notice(c, logical, t("core.table.notDeclared", "No table named “{name}” is declared for this site.", { name: logical }));
@@ -45,9 +51,22 @@ export async function tableListScreen(c, table) {
   const title = menu?.label || def.label || logical;
   const fields = Array.isArray(def.fields) ? def.fields : [];
   const rows = Array.isArray(d.items) ? d.items : [];
+  const translatable = Array.isArray(def.translatable) ? def.translatable : [];
 
-  const head = [t("core.content.slug", "Slug"), ...fields.map((f) => String(f.label || f.key)), t("core.content.status", "Status"), t("core.content.updated", "Updated"), ""]
-    .map((h) => `<th>${esc(h)}</th>`)
+  const head = [
+    t("core.content.slug", "Slug"),
+    ...fields.map((f) => {
+      const lbl = String(f.label || f.key);
+      const isI18n = translatable.includes(f.key);
+      return isI18n
+        ? `${lbl} <span class="badge sm primary" style="font-size:0.65rem;margin-left:2px;vertical-align:middle;">i18n</span>`
+        : lbl;
+    }),
+    t("core.content.status", "Status"),
+    t("core.content.updated", "Updated"),
+    "",
+  ]
+    .map((h) => `<th>${h.includes("<span") ? h : esc(h)}</th>`)
     .join("");
 
   const body = rows
@@ -69,10 +88,19 @@ export async function tableListScreen(c, table) {
     })
     .join("");
 
+  // Locale filter control when the site has multiple languages enabled
+  const hasLocales = Array.isArray(state.locales) && state.locales.length > 1;
+  const localeFilterHtml = hasLocales
+    ? `<select class="input sm" data-table-filter-locale="${attr(logical)}" style="width:auto;margin-right:0.5rem;vertical-align:middle;">
+        <option value=""${!tableLocaleFilter ? " selected" : ""}>${esc(t("core.content.localeDefault", "Default language ({locale})", { locale: state.defaultLocale }))}</option>
+        ${state.locales.map((l) => `<option value="${attr(l)}"${l === tableLocaleFilter ? " selected" : ""}>${esc(l)}</option>`).join("")}
+       </select>`
+    : "";
+
   c.innerHTML = `${pageHead({
     title,
     sub: `${rows.length === 1 ? t("core.table.rowsOne", "1 row") : t("core.table.rowsMany", "{n} rows", { n: rows.length })} · ${t("core.table.tableName", "table {name}", { name: def.table_name })}`,
-    actions: `<button class="btn primary" data-table-new="${attr(logical)}">${icon("plus")}${esc(t("core.table.add", "Add"))}</button>`,
+    actions: `${localeFilterHtml}<button class="btn primary" data-table-new="${attr(logical)}">${icon("plus")}${esc(t("core.table.add", "Add"))}</button>`,
     crumbs: [{ label: t("core.nav.fromTheme", "From theme") }, { label: title }],
   })}
   <div class="table-wrap"><table class="table">
@@ -120,5 +148,14 @@ document.addEventListener("click", async (e) => {
     } catch (err) {
       toast(err.message || t("core.table.deleteFailed", "Delete failed"), "error");
     }
+  }
+});
+
+document.addEventListener("change", async (e) => {
+  const sel = e.target.closest("[data-table-filter-locale]");
+  if (sel) {
+    tableLocaleFilter = sel.value;
+    const c = document.querySelector("#content");
+    if (c) await tableListScreen(c, sel.dataset.tableFilterLocale);
   }
 });

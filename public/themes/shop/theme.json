@@ -24,6 +24,9 @@
     "single-product",
     "cart",
     "checkout",
+    "login",
+    "register",
+    "account",
     "single",
     "page",
     "404"
@@ -38,6 +41,13 @@
     "en"
   ],
   "routes": [
+    {
+      "path": "/",
+      "template": "home",
+      "title": "Aura Commerce",
+      "resolve": { "table": "product" },
+      "query": { "as": "products", "limit": 8 }
+    },
     {
       "path": "/products",
       "template": "archive-product",
@@ -60,6 +70,21 @@
       "path": "/checkout",
       "template": "checkout",
       "title": "Checkout"
+    },
+    {
+      "path": "/login",
+      "template": "login",
+      "title": "Sign In"
+    },
+    {
+      "path": "/register",
+      "template": "register",
+      "title": "Register"
+    },
+    {
+      "path": "/account",
+      "template": "account",
+      "title": "Account"
     }
   ],
   "tables": [

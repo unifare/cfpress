@@ -30,7 +30,7 @@
     </a>
 
     {{#if member}}
-      <a class="btn outline" href="/{{locale}}/account" style="padding: 0.45rem 1rem; font-size: 0.88rem;">{{member.display_name}}</a>
+      <a class="btn outline" href="/{{locale}}/account" style="padding: 0.45rem 1rem; font-size: 0.88rem;">👤 {{member.display_name}}</a>
     {{else}}
       <a class="btn outline" href="/{{locale}}/login" style="padding: 0.45rem 1rem; font-size: 0.88rem;">{{default(theme.strings.nav.login, "Sign In")}}</a>
     {{/if}}

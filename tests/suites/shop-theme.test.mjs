@@ -85,7 +85,7 @@ async function main() {
   section("3. Admin Menus & Routes");
   check("declares 3 business admin menus", manifest.adminMenus.length, 3);
   check("menu targets are valid", manifest.adminMenus.map(m => m.args?.table).sort(), ["order", "product", "product"]);
-  check("declares routes for product catalog and cart", manifest.routes.map(r => r.path).sort(), ["/cart", "/checkout", "/products", "/products/:slug"]);
+  check("declares routes for product catalog and cart", manifest.routes.map(r => r.path).sort(), ["/", "/account", "/cart", "/checkout", "/login", "/products", "/products/:slug", "/register"]);
 
   section("4. Templates & Parts Rendering");
   const { renderTemplateSource } = await bundle("src/rendering/template-engine.ts", "shop-engine.mjs");

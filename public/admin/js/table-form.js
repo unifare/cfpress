@@ -15,6 +15,7 @@
  * screens may not import each other.
  */
 import { attr, esc } from "../ui.js";
+import { t } from "./i18n.js";
 
 /** The six types `ALLOWED_TABLE_FIELD_TYPES` accepts, mapped to a control. */
 const CONTROL = {
@@ -47,23 +48,30 @@ function isTruthy(v) {
 }
 
 /** One labelled control for a declared field. */
-export function fieldControl(field, value) {
+export function fieldControl(field, value, isTranslatable = false, showI18nBadge = false) {
   const key = String(field.key);
   const label = String(field.label || field.key);
   const type = String(field.type || "text");
   const control = CONTROL[type] || "text";
   const required = field.required ? " required" : "";
 
+  let badgeHtml = "";
+  if (showI18nBadge) {
+    badgeHtml = isTranslatable
+      ? ` <span class="badge sm primary" style="font-size:0.65rem;margin-left:4px;vertical-align:middle;">i18n</span>`
+      : ` <span class="badge sm outline muted" style="font-size:0.65rem;margin-left:4px;vertical-align:middle;">${esc(t("core.table.sharedField", "shared"))}</span>`;
+  }
+
   if (control === "textarea") {
-    return `<div class="field"><label>${esc(label)}</label><textarea data-tf="${attr(key)}" rows="4"${required}>${esc(value ?? "")}</textarea></div>`;
+    return `<div class="field"><label>${esc(label)}${badgeHtml}</label><textarea data-tf="${attr(key)}" rows="4"${required}>${esc(value ?? "")}</textarea></div>`;
   }
   if (control === "checkbox") {
-    return `<div class="field"><label style="display:flex;gap:.5rem;align-items:center"><input type="checkbox" data-tf="${attr(key)}"${isTruthy(value) ? " checked" : ""}> ${esc(label)}</label></div>`;
+    return `<div class="field"><label style="display:flex;gap:.5rem;align-items:center"><input type="checkbox" data-tf="${attr(key)}"${isTruthy(value) ? " checked" : ""}> ${esc(label)}${badgeHtml}</label></div>`;
   }
   if (control === "datetime-local") {
-    return `<div class="field"><label>${esc(label)}</label><input type="datetime-local" data-tf="${attr(key)}" value="${attr(toLocalInput(value))}"${required}></div>`;
+    return `<div class="field"><label>${esc(label)}${badgeHtml}</label><input type="datetime-local" data-tf="${attr(key)}" value="${attr(toLocalInput(value))}"${required}></div>`;
   }
-  return `<div class="field"><label>${esc(label)}</label><input type="${control}" data-tf="${attr(key)}" value="${attr(value ?? "")}"${required}></div>`;
+  return `<div class="field"><label>${esc(label)}${badgeHtml}</label><input type="${control}" data-tf="${attr(key)}" value="${attr(value ?? "")}"${required}></div>`;
 }
 
 /**

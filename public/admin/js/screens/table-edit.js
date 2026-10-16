@@ -23,6 +23,9 @@ import { collectForm, fieldControl, slugControl, statusControl } from "../table-
  */
 let currentFields = [];
 
+/** The active locale currently being edited. */
+let activeEditLocale = "";
+
 function menuForTable(logical) {
   return state.adminMenus.find(
     (m) => m.args?.table === logical && (m.screen === "table-list" || m.screen === "table-edit")
@@ -34,24 +37,33 @@ function notice(c, title, body) {
   <div class="panel"><div class="empty">${esc(body)}</div></div>`;
 }
 
-export async function tableEditScreen(c, table, slug) {
+export async function tableEditScreen(c, table, slug, requestedLocale) {
   const logical = String(table ?? "").trim();
   if (!logical) {
     notice(c, t("core.table.notice", "Table"), t("core.table.needsName", "This screen needs a table name. Declare it as args.table on the menu."));
     return;
   }
 
+  // Determine active locale
+  if (requestedLocale) {
+    activeEditLocale = requestedLocale;
+  } else if (!activeEditLocale || (state.locales && !state.locales.includes(activeEditLocale))) {
+    activeEditLocale = state.defaultLocale || (state.locales && state.locales[0]) || "";
+  }
+
   const wanted = String(slug ?? "").trim();
   let def = null;
   let row = null;
 
+  const locQuery = activeEditLocale ? `?locale=${encodeURIComponent(activeEditLocale)}` : "";
+
   if (wanted) {
-    const d = await api(scoped(`theme-tables/${encodeURIComponent(logical)}/${encodeURIComponent(wanted)}`));
+    const d = await api(scoped(`theme-tables/${encodeURIComponent(logical)}/${encodeURIComponent(wanted)}${locQuery}`));
     def = d.def ?? null;
     row = d.row ?? null;
   } else {
     // A brand-new row still needs the declaration to know which fields exist.
-    const d = await api(scoped(`theme-tables/${encodeURIComponent(logical)}?limit=1`));
+    const d = await api(scoped(`theme-tables/${encodeURIComponent(logical)}${locQuery ? locQuery + "&limit=1" : "?limit=1"}`));
     def = d.def ?? null;
   }
 
@@ -66,10 +78,32 @@ export async function tableEditScreen(c, table, slug) {
 
   const fields = Array.isArray(def.fields) ? def.fields : [];
   currentFields = fields;
+  const translatable = Array.isArray(def.translatable) ? def.translatable : [];
+  const hasMultipleLocales = Array.isArray(state.locales) && state.locales.length > 1;
+  const showI18nBadges = hasMultipleLocales && translatable.length > 0;
 
   const menu = menuForTable(logical);
   const singular = menu?.label || def.label || logical;
   const title = wanted ? t("core.table.editTitle", "Edit {name}", { name: singular }) : t("core.table.newTitle", "New {name}", { name: singular });
+
+  // Locale switcher tabs bar
+  let localeTabsHtml = "";
+  if (showI18nBadges) {
+    const tabs = state.locales.map((loc) => {
+      const isCurrent = loc === activeEditLocale;
+      return `<button type="button" class="btn sm ${isCurrent ? "primary" : "outline"}" data-table-switch-locale="${attr(logical)}|${attr(wanted)}|${attr(loc)}">
+        ${esc(loc)}${loc === state.defaultLocale ? ` (${esc(t("core.editor.localeDefault", "default"))})` : ""}
+      </button>`;
+    }).join(" ");
+
+    localeTabsHtml = `<div class="panel" style="margin-bottom:1rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;padding:0.75rem 1.25rem;">
+      <span style="font-weight:600;font-size:0.88rem;color:var(--text-secondary);">${esc(t("core.table.filterLocale", "Language"))}:</span>
+      <div style="display:inline-flex;gap:0.4rem;">${tabs}</div>
+      <span class="muted text-sm" style="margin-left:auto;">
+        ${esc(t("core.table.i18nHint", "Fields marked with [i18n] are translated per language. Other fields are shared."))}
+      </span>
+    </div>`;
+  }
 
   const controls = [
     // The slug is the row's identity (`tableSave` upserts on it), so it is
@@ -78,28 +112,43 @@ export async function tableEditScreen(c, table, slug) {
     wanted
       ? `<div class="field"><label>${esc(t("core.content.slug", "Slug"))}</label><input type="text" value="${attr(wanted)}" disabled></div>`
       : slugControl(""),
-    ...fields.map((f) => fieldControl(f, row ? row[f.key] : undefined)),
+    ...fields.map((f) => {
+      const isTrans = translatable.includes(f.key);
+      return fieldControl(f, row ? row[f.key] : undefined, isTrans, showI18nBadges);
+    }),
     statusControl(row ? row.status : "draft"),
   ].join("");
 
   c.innerHTML = `${pageHead({
     title,
-    sub: t("core.table.tableName", "table {name}", { name: def.table_name }),
-    actions: `<button class="btn primary" data-table-save="${attr(logical)}" data-table-slug="${attr(wanted)}">${icon("save")}${esc(t("core.action.save", "Save"))}</button>`,
+    sub: `${t("core.table.tableName", "table {name}", { name: def.table_name })}${activeEditLocale ? ` · ${activeEditLocale}` : ""}`,
+    actions: `<button class="btn primary" data-table-save="${attr(logical)}" data-table-slug="${attr(wanted)}" data-table-locale="${attr(activeEditLocale)}">${icon("save")}${esc(t("core.action.save", "Save"))}</button>`,
     crumbs: [
       { label: t("core.nav.fromTheme", "From theme") },
       { label: singular },
       { label: wanted || t("core.table.new", "New") },
     ],
   })}
+  ${localeTabsHtml}
   <div class="panel"><div class="form-grid">${controls}</div></div>`;
 }
 
 document.addEventListener("click", async (e) => {
+  // Locale Switcher in table edit
+  const switchBtn = e.target.closest("[data-table-switch-locale]");
+  if (switchBtn) {
+    const [table, slug, loc] = String(switchBtn.dataset.tableSwitchLocale).split("|");
+    activeEditLocale = loc;
+    const c = document.querySelector("#content");
+    if (c) await tableEditScreen(c, table, slug, loc);
+    return;
+  }
+
   const save = e.target.closest("[data-table-save]");
   if (!save) return;
   const table = save.dataset.tableSave;
   const editing = save.dataset.tableSlug;
+  const loc = save.dataset.tableLocale || activeEditLocale;
 
   const root = document.querySelector("#content");
   const payload = collectForm(root, currentFields);
@@ -118,7 +167,8 @@ document.addEventListener("click", async (e) => {
   }
 
   try {
-    await api(scoped(`theme-tables/${encodeURIComponent(table)}`), {
+    const locParam = loc ? `?locale=${encodeURIComponent(loc)}` : "";
+    await api(scoped(`theme-tables/${encodeURIComponent(table)}${locParam}`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

@@ -1,0 +1,186 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+<div style="max-width: 900px; margin: 2rem auto 5rem; padding: 0 1rem;">
+  {{#if member}}
+    <!-- 会员个人概览 -->
+    <div style="display: grid; grid-template-columns: 280px 1fr; gap: 2rem; margin-bottom: 2.5rem; align-items: start;">
+      <!-- 左侧资料卡 -->
+      <div class="card" style="padding: 2rem; border-radius: var(--radius-lg); text-align: center; position: sticky; top: 1.5rem;">
+        <div style="width: 84px; height: 84px; margin: 0 auto 1.25rem; border-radius: 50%; background: linear-gradient(135deg, rgba(56, 189, 248, 0.25) 0%, rgba(129, 140, 248, 0.25) 100%); border: 2px solid var(--accent); display: flex; align-items: center; justify-content: center; font-size: 2.5rem; box-shadow: 0 0 25px rgba(56, 189, 248, 0.2);">
+          👤
+        </div>
+        <div style="display: inline-block; font-size: 0.75rem; color: var(--accent); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; padding: 0.2rem 0.6rem; border-radius: 12px; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); margin-bottom: 0.6rem;">
+          VIP MEMBER
+        </div>
+        <h2 style="font-size: 1.5rem; font-weight: 800; margin: 0 0 0.25rem; letter-spacing: -0.02em;">{{member.display_name}}</h2>
+        <p style="color: var(--muted); font-size: 0.85rem; margin: 0 0 1.5rem;">@{{member.username}}</p>
+
+        <div style="text-align: left; background: rgba(15, 23, 42, 0.6); padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 0.85rem; margin-bottom: 1.5rem;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+            <span style="color: var(--muted);">{{default(theme.strings.auth.email, "Email")}}</span>
+            <span style="color: var(--text); font-weight: 500;">{{default(member.email, "—")}}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: var(--muted);">{{default(theme.strings.product.inStock, "Status")}}</span>
+            <span style="color: var(--success); font-weight: 600;">Active</span>
+          </div>
+        </div>
+
+        <form method="post" action="/api/v1/front/auth/logout" style="margin: 0;">
+          <input type="hidden" name="redirect" value="/{{locale}}">
+          <button class="btn outline" type="submit" style="width: 100%; justify-content: center; color: var(--muted);">
+            {{default(theme.strings.auth.signOut, "Sign Out")}}
+          </button>
+        </form>
+      </div>
+
+      <!-- 右侧订单与特权中心 -->
+      <div>
+        <div class="card" style="padding: 2rem; border-radius: var(--radius-lg); margin-bottom: 2rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem;">
+            <div>
+              <h3 style="font-size: 1.3rem; font-weight: 700; margin: 0 0 0.25rem;">
+                📦 {{default(theme.strings.account.orders, "My Shop Orders")}}
+              </h3>
+              <p style="color: var(--muted); font-size: 0.88rem; margin: 0;">
+                {{default(theme.strings.account.subtitle, "Track orders and view warranty registration details")}}
+              </p>
+            </div>
+            <a class="btn sm" href="/{{locale}}/products" style="font-size: 0.85rem;">
+              {{default(theme.strings.hero.explore, "Browse Store")}} &rarr;
+            </a>
+          </div>
+
+          <!-- 订单动态容器 -->
+          <div id="orders-list-wrap">
+            <div style="padding: 3rem 1.5rem; text-align: center; color: var(--muted);" id="orders-empty-state">
+              <div style="font-size: 2.8rem; margin-bottom: 1rem;">🛒</div>
+              <h4 style="font-size: 1.1rem; color: var(--text); margin: 0 0 0.5rem;">
+                {{default(theme.strings.account.noOrders, "No orders found for this account yet.")}}
+              </h4>
+              <p style="font-size: 0.88rem; margin: 0 0 1.5rem; max-width: 400px; margin-left: auto; margin-right: auto;">
+                当您提交订单后，您的数字凭单和官方售后单号将展示在这里。
+              </p>
+              <a class="btn" href="/{{locale}}/products" style="padding: 0.6rem 1.5rem;">
+                立即挑选商品 &rarr;
+              </a>
+            </div>
+            <div id="orders-table" style="display: none;"></div>
+          </div>
+        </div>
+
+        {{#if my_posts}}
+        <div class="card" style="padding: 1.75rem; border-radius: var(--radius-lg); margin-bottom: 2rem;">
+          <h4 style="font-size: 1.1rem; font-weight: 700; margin: 0 0 1rem;">
+            📝 买家动态与晒单
+          </h4>
+          <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+            {{#each my_posts as post}}
+              <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; border-radius: var(--radius-sm); background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border);">
+                <div>
+                  <div style="font-weight: 600; font-size: 0.95rem;">{{post.title}}</div>
+                  <a href="/{{locale}}/compose?id={{post.id}}" style="font-size: 0.82rem; color: var(--accent);">编辑故事</a>
+                </div>
+                <form method="post" action="/api/v1/front/posts/{{post.id}}/delete" style="margin: 0;">
+                  <input type="hidden" name="redirect" value="/{{locale}}/account">
+                  <button type="submit" class="btn sm outline danger" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;">删除</button>
+                </form>
+              </div>
+            {{/each}}
+          </div>
+        </div>
+        {{/if}}
+
+        <!-- 官方专属特权面板 -->
+        <div class="card" style="padding: 1.75rem; border-radius: var(--radius-lg); background: linear-gradient(135deg, rgba(56, 189, 248, 0.05) 0%, rgba(129, 140, 248, 0.05) 100%);">
+          <h4 style="font-size: 1.05rem; font-weight: 700; margin: 0 0 1rem; color: var(--accent);">
+            ✦ 会员专属权益已激活
+          </h4>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; font-size: 0.88rem; color: var(--text-secondary);">
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <span>🛡️</span> 官方两年延长硬件换新质保
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <span>🚀</span> 顺丰航空特快优先排期直发
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <span>🎧</span> 声学实验室高级工程师专属支持
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <span>💎</span> 先锋客制化系列预售提前购特权
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 客户端从本地读取订单并渲染 -->
+    <script>
+      (function(){
+        try {
+          const raw = localStorage.getItem("cfpress_shop_orders");
+          const orders = raw ? JSON.parse(raw) : [];
+          if (Array.isArray(orders) && orders.length > 0) {
+            document.getElementById("orders-empty-state").style.display = "none";
+            const wrap = document.getElementById("orders-table");
+            wrap.style.display = "flex";
+            wrap.style.flexDirection = "column";
+            wrap.style.gap = "1rem";
+            
+            wrap.innerHTML = orders.map(ord => {
+              const itemsHtml = (ord.items || []).map(it => 
+                `<div style="display:flex; justify-content:space-between; font-size:0.88rem; padding:0.3rem 0; border-bottom:1px dashed rgba(255,255,255,0.05);">
+                   <span>${it.name || it.sku} <span style="color:var(--muted)">×${it.qty || 1}</span></span>
+                   <span style="font-weight:600; color:var(--price)">$${it.price}</span>
+                 </div>`
+              ).join("");
+
+              return `<div style="padding:1.25rem; border-radius:var(--radius-sm); background:rgba(15,23,42,0.7); border:1px solid var(--border);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; border-bottom:1px solid var(--border); padding-bottom:0.6rem;">
+                  <div>
+                    <span style="font-size:0.75rem; color:var(--accent); font-weight:700; text-transform:uppercase;">ORDER #${ord.order_no || ord.id || "REC-2026"}</span>
+                    <div style="font-size:0.8rem; color:var(--muted);">${ord.date || new Date().toLocaleString()}</div>
+                  </div>
+                  <div style="text-align:right;">
+                    <span style="display:inline-block; padding:0.2rem 0.6rem; border-radius:10px; background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.3); color:var(--success); font-size:0.75rem; font-weight:600;">
+                      ● ${ord.order_status || "Processing / 已受理"}
+                    </span>
+                  </div>
+                </div>
+                <div style="margin-bottom:0.75rem;">
+                  ${itemsHtml}
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:baseline; padding-top:0.5rem; font-size:0.95rem;">
+                  <span style="color:var(--muted); font-size:0.85rem;">实付总额 (Total)</span>
+                  <span style="font-size:1.25rem; font-weight:800; color:var(--price)">$${ord.total_amount || 0}</span>
+                </div>
+              </div>`;
+            }).join("");
+          }
+        } catch(e){
+          console.error("load orders error", e);
+        }
+      })();
+    </script>
+  {{else}}
+    <!-- 未登录提示 -->
+    <div class="card" style="max-width: 480px; margin: 4rem auto; padding: 3rem 2rem; border-radius: var(--radius-lg); text-align: center;">
+      <div style="font-size: 3rem; margin-bottom: 1.25rem;">🔒</div>
+      <h2 style="font-size: 1.6rem; font-weight: 800; margin: 0 0 0.6rem; letter-spacing: -0.02em;">
+        {{default(theme.strings.auth.signInTitle, "Member Sign In Required")}}
+      </h2>
+      <p style="color: var(--muted); font-size: 0.95rem; margin: 0 0 2rem; line-height: 1.6;">
+        {{default(theme.strings.auth.signInSubtitle, "Sign in to access your orders, warranty records, and member perks")}}
+      </p>
+      <div style="display: flex; gap: 1rem; justify-content: center;">
+        <a class="btn" href="/{{locale}}/login" style="padding: 0.75rem 2rem;">
+          {{default(theme.strings.auth.signInBtn, "Sign In")}} &rarr;
+        </a>
+        <a class="btn outline" href="/{{locale}}/register" style="padding: 0.75rem 1.5rem;">
+          {{default(theme.strings.auth.registerBtn, "Register")}}
+        </a>
+      </div>
+    </div>
+  {{/if}}
+</div>
+{{/section}}

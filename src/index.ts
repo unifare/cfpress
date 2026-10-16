@@ -401,7 +401,6 @@ async function handleFrontRequest(env:Env,request:Request,ctx:ExecutionContext,u
    queryLang:langFromUrl(u),
    cookieLang:langFromCookie(request),
  });
- if(path.includes("zh-CN"))console.log("ZH PATH RESOLVE:", { path, siteId, knownCodes, match });
  const locale=match.locale;
  // Only a *path* prefix counts as explicit. That is the one case where a miss
  // must 404 instead of falling through to another language.

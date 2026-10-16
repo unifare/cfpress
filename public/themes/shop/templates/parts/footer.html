@@ -1,8 +1,49 @@
 <footer>
-  <div>&copy; 2026 {{site.title}} · Powered by CFPress Commerce</div>
-  <div class="nav">
-    {{#each locales as l}}
-      <a href="/{{l.code}}">{{l.name}}</a>
-    {{/each}}
+  <div class="footer-inner">
+    <div class="footer-col" style="max-width: 320px;">
+      <div class="brand-logo" style="margin-bottom: 0.8rem;">
+        <div class="brand-dot"></div>
+        <span>{{default(site.title, "Aura Store")}}</span>
+      </div>
+      <p style="color: var(--muted); font-size: 0.88rem; line-height: 1.6;">
+        先锋科技与生活美学独立品牌。致力于为创作者、极客与先锋探索者提供纯粹、克制且持久的设计装备。
+      </p>
+    </div>
+
+    <div class="footer-col">
+      <h4>甄选系列 / Explore</h4>
+      <ul>
+        <li><a href="/{{locale}}/products">全线商品目录</a></li>
+        <li><a href="/{{locale}}/products/wh-1000xm5">旗舰无线降噪耳机</a></li>
+        <li><a href="/{{locale}}/products/mk-87">客制化机械键盘</a></li>
+        <li><a href="/{{locale}}/products/mon-4k">4K 专业色彩显示器</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col">
+      <h4>服务与保障 / Services</h4>
+      <ul>
+        <li><a href="/{{locale}}/cart">购物车检阅</a></li>
+        <li><a href="/{{locale}}/checkout">闪电安全结算</a></li>
+        <li><a href="javascript:void(0)" onclick="alert('全场正品保证，支持30天无忧退换。')">官方质保政策</a></li>
+        <li><a href="javascript:void(0)" onclick="alert('顺丰特快配送，全境极速直达。')">配送与物流</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col">
+      <h4>服务支持 / Support</h4>
+      <ul>
+        <li><span style="color: var(--muted); font-size: 0.88rem;">在线客服：周一至周日 09:00 - 22:00</span></li>
+        <li><span style="color: var(--muted); font-size: 0.88rem;">技术支持：service@aura-commerce.io</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div style="max-width: 1200px; margin: 2.5rem auto 0; padding-top: 1.5rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; font-size: 0.85rem; color: var(--muted);">
+    <div>&copy; 2026 {{default(site.title, "Aura Commerce")}}. All rights reserved. Powered by CFPress Edge Architecture.</div>
+    <div style="display: flex; gap: 1.5rem;">
+      <span>SSL 256-Bit 加密支付</span>
+      <span>顺丰官方特快冷链</span>
+    </div>
   </div>
 </footer>

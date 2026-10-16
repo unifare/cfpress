@@ -1,40 +1,93 @@
 {{@extends "parts/layout"}}
 {{@section "content"}}
-  <article class="product-detail">
-    <p style="margin-bottom: 1.5rem;"><a href="/{{locale}}/products" style="color: var(--muted); text-decoration: none;">&larr; {{default(theme.strings.product.backToCatalog, "Back to catalog")}}</a></p>
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 2.5rem; align-items: start;">
-      <div class="card" style="padding: 2.5rem; border-radius: 12px; background: var(--surface);">
-        <div style="display: inline-block; padding: 0.25rem 0.75rem; background: rgba(59,130,246,0.1); color: var(--primary); border-radius: 9999px; font-size: 0.85rem; font-weight: 600; margin-bottom: 1rem;">
-          {{default(theme.strings.product.sku, "SKU")}}: {{default(product.sku, post.sku)}}
+  <article class="product-detail" style="max-width: 1050px; margin: 0 auto;">
+    <nav style="margin-bottom: 2rem;">
+      <a href="/{{locale}}/products" style="color: var(--muted); font-size: 0.9rem; display: inline-flex; align-items: center; gap: 0.4rem;">
+        &larr; {{default(theme.strings.product.backToCatalog, "Back to Catalog")}}
+      </a>
+    </nav>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 3rem; align-items: start;">
+      <!-- 左侧拟物产品科技展台 -->
+      <div class="card" style="padding: 3rem 2rem; border-radius: var(--radius-lg); background: linear-gradient(180deg, rgba(30, 41, 59, 0.5) 0%, rgba(15, 23, 42, 0.9) 100%); display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 420px; text-align: center; position: relative; overflow: hidden;">
+        <div style="position: absolute; width: 250px; height: 250px; background: radial-gradient(circle, rgba(56, 189, 248, 0.18) 0%, transparent 70%); pointer-events: none;"></div>
+        <div style="font-size: 7rem; margin-bottom: 1.5rem; filter: drop-shadow(0 20px 30px rgba(0,0,0,0.5));">
+          ✨
         </div>
-        <h1 style="font-size: 2.2rem; margin: 0 0 1rem; line-height: 1.2;">{{default(product.name, post.name)}}</h1>
-        <div style="display: flex; align-items: baseline; gap: 1rem; margin-bottom: 1.5rem;">
-          <span class="price" style="font-size: 2.2rem; font-weight: 700; color: var(--primary);">${{default(product.price, post.price)}}</span>
-          <span style="color: var(--success); font-size: 0.95rem; font-weight: 500;">● {{default(theme.strings.product.inStock, "In Stock")}}</span>
+        <div style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.9rem; border-radius: 20px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); font-size: 0.8rem; color: var(--muted);">
+          <span>官方原装正品</span> · <span>顺丰直发</span>
         </div>
-        <div style="color: var(--muted); line-height: 1.7; margin-bottom: 2rem; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 1.5rem 0;">
+      </div>
+
+      <!-- 右侧商品规格与选购面板 -->
+      <div class="card" style="padding: 2.5rem; border-radius: var(--radius-lg); background: var(--surface);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <span style="display: inline-block; padding: 0.25rem 0.75rem; background: rgba(56, 189, 248, 0.1); color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 9999px; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.05em;">
+            {{default(theme.strings.product.sku, "SKU")}}: {{default(product.sku, post.sku)}}
+          </span>
+          <span style="color: var(--success); font-size: 0.88rem; font-weight: 600; display: flex; align-items: center; gap: 0.35rem;">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--success);box-shadow:0 0 10px var(--success);"></span>
+            {{default(theme.strings.product.inStock, "Official Stock")}}
+          </span>
+        </div>
+
+        <h1 style="font-size: clamp(1.8rem, 3.5vw, 2.4rem); font-weight: 800; margin: 0 0 1rem; line-height: 1.25; letter-spacing: -0.03em;">
+          {{default(product.name, post.name)}}
+        </h1>
+
+        <div style="display: flex; align-items: baseline; gap: 1rem; margin-bottom: 1.75rem;">
+          <span class="price" style="font-size: 2.6rem; font-weight: 800; color: var(--price); letter-spacing: -0.02em;">${{default(product.price, post.price)}}</span>
+          <span style="color: var(--muted); font-size: 0.88rem;">全国包邮 · 含增值税</span>
+        </div>
+
+        <div style="color: var(--text-secondary); line-height: 1.7; font-size: 0.98rem; margin-bottom: 2rem; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 1.5rem 0;">
           {{{default(product.description, post.description)}}}
         </div>
-        <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+
+        <!-- 购买数量调节 -->
+        <div style="display: flex; align-items: center; gap: 1.5rem; margin-bottom: 2rem;">
+          <span style="font-size: 0.9rem; font-weight: 600; color: var(--muted);">购买数量:</span>
+          <div style="display: flex; align-items: center; border: 1px solid var(--border); border-radius: 8px; background: rgba(0,0,0,0.2);">
+            <button id="qty-minus" style="background: none; border: none; color: var(--text); padding: 0.5rem 0.9rem; font-size: 1.1rem; cursor: pointer;">-</button>
+            <span id="qty-val" style="min-width: 2.5rem; text-align: center; font-weight: 700;">1</span>
+            <button id="qty-plus" style="background: none; border: none; color: var(--text); padding: 0.5rem 0.9rem; font-size: 1.1rem; cursor: pointer;">+</button>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
           <button id="add-to-cart-btn" class="btn"
                   data-name="{{default(product.name, post.name)}}"
                   data-sku="{{default(product.sku, post.sku)}}"
                   data-price="{{default(product.price, post.price)}}"
                   data-slug="{{default(product.slug, post.slug)}}"
-                  style="cursor: pointer; border: none; font-size: 1.05rem; padding: 0.85rem 2rem; border-radius: 8px; font-weight: 600;">
-            🛒 {{default(theme.strings.product.addToCart, "Add to Cart")}}
+                  style="font-size: 1.05rem; padding: 0.9rem; border-radius: 10px;">
+            🛒 {{default(theme.strings.product.addToCart, "Add to Bag")}}
           </button>
-          <a href="/{{locale}}/cart" class="btn outline" style="padding: 0.85rem 1.5rem; border-radius: 8px;">
-            {{default(theme.strings.cart.title, "View Cart")}}
+          <a id="buy-now-btn" href="/{{locale}}/checkout" class="btn outline" style="font-size: 1.05rem; padding: 0.9rem; border-radius: 10px; text-align: center;">
+            立即下单 &rarr;
           </a>
         </div>
-        <div id="cart-msg" style="display: none; margin-top: 1.25rem; padding: 0.85rem 1.25rem; background: rgba(16,185,129,0.12); border: 1px solid var(--success); color: var(--success); border-radius: 8px; font-size: 0.95rem;">
-          ✓ 已成功加入购物车！<a href="/{{locale}}/cart" style="text-decoration: underline; margin-left: 0.5rem; color: inherit; font-weight: 600;">去购物车结算 &rarr;</a>
+
+        <div id="cart-msg" style="display: none; margin-top: 1.5rem; padding: 1rem 1.25rem; background: rgba(16, 185, 129, 0.1); border: 1px solid var(--success); color: var(--success); border-radius: 10px; font-size: 0.95rem;">
+          ✓ 已成功加入购物袋！<a href="/{{locale}}/cart" style="text-decoration: underline; margin-left: 0.5rem; color: inherit; font-weight: 700;">去结算 &rarr;</a>
         </div>
       </div>
     </div>
   </article>
+
   <script>
+    let currentQty = 1;
+    document.getElementById('qty-minus')?.addEventListener('click', () => {
+      if (currentQty > 1) {
+        currentQty--;
+        document.getElementById('qty-val').textContent = currentQty;
+      }
+    });
+    document.getElementById('qty-plus')?.addEventListener('click', () => {
+      currentQty++;
+      document.getElementById('qty-val').textContent = currentQty;
+    });
+
     document.getElementById('add-to-cart-btn')?.addEventListener('click', function() {
       const btn = this;
       const item = {
@@ -42,21 +95,43 @@
         sku: btn.dataset.sku || '',
         price: parseFloat(btn.dataset.price || '0'),
         slug: btn.dataset.slug || '',
-        qty: 1
+        qty: currentQty
       };
       try {
         const cart = JSON.parse(localStorage.getItem('cfpress_cart') || '[]');
         const existing = cart.find(x => x.sku === item.sku);
         if (existing) {
-          existing.qty = (existing.qty || 1) + 1;
+          existing.qty = (existing.qty || 1) + currentQty;
         } else {
           cart.push(item);
         }
         localStorage.setItem('cfpress_cart', JSON.stringify(cart));
+        if (typeof refreshGlobalCartBadge === 'function') refreshGlobalCartBadge();
         const msg = document.getElementById('cart-msg');
         if (msg) msg.style.display = 'block';
       } catch (e) {
         console.error(e);
+      }
+    });
+
+    // 立即下单：直接写入购物车并前往结账页
+    document.getElementById('buy-now-btn')?.addEventListener('click', function(e) {
+      const btn = document.getElementById('add-to-cart-btn');
+      if (btn) {
+        const item = {
+          name: btn.dataset.name || '',
+          sku: btn.dataset.sku || '',
+          price: parseFloat(btn.dataset.price || '0'),
+          slug: btn.dataset.slug || '',
+          qty: currentQty
+        };
+        try {
+          const cart = JSON.parse(localStorage.getItem('cfpress_cart') || '[]');
+          const existing = cart.find(x => x.sku === item.sku);
+          if (existing) existing.qty = (existing.qty || 1) + currentQty;
+          else cart.push(item);
+          localStorage.setItem('cfpress_cart', JSON.stringify(cart));
+        } catch (err) {}
       }
     });
   </script>

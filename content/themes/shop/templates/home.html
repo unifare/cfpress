@@ -1,5 +1,142 @@
 {{@extends "parts/layout"}}
 {{@section "content"}}
-  <h1>Featured Store</h1>
-  <p><a class="btn" href="/{{locale}}/products">Shop Now</a></p>
+  <!-- Hero Banner -->
+  <section style="position: relative; padding: 4.5rem 2rem 5.5rem; margin-bottom: 3.5rem; border-radius: var(--radius-lg); background: linear-gradient(180deg, rgba(30, 41, 59, 0.4) 0%, rgba(15, 23, 42, 0.8) 100%); border: 1px solid var(--border); overflow: hidden; text-align: center;">
+    <div style="position: absolute; top: -50%; left: 50%; transform: translateX(-50%); width: 600px; height: 350px; background: radial-gradient(circle, rgba(56, 189, 248, 0.15) 0%, transparent 70%); pointer-events: none;"></div>
+    
+    <div style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.35rem 1rem; border-radius: 20px; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); color: var(--accent); font-size: 0.85rem; font-weight: 600; margin-bottom: 1.5rem;">
+      <span style="font-size: 0.75rem;">✦</span> 2026 先锋工学系列 / CREATOR ESSENTIALS
+    </div>
+
+    <h1 style="font-size: clamp(2.2rem, 5vw, 3.8rem); font-weight: 800; letter-spacing: -0.04em; margin: 0 auto 1.25rem; line-height: 1.15; max-width: 800px; background: linear-gradient(180deg, #ffffff 40%, #94a3b8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+      先锋科技 · 美学生活
+    </h1>
+
+    <p style="font-size: 1.15rem; color: var(--text-secondary); max-width: 620px; margin: 0 auto 2.5rem; line-height: 1.6;">
+      专为开发者、设计师与先锋创作者打造的旗舰声学耳机、客制化外设与专业色彩显示装备。
+    </p>
+
+    <div style="display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
+      <a class="btn" href="/{{locale}}/products" style="padding: 0.85rem 2.2rem; font-size: 1.05rem;">
+        浏览全线商品 &rarr;
+      </a>
+      <a class="btn outline" href="/{{locale}}/cart" style="padding: 0.85rem 1.8rem; font-size: 1.05rem;">
+        查看购物车
+      </a>
+    </div>
+  </section>
+
+  <!-- 特色服务三列 -->
+  <section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.5rem; margin-bottom: 4.5rem;">
+    <div class="card" style="padding: 1.75rem; display: flex; gap: 1rem; align-items: flex-start;">
+      <div style="font-size: 2rem;">⚡</div>
+      <div>
+        <h3 style="margin: 0 0 0.4rem; font-size: 1.05rem;">顺丰特快 · 极速送达</h3>
+        <p style="margin: 0; color: var(--muted); font-size: 0.88rem; line-height: 1.5;">全现货仓储疾速直发，全国核心城市次日达。</p>
+      </div>
+    </div>
+    <div class="card" style="padding: 1.75rem; display: flex; gap: 1rem; align-items: flex-start;">
+      <div style="font-size: 2rem;">🛡️</div>
+      <div>
+        <h3 style="margin: 0 0 0.4rem; font-size: 1.05rem;">官方正品 · 两年质保</h3>
+        <p style="margin: 0; color: var(--muted); font-size: 0.88rem; line-height: 1.5;">硬件设备均经逐台出厂校准，享受终身技术支持。</p>
+      </div>
+    </div>
+    <div class="card" style="padding: 1.75rem; display: flex; gap: 1rem; align-items: flex-start;">
+      <div style="font-size: 2rem;">💳</div>
+      <div>
+        <h3 style="margin: 0 0 0.4rem; font-size: 1.05rem;">极简体验 · 快速结账</h3>
+        <p style="margin: 0; color: var(--muted); font-size: 0.88rem; line-height: 1.5;">免除繁琐注册，支持访客一键提交并获取订单。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 甄选系列推荐 -->
+  <section style="margin-bottom: 4rem;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 2rem;">
+      <div>
+        <h2 style="font-size: 1.8rem; font-weight: 700; margin: 0 0 0.5rem; letter-spacing: -0.02em;">明星单品 · 精选好物</h2>
+        <p style="color: var(--muted); margin: 0; font-size: 0.95rem;">严选当下最受创作者喜爱的声学与办公硬核装备</p>
+      </div>
+      <a href="/{{locale}}/products" style="color: var(--accent); font-weight: 600; font-size: 0.95rem;">查看全部 &rarr;</a>
+    </div>
+
+    <div class="grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.75rem;">
+      <!-- WH-1000XM5 -->
+      <div class="card" style="padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between;">
+        <div>
+          <div style="height: 160px; border-radius: var(--radius-sm); background: linear-gradient(135deg, rgba(56, 189, 248, 0.1) 0%, rgba(129, 140, 248, 0.05) 100%); display: flex; align-items: center; justify-content: center; font-size: 3.5rem; margin-bottom: 1.25rem;">
+            🎧
+          </div>
+          <div style="font-size: 0.8rem; color: var(--accent); font-weight: 600; margin-bottom: 0.4rem;">旗舰降噪</div>
+          <h3 style="margin: 0 0 0.5rem; font-size: 1.15rem;"><a href="/{{locale}}/products/wh-1000xm5">WH-1000XM5 无线降噪耳机</a></h3>
+          <p style="color: var(--muted); font-size: 0.88rem; line-height: 1.5; margin: 0 0 1rem;">双芯主动降噪，Hi-Res 高清音频传输，30 小时超长续航。</p>
+        </div>
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1rem;">
+            <span style="font-size: 1.5rem; font-weight: 700; color: var(--price);">$1999</span>
+            <span style="color: var(--success); font-size: 0.82rem; font-weight: 600;">● 官方现货</span>
+          </div>
+          <a class="btn" href="/{{locale}}/products/wh-1000xm5" style="width: 100%;">了解详情</a>
+        </div>
+      </div>
+
+      <!-- MK-87 -->
+      <div class="card" style="padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between;">
+        <div>
+          <div style="height: 160px; border-radius: var(--radius-sm); background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(56, 189, 248, 0.05) 100%); display: flex; align-items: center; justify-content: center; font-size: 3.5rem; margin-bottom: 1.25rem;">
+            ⌨️
+          </div>
+          <div style="font-size: 0.8rem; color: var(--accent); font-weight: 600; margin-bottom: 0.4rem;">客制化三模</div>
+          <h3 style="margin: 0 0 0.5rem; font-size: 1.15rem;"><a href="/{{locale}}/products/mk-87">MK-87 客制化机械键盘</a></h3>
+          <p style="color: var(--muted); font-size: 0.88rem; line-height: 1.5; margin: 0 0 1rem;">CNC 铝合金外壳，五重消音 Gasket 结构，全键热插拔。</p>
+        </div>
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1rem;">
+            <span style="font-size: 1.5rem; font-weight: 700; color: var(--price);">$699</span>
+            <span style="color: var(--success); font-size: 0.82rem; font-weight: 600;">● 官方现货</span>
+          </div>
+          <a class="btn" href="/{{locale}}/products/mk-87" style="width: 100%;">了解详情</a>
+        </div>
+      </div>
+
+      <!-- MON-4K -->
+      <div class="card" style="padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between;">
+        <div>
+          <div style="height: 160px; border-radius: var(--radius-sm); background: linear-gradient(135deg, rgba(129, 140, 248, 0.1) 0%, rgba(244, 63, 94, 0.05) 100%); display: flex; align-items: center; justify-content: center; font-size: 3.5rem; margin-bottom: 1.25rem;">
+            🖥️
+          </div>
+          <div style="font-size: 0.8rem; color: var(--accent); font-weight: 600; margin-bottom: 0.4rem;">专业调色</div>
+          <h3 style="margin: 0 0 0.5rem; font-size: 1.15rem;"><a href="/{{locale}}/products/mon-4k">UltraView 27寸 4K 专业显示器</a></h3>
+          <p style="color: var(--muted); font-size: 0.88rem; line-height: 1.5; margin: 0 0 1rem;">Nano-IPS 面板，99% DCI-P3 电影级色域，Type-C 90W 疾速供电。</p>
+        </div>
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1rem;">
+            <span style="font-size: 1.5rem; font-weight: 700; color: var(--price);">$2999</span>
+            <span style="color: var(--success); font-size: 0.82rem; font-weight: 600;">● 官方现货</span>
+          </div>
+          <a class="btn" href="/{{locale}}/products/mon-4k" style="width: 100%;">了解详情</a>
+        </div>
+      </div>
+
+      <!-- ERGO-PRO -->
+      <div class="card" style="padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between;">
+        <div>
+          <div style="height: 160px; border-radius: var(--radius-sm); background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(56, 189, 248, 0.05) 100%); display: flex; align-items: center; justify-content: center; font-size: 3.5rem; margin-bottom: 1.25rem;">
+            💺
+          </div>
+          <div style="font-size: 0.8rem; color: var(--accent); font-weight: 600; margin-bottom: 0.4rem;">旗舰工学</div>
+          <h3 style="margin: 0 0 0.5rem; font-size: 1.15rem;"><a href="/{{locale}}/products/ergo-pro">ErgoPro 旗舰级人体工学椅</a></h3>
+          <p style="color: var(--muted); font-size: 0.88rem; line-height: 1.5; margin: 0 0 1rem;">动态自适应腰部追踪，德国进口高弹网布，专为久坐设计。</p>
+        </div>
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1rem;">
+            <span style="font-size: 1.5rem; font-weight: 700; color: var(--price);">$2399</span>
+            <span style="color: var(--success); font-size: 0.82rem; font-weight: 600;">● 官方现货</span>
+          </div>
+          <a class="btn" href="/{{locale}}/products/ergo-pro" style="width: 100%;">了解详情</a>
+        </div>
+      </div>
+    </div>
+  </section>
 {{/section}}

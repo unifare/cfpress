@@ -1,6 +1,24 @@
 {{@extends "parts/layout"}}
 {{@section "content"}}
-  <h1>Welcome to {{site.title}}</h1>
-  <p class="lede">Explore our premium catalog</p>
-  <p><a class="btn" href="/{{locale}}/products">Browse All Products &rarr;</a></p>
+  <header style="margin-bottom: 2.5rem; text-align: center;">
+    <h1 style="font-size: 2.5rem; font-weight: 800; margin: 0 0 0.75rem; letter-spacing: -0.03em;">
+      {{default(theme.strings.archive.title, "Curated Essentials")}}
+    </h1>
+    <p style="color: var(--muted); font-size: 1.1rem; max-width: 600px; margin: 0 auto;">
+      {{default(theme.strings.archive.subtitle, "Precision engineered gear for creators and explorers")}}
+    </p>
+  </header>
+
+  <div style="display: flex; gap: 0.75rem; justify-content: center; margin-bottom: 2.5rem; flex-wrap: wrap;">
+    <a href="/{{locale}}/products" class="btn outline" style="border-radius: 20px; padding: 0.4rem 1.2rem; font-size: 0.9rem; border-color: var(--accent); color: var(--accent);">全部商品</a>
+    <a href="/{{locale}}/products" class="btn outline" style="border-radius: 20px; padding: 0.4rem 1.2rem; font-size: 0.9rem;">声学降噪</a>
+    <a href="/{{locale}}/products" class="btn outline" style="border-radius: 20px; padding: 0.4rem 1.2rem; font-size: 0.9rem;">客制外设</a>
+    <a href="/{{locale}}/products" class="btn outline" style="border-radius: 20px; padding: 0.4rem 1.2rem; font-size: 0.9rem;">工学装备</a>
+  </div>
+
+  <div style="text-align: center; margin: 3rem 0;">
+    <a class="btn" href="/{{locale}}/products" style="padding: 0.85rem 2.5rem; font-size: 1.05rem;">
+      进入商品大厅 &rarr;
+    </a>
+  </div>
 {{/section}}

@@ -1,8 +1,17 @@
 {{@extends "parts/layout"}}
 {{@section "content"}}
-  <div style="text-align: center; padding: 4rem 1rem;">
-    <h1 style="font-size: 3rem; margin-bottom: 1rem;">404</h1>
-    <p class="lede" style="color: var(--muted); margin-bottom: 2rem;">{{default(theme.strings.notFound.title, "Sorry, the item or page you requested could not be found.")}}</p>
-    <p><a class="btn" href="/{{locale}}">{{default(theme.strings.notFound.returnHome, "Return to Store Home")}} &rarr;</a></p>
+  <div style="text-align: center; padding: 6rem 1.5rem;" class="card">
+    <div style="font-size: 5rem; margin-bottom: 1.5rem; opacity: 0.8;">🪐</div>
+    <h1 style="font-size: 2.2rem; font-weight: 800; margin-bottom: 0.75rem; letter-spacing: -0.03em;">
+      {{default(theme.strings.notFound.title, "The requested product or page could not be found.")}}
+    </h1>
+    <p style="color: var(--muted); font-size: 1.05rem; max-width: 500px; margin: 0 auto 2.5rem; line-height: 1.6;">
+      该商品可能已售罄下架，或链接已发生变更。欢迎返回商城主页浏览最新先锋好物。
+    </p>
+    <div>
+      <a class="btn" href="/{{locale}}" style="padding: 0.85rem 2rem;">
+        &larr; {{default(theme.strings.notFound.returnHome, "Return to Storefront")}}
+      </a>
+    </div>
   </div>
 {{/section}}

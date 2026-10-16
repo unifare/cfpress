@@ -1,9 +1,9 @@
 {
   "name": "shop",
-  "title": "Shop & Commerce (官方商城主题)",
+  "title": "Aura Commerce (先锋数码商城)",
   "version": "1.0.0",
   "author": "CFPress",
-  "description": "对标 dotnetcms / WordPress 官方商城业务主题：内置商品管理、订单管理、前台商品网格、商品详情页与购物车。完全由声明式数据表与后台业务菜单驱动，零后台代码侵入。",
+  "description": "面向先锋数码、极客外设与生活美学品牌的现代电子商务主题。提供沉浸式商品陈列视觉、全流程多语言支持与极简轻快收银台。",
   "supports": [
     "blocks",
     "menus",
@@ -93,7 +93,7 @@
   "adminMenus": [
     {
       "id": "shop-products",
-      "label": "Products (商品管理)",
+      "label": "Products",
       "label_key": "theme.shop.menu.products",
       "icon": "box",
       "screen": "table-list",
@@ -102,7 +102,7 @@
     },
     {
       "id": "shop-product-new",
-      "label": "Add Product (新增商品)",
+      "label": "Add Product",
       "label_key": "theme.shop.menu.productNew",
       "icon": "plus",
       "screen": "table-edit",
@@ -111,7 +111,7 @@
     },
     {
       "id": "shop-orders",
-      "label": "Orders (订单管理)",
+      "label": "Orders",
       "label_key": "theme.shop.menu.orders",
       "icon": "shopping-cart",
       "screen": "table-list",

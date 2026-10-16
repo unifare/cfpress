@@ -7,19 +7,275 @@
   {{#if site.description}}<meta name="description" content="{{site.description}}">{{/if}}
   <style>
     :root {
-      --bg: #0f172a; --panel: #1e293b; --text: #f8fafc; --muted: #94a3b8;
-      --accent: #38bdf8; --border: #334155; --success: #22c55e;
+      --bg: #090d16;
+      --surface: #111827;
+      --surface-hover: #1e293b;
+      --surface-elevated: #182234;
+      --text: #f8fafc;
+      --text-secondary: #cbd5e1;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-hover: #7dd3fc;
+      --accent-glow: rgba(56, 189, 248, 0.2);
+      --accent-gradient: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%);
+      --price: #10b981;
+      --price-bg: rgba(16, 185, 129, 0.12);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-hover: rgba(56, 189, 248, 0.35);
+      --success: #10b981;
+      --danger: #f43f5e;
+      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+      --shadow-md: 0 12px 32px -8px rgba(0, 0, 0, 0.6), 0 0 1px 1px rgba(255, 255, 255, 0.05);
+      --shadow-lg: 0 24px 48px -12px rgba(0, 0, 0, 0.8), 0 0 1px 1px rgba(56, 189, 248, 0.2);
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
     }
-    body { margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
-    header, footer { border-bottom: 1px solid var(--border); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
-    footer { border-top: 1px solid var(--border); border-bottom: none; margin-top: 3rem; color: var(--muted); }
-    main { max-width: 1100px; margin: 2rem auto; padding: 0 1rem; }
-    a { color: var(--accent); text-decoration: none; }
-    .nav { display: flex; gap: 1.5rem; align-items: center; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.5rem; list-style: none; padding: 0; }
-    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; }
-    .price { font-size: 1.25rem; font-weight: 700; color: var(--success); }
-    .btn { display: inline-block; background: var(--accent); color: #000; font-weight: 600; padding: .5rem 1rem; border-radius: 6px; }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      background-image: 
+        radial-gradient(circle at 15% 10%, rgba(56, 189, 248, 0.08) 0%, transparent 40%),
+        radial-gradient(circle at 85% 60%, rgba(129, 140, 248, 0.06) 0%, transparent 45%);
+      background-attachment: fixed;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    a { color: inherit; text-decoration: none; transition: color 0.2s ease; }
+    
+    /* 顶部导航 */
+    .shop-header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      background: rgba(9, 13, 22, 0.8);
+      border-bottom: 1px solid var(--border);
+      padding: 0.9rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: border-color 0.2s ease;
+    }
+    .brand-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-weight: 800;
+      font-size: 1.25rem;
+      letter-spacing: -0.03em;
+      color: var(--text);
+    }
+    .brand-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 12px var(--accent);
+    }
+    .shop-nav {
+      display: flex;
+      gap: 1.75rem;
+      align-items: center;
+      font-weight: 500;
+      font-size: 0.95rem;
+    }
+    .shop-nav a {
+      color: var(--muted);
+      position: relative;
+      padding: 0.25rem 0;
+    }
+    .shop-nav a:hover, .shop-nav a.active {
+      color: var(--text);
+    }
+    .shop-nav a.active::after {
+      content: "";
+      position: absolute;
+      bottom: -4px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: var(--accent);
+      border-radius: 2px;
+      box-shadow: 0 0 8px var(--accent);
+    }
+
+    /* 按钮样式 */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      font-weight: 600;
+      font-size: 0.95rem;
+      padding: 0.65rem 1.4rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      text-decoration: none;
+      background: var(--accent-gradient);
+      color: #030712;
+      box-shadow: 0 4px 14px var(--accent-glow);
+    }
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(56, 189, 248, 0.35);
+      color: #000;
+    }
+    .btn.outline {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      box-shadow: none;
+    }
+    .btn.outline:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(56, 189, 248, 0.05);
+    }
+
+    /* 主体布局 */
+    main {
+      flex: 1;
+      max-width: 1200px;
+      width: 100%;
+      margin: 2.5rem auto;
+      padding: 0 1.5rem;
+    }
+
+    /* 卡片与网格 */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-md);
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .card:hover {
+      border-color: var(--border-hover);
+      box-shadow: var(--shadow-lg);
+    }
+
+    /* 语言菜单 */
+    .lang-menu {
+      position: relative;
+    }
+    .lang-menu summary {
+      list-style: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.4rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      font-size: 0.85rem;
+      color: var(--muted);
+      transition: all 0.2s ease;
+    }
+    .lang-menu summary:hover {
+      color: var(--text);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+    .lang-menu summary::-webkit-details-marker { display: none; }
+    .lang-menu .lang-list {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.4rem;
+      min-width: 130px;
+      box-shadow: var(--shadow-lg);
+      z-index: 120;
+    }
+    .lang-menu .lang-list a {
+      display: block;
+      padding: 0.4rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .lang-menu .lang-list a:hover, .lang-menu .lang-list a.on {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.06);
+    }
+    .lang-menu .lang-list a.on {
+      font-weight: 600;
+      color: var(--accent);
+    }
+
+    /* 购物车按钮角标 */
+    .cart-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.45rem 1rem;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 0.88rem;
+      font-weight: 600;
+      transition: all 0.2s ease;
+    }
+    .cart-pill:hover {
+      background: rgba(56, 189, 248, 0.1);
+      border-color: var(--accent);
+    }
+    .cart-count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 4px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      border-radius: 9px;
+      background: var(--accent);
+      color: #030712;
+    }
+
+    /* 页脚 */
+    footer {
+      border-top: 1px solid var(--border);
+      background: rgba(9, 13, 22, 0.9);
+      padding: 3rem 1.5rem 2rem;
+      margin-top: 5rem;
+    }
+    .footer-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 2rem;
+    }
+    .footer-col h4 {
+      margin: 0 0 1rem;
+      font-size: 0.95rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+    .footer-col ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .footer-col li { margin-bottom: 0.6rem; }
+    .footer-col a { color: var(--muted); font-size: 0.9rem; }
+    .footer-col a:hover { color: var(--text); }
   </style>
   {{{hook("head")}}}
 </head>
@@ -30,5 +286,20 @@
   </main>
   {{@include "parts/footer"}}
   {{{hook("footer")}}}
+  <script>
+    // 全局同步更新右上角购物车徽章数量
+    function refreshGlobalCartBadge() {
+      try {
+        const cart = JSON.parse(localStorage.getItem('cfpress_cart') || '[]');
+        const count = cart.reduce((sum, item) => sum + (Number(item.qty) || 1), 0);
+        document.querySelectorAll('.cart-count').forEach(el => {
+          el.textContent = count;
+          el.style.display = count > 0 ? 'inline-flex' : 'none';
+        });
+      } catch (e) {}
+    }
+    document.addEventListener('DOMContentLoaded', refreshGlobalCartBadge);
+    window.addEventListener('storage', refreshGlobalCartBadge);
+  </script>
 </body>
 </html>

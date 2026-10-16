@@ -382,11 +382,19 @@ export async function findPostTypeBySlug(
 
 export async function listRoutes(env: Env, siteId: string) {
   try {
-    const r = await env.DB.prepare(
-      "SELECT * FROM theme_routes WHERE site_id=? ORDER BY sort_order"
-    )
-      .bind(siteId)
-      .all();
+    const theme = await activeTheme(env, siteId).catch(() => null);
+    const themeName = theme?.name;
+    const r = themeName
+      ? await env.DB.prepare(
+          "SELECT * FROM theme_routes WHERE site_id=? AND declared_by_theme=? ORDER BY sort_order"
+        )
+          .bind(siteId, themeName)
+          .all()
+      : await env.DB.prepare(
+          "SELECT * FROM theme_routes WHERE site_id=? ORDER BY sort_order"
+        )
+          .bind(siteId)
+          .all();
     return (r.results as any[]) ?? [];
   } catch {
     return [];

@@ -164,7 +164,7 @@ const REVIEWED = {
   "src/platform/frontend.ts:186": "menu_items … WHERE menu_id=? AND site_id=? — ⚠️ rewritten in batch 16 (see runtime-worker:411): `menu_id` is only unique per site, so the earlier site-blind filter rendered the shop site's nav item on the default site's front page",
   "src/api.ts:1225": "SELECT theme_table_defs … WHERE owner_type='theme' AND owner_name=? — theme uninstall gathers every site's generated tables for a theme being removed entirely; owner-scoped by design, no site_id on purpose",
   "src/api.ts:1231": "DELETE FROM theme_table_defs WHERE owner_name=? — same uninstall: the theme is leaving the platform, so every site's mapping goes with it",
-  "src/platform/admin-menus.ts:268": "DELETE FROM admin_menu_registry WHERE owner_type=? AND owner_name=? — this is `clearOwnerMenusAllSites`, and install-wide is its *name*: an activation interrupted before it wrote `theme.active` leaves menus on sites that no longer select the theme, pointing at tables an uninstall is about to drop. Owner-scoped by design",
+  "src/platform/admin-menus.ts:270": "DELETE FROM admin_menu_registry WHERE owner_type=? AND owner_name=? — this is `clearOwnerMenusAllSites`, and install-wide is its *name*: an activation interrupted before it wrote `theme.active` leaves menus on sites that no longer select the theme, pointing at tables an uninstall is about to drop. Owner-scoped by design",
   // Re-keyed 166→205: the theme-batch added `memberScope()` (~39 lines) above
   // `logoutMember` in the same file. The statement is unchanged — only its line
   // number moved. (This is the third time a `file:line` key has drifted; the

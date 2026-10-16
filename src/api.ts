@@ -2969,7 +2969,8 @@ async function dispatchExtensionAdminRoutes(
       memo.set(capability, allowed);
       return allowed;
     };
-    const groups = await listAdminMenuGroups(env, siteId, { can: canView });
+    const curTheme = await activeTheme(env, siteId).catch(() => null);
+    const groups = await listAdminMenuGroups(env, siteId, { can: canView, activeTheme: curTheme?.name });
     const uiLocale = await resolveUiLocale(env, siteId, {
       userLang: (user as any).ui_lang ?? null,
       defaultLocale: await siteDefaultLocale(env, siteId),

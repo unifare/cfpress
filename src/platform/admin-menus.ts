@@ -91,6 +91,8 @@ export interface AdminMenuGroup {
 export interface MenuFilter {
   ownerType?: MenuOwnerType;
   ownerName?: string;
+  /** Limit theme-owned menus to the site's active theme. */
+  activeTheme?: string;
   /** Hide rows whose `capability` this viewer does not hold. Omitted means
    *  "no filtering" — used by internal callers and by tests. */
   can?: (capability: string) => boolean | Promise<boolean>;
@@ -336,6 +338,7 @@ export async function listAdminMenuGroups(
   if (!filter.includeDisabled) rows = rows.filter((row) => row.enabled !== 0);
   if (filter.ownerType) rows = rows.filter((row) => row.owner_type === filter.ownerType);
   if (filter.ownerName) rows = rows.filter((row) => row.owner_name === filter.ownerName);
+  if (filter.activeTheme) rows = rows.filter((row) => row.owner_type !== "theme" || row.owner_name === filter.activeTheme);
 
   if (filter.can) {
     const kept: AdminMenuRow[] = [];

@@ -43,8 +43,11 @@ function extensionItems(menus, postTypes) {
     .map((m) => ({
       key: `menu:${m.menu_id}`,
       title: String(m.label || m.menu_id),
-      icon: "sparkles",
-      active: state.page === `menu:${m.menu_id}`,
+      icon: m.icon || "sparkles",
+      active:
+        state.page === `menu:${m.menu_id}` ||
+        (m.screen === "table-list" && state.page === `table:${m.args?.table}`) ||
+        (m.screen === "table-edit" && state.page === `table-new:${m.args?.table}`),
     }));
 }
 

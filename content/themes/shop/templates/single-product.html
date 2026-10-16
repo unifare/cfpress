@@ -1,19 +1,63 @@
 {{@extends "parts/layout"}}
 {{@section "content"}}
   <article class="product-detail">
-    <p><a href="/{{locale}}/products">&larr; Back to catalog</a></p>
-    <h1>{{product.name}}</h1>
-    <div style="display: flex; gap: 2rem; margin-top: 1.5rem;">
-      <div style="flex: 2;">
-        <div class="card" style="padding: 2rem;">
-          <p class="price" style="font-size: 2rem;">${{product.price}}</p>
-          <p style="color: var(--muted);">SKU: {{product.sku}}</p>
-          <div style="margin: 1.5rem 0;">
-            {{{product.description}}}
-          </div>
-          <button class="btn" style="cursor: pointer; border: none; font-size: 1rem; padding: 0.75rem 1.5rem;" onclick="alert('Added to cart!')">Add to Cart</button>
+    <p style="margin-bottom: 1.5rem;"><a href="/{{locale}}/products" style="color: var(--muted); text-decoration: none;">&larr; {{default(theme.strings.product.backToCatalog, "Back to catalog")}}</a></p>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 2.5rem; align-items: start;">
+      <div class="card" style="padding: 2.5rem; border-radius: 12px; background: var(--surface);">
+        <div style="display: inline-block; padding: 0.25rem 0.75rem; background: rgba(59,130,246,0.1); color: var(--primary); border-radius: 9999px; font-size: 0.85rem; font-weight: 600; margin-bottom: 1rem;">
+          {{default(theme.strings.product.sku, "SKU")}}: {{default(product.sku, post.sku)}}
+        </div>
+        <h1 style="font-size: 2.2rem; margin: 0 0 1rem; line-height: 1.2;">{{default(product.name, post.name)}}</h1>
+        <div style="display: flex; align-items: baseline; gap: 1rem; margin-bottom: 1.5rem;">
+          <span class="price" style="font-size: 2.2rem; font-weight: 700; color: var(--primary);">${{default(product.price, post.price)}}</span>
+          <span style="color: var(--success); font-size: 0.95rem; font-weight: 500;">● {{default(theme.strings.product.inStock, "In Stock")}}</span>
+        </div>
+        <div style="color: var(--muted); line-height: 1.7; margin-bottom: 2rem; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 1.5rem 0;">
+          {{{default(product.description, post.description)}}}
+        </div>
+        <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+          <button id="add-to-cart-btn" class="btn"
+                  data-name="{{default(product.name, post.name)}}"
+                  data-sku="{{default(product.sku, post.sku)}}"
+                  data-price="{{default(product.price, post.price)}}"
+                  data-slug="{{default(product.slug, post.slug)}}"
+                  style="cursor: pointer; border: none; font-size: 1.05rem; padding: 0.85rem 2rem; border-radius: 8px; font-weight: 600;">
+            🛒 {{default(theme.strings.product.addToCart, "Add to Cart")}}
+          </button>
+          <a href="/{{locale}}/cart" class="btn outline" style="padding: 0.85rem 1.5rem; border-radius: 8px;">
+            {{default(theme.strings.cart.title, "View Cart")}}
+          </a>
+        </div>
+        <div id="cart-msg" style="display: none; margin-top: 1.25rem; padding: 0.85rem 1.25rem; background: rgba(16,185,129,0.12); border: 1px solid var(--success); color: var(--success); border-radius: 8px; font-size: 0.95rem;">
+          ✓ 已成功加入购物车！<a href="/{{locale}}/cart" style="text-decoration: underline; margin-left: 0.5rem; color: inherit; font-weight: 600;">去购物车结算 &rarr;</a>
         </div>
       </div>
     </div>
   </article>
+  <script>
+    document.getElementById('add-to-cart-btn')?.addEventListener('click', function() {
+      const btn = this;
+      const item = {
+        name: btn.dataset.name || '',
+        sku: btn.dataset.sku || '',
+        price: parseFloat(btn.dataset.price || '0'),
+        slug: btn.dataset.slug || '',
+        qty: 1
+      };
+      try {
+        const cart = JSON.parse(localStorage.getItem('cfpress_cart') || '[]');
+        const existing = cart.find(x => x.sku === item.sku);
+        if (existing) {
+          existing.qty = (existing.qty || 1) + 1;
+        } else {
+          cart.push(item);
+        }
+        localStorage.setItem('cfpress_cart', JSON.stringify(cart));
+        const msg = document.getElementById('cart-msg');
+        if (msg) msg.style.display = 'block';
+      } catch (e) {
+        console.error(e);
+      }
+    });
+  </script>
 {{/section}}

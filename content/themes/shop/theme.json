@@ -55,6 +55,11 @@
       "path": "/cart",
       "template": "cart",
       "title": "Cart & Checkout"
+    },
+    {
+      "path": "/checkout",
+      "template": "checkout",
+      "title": "Checkout"
     }
   ],
   "tables": [

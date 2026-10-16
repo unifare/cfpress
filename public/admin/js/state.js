@@ -154,9 +154,13 @@ export async function loadContext() {
     const d = await api(scoped("admin-menus"));
     state.menuGroups = Array.isArray(d.groups) ? d.groups : [];
     state.adminMenus = Array.isArray(d.items) ? d.items : [];
+    state.themeMenus = state.adminMenus.filter((m) => m.owner_type === "theme");
+    state.pluginMenus = state.adminMenus.filter((m) => m.owner_type === "plugin");
   } catch {
     state.menuGroups = [];
     state.adminMenus = [];
+    state.themeMenus = [];
+    state.pluginMenus = [];
   }
   // The user's own hidden-sidebar set. Fetched with the menu context on
   // purpose: a language switch re-runs loadContext(), and the sidebar must

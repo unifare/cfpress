@@ -1,0 +1,144 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+  <header style="margin-bottom: 2rem;">
+    <h1>{{default(theme.strings.checkout.title, "Checkout")}}</h1>
+    <p class="lede">{{default(theme.strings.checkout.subtitle, "Complete your order and payment details")}}</p>
+  </header>
+
+  <div id="checkout-view" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 2.5rem; align-items: start;">
+    <div class="card" style="padding: 2.5rem; border-radius: 12px; background: var(--surface);">
+      <h2 style="font-size: 1.3rem; margin-top: 0; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem;">
+        收件与联系信息 / Customer Information
+      </h2>
+      <form id="checkout-form">
+        <div style="margin-bottom: 1.25rem;">
+          <label style="display:block; margin-bottom:.5rem; font-weight: 500;">{{default(theme.strings.checkout.fullName, "Full Name")}} <span style="color:var(--danger, #ef4444)">*</span></label>
+          <input type="text" id="cust-name" required placeholder="如：张三 / Alex Morgan" style="width: 100%; box-sizing: border-box; padding: .65rem .75rem; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px;">
+        </div>
+        <div style="margin-bottom: 1.25rem;">
+          <label style="display:block; margin-bottom:.5rem; font-weight: 500;">{{default(theme.strings.checkout.email, "Email Address")}} <span style="color:var(--danger, #ef4444)">*</span></label>
+          <input type="email" id="cust-email" required placeholder="alex@example.com" style="width: 100%; box-sizing: border-box; padding: .65rem .75rem; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px;">
+        </div>
+        <div style="margin-bottom: 1.25rem;">
+          <label style="display:block; margin-bottom:.5rem; font-weight: 500;">{{default(theme.strings.checkout.shippingAddress, "Shipping Address")}} <span style="color:var(--danger, #ef4444)">*</span></label>
+          <textarea id="cust-address" required rows="3" placeholder="详细配送地址..." style="width: 100%; box-sizing: border-box; padding: .65rem .75rem; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px;"></textarea>
+        </div>
+        <div style="margin-bottom: 1.5rem;">
+          <label style="display:block; margin-bottom:.5rem; font-weight: 500;">订单备注 / Order Notes</label>
+          <input type="text" id="cust-notes" placeholder="可选配送要求或包装说明..." style="width: 100%; box-sizing: border-box; padding: .65rem .75rem; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px;">
+        </div>
+        <button type="submit" id="submit-order-btn" class="btn" style="cursor: pointer; border: none; font-size: 1.1rem; width: 100%; padding: 0.85rem; font-weight: 600; border-radius: 8px;">
+          ✓ {{default(theme.strings.checkout.placeOrder, "Place Order Now")}}
+        </button>
+      </form>
+    </div>
+
+    <div class="card" style="padding: 2rem; border-radius: 12px; background: var(--surface);">
+      <h3 style="margin-top: 0; font-size: 1.15rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem;">
+        订单摘要 / Order Summary
+      </h3>
+      <div id="checkout-summary-items" style="margin: 1rem 0;"></div>
+      <div style="border-top: 1px solid var(--border); padding-top: 1rem; display: flex; justify-content: space-between; align-items: baseline;">
+        <span style="font-weight: 600; font-size: 1.1rem;">实付总额 / Total</span>
+        <span id="checkout-total" style="font-size: 1.8rem; font-weight: 700; color: var(--primary);">$0.00</span>
+      </div>
+      <div style="margin-top: 1.5rem;">
+        <a href="/{{locale}}/cart" class="btn outline" style="display: block; text-align: center; font-size: 0.9rem; padding: 0.5rem;">&larr; 返回修改购物车 / Return to Cart</a>
+      </div>
+    </div>
+  </div>
+
+  <div id="checkout-success" style="display: none; max-width: 650px; margin: 0 auto; text-align: center; padding: 3rem 1.5rem;" class="card">
+    <div style="font-size: 3.5rem; color: var(--success); margin-bottom: 1rem;">🎉</div>
+    <h2 style="font-size: 1.8rem; margin-bottom: 0.5rem; color: var(--success);">订单提交成功！/ Order Placed!</h2>
+    <p style="color: var(--muted); margin-bottom: 1.5rem;">感谢您的订购，系统已成功创建您的业务订单并通知仓储处理。</p>
+    <div style="background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; text-align: left; margin-bottom: 2rem;">
+      <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+        <span style="color: var(--muted);">订单编号 / Order No:</span>
+        <strong id="succ-order-no" style="font-family: monospace; font-size: 1.05rem;"></strong>
+      </div>
+      <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+        <span style="color: var(--muted);">收件人 / Customer:</span>
+        <span id="succ-customer"></span>
+      </div>
+      <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+        <span style="color: var(--muted);">支付金额 / Amount:</span>
+        <strong id="succ-amount" style="color: var(--primary);"></strong>
+      </div>
+      <div style="display: flex; justify-content: space-between;">
+        <span style="color: var(--muted);">订单状态 / Status:</span>
+        <span style="display: inline-block; padding: 0.2rem 0.6rem; background: rgba(16,185,129,0.15); color: var(--success); border-radius: 4px; font-size: 0.85rem; font-weight: 600;">已确认 (Confirmed)</span>
+      </div>
+    </div>
+    <div style="display: flex; gap: 1rem; justify-content: center;">
+      <a class="btn" href="/{{locale}}/products">继续浏览商品 / Continue Shopping</a>
+      <a class="btn outline" href="/{{locale}}">返回首页 / Home</a>
+    </div>
+  </div>
+
+  <script>
+    function getCart() {
+      try { return JSON.parse(localStorage.getItem('cfpress_cart') || '[]'); } catch { return []; }
+    }
+
+    function initCheckout() {
+      const cart = getCart();
+      const summaryItems = document.getElementById('checkout-summary-items');
+      const totalEl = document.getElementById('checkout-total');
+
+      if (!cart.length) {
+        summaryItems.innerHTML = '<p style="color: var(--muted);">购物车暂无商品，无法结算。</p>';
+        document.getElementById('submit-order-btn').disabled = true;
+        return;
+      }
+
+      let total = 0;
+      summaryItems.innerHTML = cart.map(item => {
+        const p = Number(item.price || 0);
+        const q = Number(item.qty || 1);
+        const sub = p * q;
+        total += sub;
+        return `
+          <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem; font-size: 0.95rem;">
+            <div>
+              <div style="font-weight: 500;">${item.name || item.sku}</div>
+              <div style="font-size: 0.8rem; color: var(--muted);">x ${q}</div>
+            </div>
+            <div style="font-weight: 600;">$${sub.toFixed(2)}</div>
+          </div>
+        `;
+      }).join('');
+
+      totalEl.textContent = '$' + total.toFixed(2);
+    }
+
+    document.getElementById('checkout-form')?.addEventListener('submit', function(e) {
+      e.preventDefault();
+      const cart = getCart();
+      if (!cart.length) return;
+
+      let total = 0;
+      cart.forEach(item => {
+        total += Number(item.price || 0) * Number(item.qty || 1);
+      });
+
+      const orderNo = 'ORD-' + Date.now().toString().slice(-6) + '-' + Math.floor(Math.random() * 900 + 100);
+      const custName = document.getElementById('cust-name').value;
+      const custEmail = document.getElementById('cust-email').value;
+
+      // 渲染成功收据
+      document.getElementById('succ-order-no').textContent = orderNo;
+      document.getElementById('succ-customer').textContent = custName + ' (' + custEmail + ')';
+      document.getElementById('succ-amount').textContent = '$' + total.toFixed(2);
+
+      // 清空购物车
+      localStorage.removeItem('cfpress_cart');
+
+      document.getElementById('checkout-view').style.display = 'none';
+      document.getElementById('checkout-success').style.display = 'block';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+    initCheckout();
+  </script>
+{{/section}}

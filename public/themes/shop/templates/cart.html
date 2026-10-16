@@ -1,0 +1,119 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+  <header style="margin-bottom: 2rem;">
+    <h1>{{default(theme.strings.cart.title, "Your Shopping Cart")}}</h1>
+    <p class="lede">{{default(theme.strings.cart.ready, "Review your chosen products before checkout.")}}</p>
+  </header>
+
+  <div id="cart-container" class="card" style="padding: 2rem; border-radius: 12px; background: var(--surface);">
+    <div id="cart-empty" style="text-align: center; padding: 3rem 1rem;">
+      <div style="font-size: 3rem; margin-bottom: 1rem;">🛒</div>
+      <p style="color: var(--muted); font-size: 1.1rem; margin-bottom: 1.5rem;">购物车当前是空的 / Your cart is currently empty</p>
+      <a class="btn" href="/{{locale}}/products">&larr; {{default(theme.strings.product.backToCatalog, "Explore Products")}}</a>
+    </div>
+
+    <div id="cart-table-wrap" style="display: none;">
+      <table style="width: 100%; border-collapse: collapse; margin-bottom: 2rem;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--border); text-align: left; color: var(--muted); font-size: 0.9rem;">
+            <th style="padding: 0.75rem 0;">商品 / Product</th>
+            <th style="padding: 0.75rem 0; text-align: center;">数量 / Qty</th>
+            <th style="padding: 0.75rem 0; text-align: right;">单价 / Price</th>
+            <th style="padding: 0.75rem 0; text-align: right;">小计 / Subtotal</th>
+            <th style="padding: 0.75rem 0; text-align: center; width: 60px;"></th>
+          </tr>
+        </thead>
+        <tbody id="cart-items-body"></tbody>
+      </table>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; border-top: 2px solid var(--border); padding-top: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+        <div>
+          <button id="clear-cart-btn" class="btn outline" style="font-size: 0.85rem; padding: 0.5rem 1rem;">清空购物车 / Clear Cart</button>
+        </div>
+        <div style="text-align: right;">
+          <div style="font-size: 0.95rem; color: var(--muted); margin-bottom: 0.25rem;">总计 / Total Amount</div>
+          <div id="cart-total-price" style="font-size: 2rem; font-weight: 700; color: var(--primary); margin-bottom: 1rem;">$0.00</div>
+          <a class="btn" href="/{{locale}}/checkout" style="font-size: 1.05rem; padding: 0.85rem 2rem; font-weight: 600;">
+            {{default(theme.strings.cart.checkout, "Proceed to Checkout")}} &rarr;
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function getCart() {
+      try { return JSON.parse(localStorage.getItem('cfpress_cart') || '[]'); } catch { return []; }
+    }
+    function saveCart(cart) {
+      localStorage.setItem('cfpress_cart', JSON.stringify(cart));
+      renderCart();
+    }
+    function renderCart() {
+      const cart = getCart();
+      const emptyDiv = document.getElementById('cart-empty');
+      const tableWrap = document.getElementById('cart-table-wrap');
+      const tbody = document.getElementById('cart-items-body');
+      const totalEl = document.getElementById('cart-total-price');
+
+      if (!cart.length) {
+        if (emptyDiv) emptyDiv.style.display = 'block';
+        if (tableWrap) tableWrap.style.display = 'none';
+        return;
+      }
+
+      if (emptyDiv) emptyDiv.style.display = 'none';
+      if (tableWrap) tableWrap.style.display = 'block';
+
+      let total = 0;
+      tbody.innerHTML = cart.map((item, idx) => {
+        const price = Number(item.price || 0);
+        const qty = Number(item.qty || 1);
+        const sub = price * qty;
+        total += sub;
+        return `
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 1rem 0;">
+              <div style="font-weight: 600;"><a href="/{{locale}}/products/${item.slug || ''}" style="color: inherit; text-decoration: none;">${item.name || item.sku}</a></div>
+              <div style="font-size: 0.8rem; color: var(--muted);">SKU: ${item.sku || '-'}</div>
+            </td>
+            <td style="padding: 1rem 0; text-align: center;">
+              <button class="btn outline" style="padding: 0.2rem 0.5rem; font-size: 0.8rem;" onclick="updateQty(${idx}, -1)">-</button>
+              <span style="display: inline-block; min-width: 2rem; text-align: center; font-weight: 600;">${qty}</span>
+              <button class="btn outline" style="padding: 0.2rem 0.5rem; font-size: 0.8rem;" onclick="updateQty(${idx}, 1)">+</button>
+            </td>
+            <td style="padding: 1rem 0; text-align: right; font-weight: 500;">$${price.toFixed(2)}</td>
+            <td style="padding: 1rem 0; text-align: right; font-weight: 700; color: var(--primary);">$${sub.toFixed(2)}</td>
+            <td style="padding: 1rem 0; text-align: center;">
+              <button style="background: none; border: none; color: var(--danger, #ef4444); cursor: pointer; font-size: 1.1rem;" title="Remove" onclick="removeItem(${idx})">&times;</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      totalEl.textContent = '$' + total.toFixed(2);
+    }
+
+    window.updateQty = function(idx, delta) {
+      const cart = getCart();
+      if (!cart[idx]) return;
+      cart[idx].qty = (cart[idx].qty || 1) + delta;
+      if (cart[idx].qty <= 0) cart.splice(idx, 1);
+      saveCart(cart);
+    };
+
+    window.removeItem = function(idx) {
+      const cart = getCart();
+      cart.splice(idx, 1);
+      saveCart(cart);
+    };
+
+    document.getElementById('clear-cart-btn')?.addEventListener('click', function() {
+      if (confirm('确认清空购物车吗？/ Clear entire cart?')) {
+        saveCart([]);
+      }
+    });
+
+    renderCart();
+  </script>
+{{/section}}

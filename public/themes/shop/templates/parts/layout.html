@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="{{locale}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{page.document_title}}</title>
+  {{#if site.description}}<meta name="description" content="{{site.description}}">{{/if}}
+  <style>
+    :root {
+      --bg: #0f172a; --panel: #1e293b; --text: #f8fafc; --muted: #94a3b8;
+      --accent: #38bdf8; --border: #334155; --success: #22c55e;
+    }
+    body { margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+    header, footer { border-bottom: 1px solid var(--border); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+    footer { border-top: 1px solid var(--border); border-bottom: none; margin-top: 3rem; color: var(--muted); }
+    main { max-width: 1100px; margin: 2rem auto; padding: 0 1rem; }
+    a { color: var(--accent); text-decoration: none; }
+    .nav { display: flex; gap: 1.5rem; align-items: center; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.5rem; list-style: none; padding: 0; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; }
+    .price { font-size: 1.25rem; font-weight: 700; color: var(--success); }
+    .btn { display: inline-block; background: var(--accent); color: #000; font-weight: 600; padding: .5rem 1rem; border-radius: 6px; }
+  </style>
+  {{{hook("head")}}}
+</head>
+<body>
+  {{@include "parts/header"}}
+  <main>
+    {{@section "content"}}
+  </main>
+  {{@include "parts/footer"}}
+  {{{hook("footer")}}}
+</body>
+</html>

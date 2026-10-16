@@ -584,10 +584,11 @@ async function handleFrontRequest(env:Env,request:Request,ctx:ExecutionContext,u
     // Title precedence: the resolved object, then the title the theme gave the
     // route, then the template name. Never fall back to the raw query `type` —
     // that is an internal slug ("post"), and leaking it heads the page "post".
-    title:post?.title||String(route.title||route.template||"Archive"),
-    description:post?.excerpt||undefined,post:post??undefined,
+    title:post?.title||post?.name||String(route.title||route.template||"Archive"),
+    description:post?.excerpt||post?.description||undefined,post:post??undefined,
     extra:{
       route:{path:route.path,params:rt.params,query},
+      ...(resolveTable&&post?{[resolveTable]:post}:{}),
       [listVar]:rows.map(p=>({...p,url:itemUrl(String(p.slug??""))})),
     }
   });

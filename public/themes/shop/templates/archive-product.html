@@ -1,0 +1,39 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+  <header style="margin-bottom: 2rem;">
+    <h1>{{default(theme.strings.archive.title, "All Products")}}</h1>
+    <p class="lede">{{default(theme.strings.archive.subtitle, "Discover our curated selection of fine goods")}}</p>
+  </header>
+  <ul class="grid" style="list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.75rem;">
+    {{#each products as p}}
+    <li class="card" style="display: flex; flex-direction: column; justify-content: space-between; border-radius: 12px; padding: 1.75rem; background: var(--surface);">
+      <div>
+        <div style="font-size: 0.8rem; color: var(--muted); margin-bottom: 0.5rem;">
+          {{default(theme.strings.product.sku, "SKU")}}: {{p.sku}}
+        </div>
+        <h3 style="margin: 0 0 0.75rem; font-size: 1.25rem;">
+          <a href="/{{locale}}/products/{{p.slug}}" style="color: inherit; text-decoration: none;">{{p.name}}</a>
+        </h3>
+        <p style="color: var(--muted); font-size: 0.9rem; line-height: 1.5; margin: 0 0 1rem;">
+          {{p.description}}
+        </p>
+      </div>
+      <div>
+        <div style="margin: 1rem 0; display: flex; justify-content: space-between; align-items: baseline;">
+          <span class="price" style="font-size: 1.6rem; font-weight: 700; color: var(--primary);">${{p.price}}</span>
+          {{#if p.in_stock}}<span style="color: var(--success); font-size: 0.85rem; font-weight: 500;">● {{default(theme.strings.product.inStock, "In Stock")}}</span>{{/if}}
+        </div>
+        <a class="btn" href="/{{locale}}/products/{{p.slug}}" style="display: block; text-align: center; border-radius: 6px; padding: 0.65rem;">
+          {{default(theme.strings.archive.viewDetails, "View Details")}} &rarr;
+        </a>
+      </div>
+    </li>
+    {{else}}
+    <li style="grid-column: 1 / -1; padding: 4rem 1.5rem; text-align: center; color: var(--muted);" class="card">
+      <div style="font-size: 3rem; margin-bottom: 1rem;">📦</div>
+      <p style="font-size: 1.2rem; margin-bottom: 0.5rem; font-weight: 600;">暂无上架商品 / No products listed</p>
+      <p style="font-size: 0.95rem; margin-bottom: 1.5rem;">管理员可在后台管理系统左侧“来自主题 (From theme)” -> “商品管理 (Products)”中随时添加商品。</p>
+    </li>
+    {{/each}}
+  </ul>
+{{/section}}

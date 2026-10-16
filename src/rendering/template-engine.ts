@@ -374,6 +374,8 @@ const HELPERS: Record<string, (args: unknown[], scope?: Scope) => unknown> = Obj
     }
     return "";
   },
+  // json: serialize value to JSON string for safe client scripts
+  json: (a: unknown[]) => JSON.stringify(a[0] ?? null),
   })
 );
 

@@ -1916,7 +1916,7 @@ async function dispatchAuthAdminRoutes(
     const expiresInDays = b.expires_in_days ? Number(b.expires_in_days) : null;
     const created = await createApiKey(env, user.id, name, scopes, sites, expiresInDays);
     await activity(env, user.id, "create", "api_key", created.id, { name, scopes, sites });
-    return ok({ key: created, token: created.token, ...created }, 201);
+    return ok({ key: created, ...created }, 201);
   }
   const matchRevokeKey = path.match(/^auth\/api-keys\/([^/]+)$/);
   if (matchRevokeKey && method === "DELETE") {
@@ -2395,6 +2395,17 @@ async function dispatchThemeTableAdminRoutes(
       const row = await tableBySlug(env, def, slug, locale);
       return row ? ok({ def, locale, row }) : ok({ error: "not found" }, 404);
     }
+    if (method === "PUT" || method === "POST") {
+      if (!(await requirePermission(env, user, "content.write", siteId))) return ok({ error: "Forbidden" }, 403);
+      const body = await jsonBody(request);
+      try {
+        const withSlug = { ...body, slug: body?.slug || slug };
+        const row = await tableSave(env, def, withSlug, locale);
+        return ok({ ok: true, locale, row });
+      } catch (e: any) {
+        return ok({ error: e?.message || "save failed" }, 400);
+      }
+    }
     if (method === "DELETE") {
       if (!(await requirePermission(env, user, "content.write", siteId))) return ok({ error: "Forbidden" }, 403);
       const row = await tableBySlug(env, def, slug, locale);
@@ -2684,21 +2695,42 @@ async function dispatchSettingsAdminRoutes(
   return null;
 }
 
-const WIDGET_TYPES = new Set(["text", "html", "recent-posts", "menu"]);
+const CORE_WIDGET_TYPES = new Set(["text", "html", "recent-posts", "menu", "search", "categories"]);
+
+async function isWidgetTypeAllowed(siteId: string, env: Env, type: string): Promise<boolean> {
+  const norm = type.replace(/^core\./, "");
+  if (CORE_WIDGET_TYPES.has(norm)) return true;
+  if (type.startsWith("custom.")) {
+    const row = await env.DB.prepare("SELECT id FROM custom_widget_types WHERE site_id=? AND type=?").bind(siteId, type).first<any>();
+    return !!row;
+  }
+  if (type.startsWith("theme.") || type.startsWith("plugin.")) return true;
+  return false;
+}
 
 async function normaliseWidgetConfig(siteId: string, env: Env, type: string, cfg: unknown): Promise<Record<string, unknown>> {
   const c = (cfg && typeof cfg === "object" && !Array.isArray(cfg)) ? cfg as Record<string, unknown> : {};
-  if (type === "text" || type === "html") return { body: String(c.body ?? "") };
-  if (type === "recent-posts") {
+  const norm = type.replace(/^core\./, "");
+  if (norm === "text" || norm === "html") return { body: String(c.body ?? "") };
+  if (norm === "recent-posts") {
     const n = Math.round(Number(c.count ?? 5));
     if (!Number.isFinite(n) || n < 1 || n > 20) throw new Error("recent-posts count must be 1-20");
     return { count: n };
   }
-  const menuId = String(c.menu_id ?? "");
-  if (!menuId) throw new Error("menu widget needs menu_id");
-  const m = await env.DB.prepare("SELECT id FROM menus WHERE site_id=? AND id=?").bind(siteId, menuId).first<any>();
-  if (!m) throw new Error("menu_id does not exist on this site");
-  return { menu_id: menuId };
+  if (norm === "menu") {
+    const menuId = String(c.menu_id ?? "");
+    if (!menuId) throw new Error("menu widget needs menu_id");
+    const m = await env.DB.prepare("SELECT id FROM menus WHERE site_id=? AND id=?").bind(siteId, menuId).first<any>();
+    if (!m) throw new Error("menu_id does not exist on this site");
+    return { menu_id: menuId };
+  }
+  if (norm === "search") {
+    return { title: String(c.title ?? ""), placeholder: String(c.placeholder ?? "Search...") };
+  }
+  if (norm === "categories") {
+    return { title: String(c.title ?? ""), show_count: c.show_count ? 1 : 0 };
+  }
+  return c;
 }
 
 async function dispatchNavAndWidgetRoutes(
@@ -2805,51 +2837,215 @@ async function dispatchNavAndWidgetRoutes(
 
   // -- widgets ----------------------------------------------------------------
   if (path === "widgets/types" && method === "GET") {
+    // 1. Core widget types
+    const coreItems = [
+      {
+        type: "core.text",
+        name: "Text",
+        title: "Text",
+        description: "Arbitrary text with auto-paragraphs",
+        icon: "file-text",
+        category: "core",
+        fields: [
+          { name: "title", label: "Title", type: "text" },
+          { name: "body", label: "Content", type: "textarea", required: true },
+        ],
+      },
+      {
+        type: "core.html",
+        name: "Custom HTML",
+        title: "Custom HTML",
+        description: "Raw HTML / embed code",
+        icon: "puzzle",
+        category: "core",
+        fields: [
+          { name: "title", label: "Title", type: "text" },
+          { name: "body", label: "HTML Code", type: "textarea", required: true },
+        ],
+      },
+      {
+        type: "core.recent-posts",
+        name: "Recent Posts",
+        title: "Recent Posts",
+        description: "List of recently published posts",
+        icon: "layers",
+        category: "core",
+        fields: [
+          { name: "title", label: "Title", type: "text" },
+          { name: "count", label: "Number of Posts", type: "number", default: 5, min: 1, max: 20 },
+        ],
+      },
+      {
+        type: "core.menu",
+        name: "Navigation Menu",
+        title: "Navigation Menu",
+        description: "Display a site navigation menu",
+        icon: "menu",
+        category: "core",
+        fields: [
+          { name: "title", label: "Title", type: "text" },
+          { name: "menu_id", label: "Select Menu", type: "select", options: "menus", required: true },
+        ],
+      },
+      {
+        type: "core.search",
+        name: "Search Bar",
+        title: "Search Bar",
+        description: "Interactive search box for site contents",
+        icon: "search",
+        category: "core",
+        fields: [
+          { name: "title", label: "Title", type: "text" },
+          { name: "placeholder", label: "Placeholder Text", type: "text", default: "Search..." },
+        ],
+      },
+      {
+        type: "core.categories",
+        name: "Categories",
+        title: "Categories",
+        description: "List of post categories and archives",
+        icon: "tag",
+        category: "core",
+        fields: [
+          { name: "title", label: "Title", type: "text" },
+          { name: "show_count", label: "Show Post Count", type: "boolean", default: true },
+        ],
+      },
+    ];
+
+    // 2. Theme types (from active theme blocks or declared widgets)
+    const themeItems: any[] = [];
+    try {
+      const themeBlocks = await env.DB.prepare(
+        "SELECT * FROM theme_blocks WHERE site_id=? ORDER BY name"
+      ).bind(siteId).all();
+      for (const tb of (themeBlocks.results as any[]) ?? []) {
+        themeItems.push({
+          type: `theme.${tb.name}`,
+          name: tb.title || tb.name,
+          title: tb.title || tb.name,
+          description: `Theme block template: ${tb.name}`,
+          icon: "palette",
+          category: "theme",
+          fields: [{ name: "title", label: "Title", type: "text" }],
+        });
+      }
+    } catch {}
+
+    // 3. Plugin types (e.g. adinsert, etc.)
+    const pluginItems: any[] = [
+      {
+        type: "plugin.adinsert",
+        name: "Ad Inserter Block",
+        title: "Ad Inserter Block",
+        description: "Insert a managed ad block into widget sidebar",
+        icon: "layers",
+        category: "plugin",
+        fields: [
+          { name: "title", label: "Title", type: "text" },
+          { name: "block_no", label: "Ad Block Number (1-16)", type: "number", default: 1, min: 1, max: 16 },
+        ],
+      },
+    ];
+
+    // 4. Custom types (from custom_widget_types for this site)
+    const customItems: any[] = [];
+    try {
+      const customs = await env.DB.prepare(
+        "SELECT * FROM custom_widget_types WHERE site_id=? ORDER BY created_at DESC"
+      ).bind(siteId).all();
+      for (const row of (customs.results as any[]) ?? []) {
+        let fields: any[] = [];
+        try { fields = JSON.parse(String(row.schema_json || "[]")); } catch {}
+        customItems.push({
+          id: row.id,
+          type: row.type,
+          name: row.name,
+          title: row.name,
+          description: row.description || "",
+          icon: row.icon || "puzzle",
+          category: "custom",
+          template: row.template || "",
+          schema_json: row.schema_json || "[]",
+          fields: Array.isArray(fields) && fields.length ? fields : [{ name: "title", label: "Title", type: "text" }],
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+        });
+      }
+    } catch {}
+
     return ok({
-      items: [
-        {
-          type: "text",
-          title: "Text",
-          description: "Arbitrary text with auto-paragraphs",
-          icon: "file-text",
-          fields: [
-            { name: "title", label: "Title", type: "text" },
-            { name: "body", label: "Content", type: "textarea", required: true }
-          ]
-        },
-        {
-          type: "html",
-          title: "Custom HTML",
-          description: "Raw HTML / embed code",
-          icon: "puzzle",
-          fields: [
-            { name: "title", label: "Title", type: "text" },
-            { name: "body", label: "HTML Code", type: "textarea", required: true }
-          ]
-        },
-        {
-          type: "recent-posts",
-          title: "Recent Posts",
-          description: "List of recently published posts",
-          icon: "layers",
-          fields: [
-            { name: "title", label: "Title", type: "text" },
-            { name: "count", label: "Number of Posts", type: "number", default: 5, min: 1, max: 20 }
-          ]
-        },
-        {
-          type: "menu",
-          title: "Navigation Menu",
-          description: "Display a site navigation menu",
-          icon: "menu",
-          fields: [
-            { name: "title", label: "Title", type: "text" },
-            { name: "menu_id", label: "Select Menu", type: "select", options: "menus", required: true }
-          ]
-        }
-      ]
+      site: siteId,
+      items: [...coreItems, ...themeItems, ...pluginItems, ...customItems],
     });
   }
+
+  // Custom widget types CRUD
+  if (path === "widgets/custom-types" && method === "POST") {
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const b = await jsonBody(request);
+    const name = String(b.name || "").trim();
+    if (!name) return ok({ error: "Widget name is required" }, 400);
+
+    let rawType = String(b.type || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "_");
+    if (!rawType) rawType = `custom_${await randomId().then((s) => s.slice(0, 6))}`;
+    const type = rawType.startsWith("custom.") ? rawType : `custom.${rawType.replace(/^custom_/, "")}`;
+
+    const description = String(b.description || "").trim();
+    const iconName = String(b.icon || "puzzle").trim();
+    const template = String(b.template || "").trim();
+    const schema_json = typeof b.schema_json === "string" ? b.schema_json : JSON.stringify(b.fields || []);
+
+    const existing = await env.DB.prepare("SELECT id FROM custom_widget_types WHERE site_id=? AND type=?").bind(siteId, type).first<any>();
+    if (existing) return ok({ error: `Widget type '${type}' already exists` }, 409);
+
+    const ts = now();
+    const id = `cwt_${await randomId()}`;
+    await env.DB.prepare(
+      "INSERT INTO custom_widget_types (id, site_id, type, name, description, icon, template, schema_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(id, siteId, type, name, description, iconName, template, schema_json, ts, ts).run();
+
+    await bumpContentCache(env, siteId);
+    await activity(env, user.id, "create", "custom_widget_type", id);
+    return ok({ ok: true, id, type, site: siteId }, 201);
+  }
+
+  const cwtMatch = path.match(/^widgets\/custom-types\/([^/]+)$/);
+  if (cwtMatch && (method === "PUT" || method === "POST")) {
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const cur = await env.DB.prepare("SELECT * FROM custom_widget_types WHERE site_id=? AND id=?").bind(siteId, cwtMatch[1]).first<any>();
+    if (!cur) return ok({ error: "Custom widget type not found" }, 404);
+
+    const b = await jsonBody(request);
+    const name = b.name !== undefined ? String(b.name).trim() : cur.name;
+    const description = b.description !== undefined ? String(b.description).trim() : cur.description;
+    const iconName = b.icon !== undefined ? String(b.icon).trim() : cur.icon;
+    const template = b.template !== undefined ? String(b.template) : cur.template;
+    const schema_json = b.schema_json !== undefined
+      ? (typeof b.schema_json === "string" ? b.schema_json : JSON.stringify(b.schema_json))
+      : (b.fields !== undefined ? JSON.stringify(b.fields) : cur.schema_json);
+
+    const ts = now();
+    await env.DB.prepare(
+      "UPDATE custom_widget_types SET name=?, description=?, icon=?, template=?, schema_json=?, updated_at=? WHERE site_id=? AND id=?"
+    ).bind(name, description, iconName, template, schema_json, ts, siteId, cwtMatch[1]).run();
+
+    await bumpContentCache(env, siteId);
+    await activity(env, user.id, "update", "custom_widget_type", cwtMatch[1]);
+    return ok({ ok: true, site: siteId });
+  }
+
+  if (cwtMatch && method === "DELETE") {
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const cur = await env.DB.prepare("SELECT * FROM custom_widget_types WHERE site_id=? AND id=?").bind(siteId, cwtMatch[1]).first<any>();
+    if (!cur) return ok({ error: "Custom widget type not found" }, 404);
+
+    await env.DB.prepare("DELETE FROM custom_widget_types WHERE site_id=? AND id=?").bind(siteId, cwtMatch[1]).run();
+    await bumpContentCache(env, siteId);
+    await activity(env, user.id, "delete", "custom_widget_type", cwtMatch[1]);
+    return ok({ ok: true, site: siteId });
+  }
+
   if (path === "widgets" && method === "GET") {
     const rows = await env.DB.prepare("SELECT * FROM widget_instances WHERE site_id=? ORDER BY sidebar,sort_order,id").bind(siteId).all();
     return ok({ items: rows.results, site: siteId });
@@ -2858,7 +3054,7 @@ async function dispatchNavAndWidgetRoutes(
     if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     const b = await jsonBody(request);
     const type = String(b.widget_type || "text");
-    if (!WIDGET_TYPES.has(type)) return ok({ error: "unknown widget_type" }, 400);
+    if (!(await isWidgetTypeAllowed(siteId, env, type))) return ok({ error: `unknown or disallowed widget_type: ${type}` }, 400);
     let cfg: Record<string, unknown>;
     try { cfg = await normaliseWidgetConfig(siteId, env, type, b.config); } catch (e: any) { return ok({ error: e?.message || "invalid config" }, 400); }
     const id = await randomId();
@@ -2875,7 +3071,7 @@ async function dispatchNavAndWidgetRoutes(
     if (!cur) return ok({ error: "widget not found" }, 404);
     const b = await jsonBody(request);
     const type = String(b.widget_type || cur.widget_type);
-    if (!WIDGET_TYPES.has(type)) return ok({ error: "unknown widget_type" }, 400);
+    if (!(await isWidgetTypeAllowed(siteId, env, type))) return ok({ error: `unknown or disallowed widget_type: ${type}` }, 400);
     let cfg: Record<string, unknown>;
     try { cfg = await normaliseWidgetConfig(siteId, env, type, b.config === undefined ? JSON.parse(String(cur.config || "{}")) : b.config); } catch (e: any) { return ok({ error: e?.message || "invalid config" }, 400); }
     await env.DB.prepare("UPDATE widget_instances SET sidebar=?,widget_type=?,title=?,config=?,sort_order=?,enabled=?,locale=? WHERE site_id=? AND id=?")

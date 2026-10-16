@@ -18,6 +18,7 @@ import { api, scoped, state } from "../state.js";
 import { pageHead } from "../shell.js";
 import { attr, esc, openDialog, toast } from "../../ui.js";
 import { renderPluginPage, renderChannelSettings, collectChannelValues } from "../plugin-page.js";
+import adinsertScreen from "./adinsert.js";
 
 /**
  * Find the page declaration for an id across every enabled plugin.
@@ -43,6 +44,10 @@ export async function pluginPageScreen(c, pageId) {
     c.innerHTML = `${pageHead({ title: "Plugin page", crumbs: [{ label: "Plugins" }, { label: "Page" }] })}
     <div class="panel"><div class="empty">This screen needs a page id. Declare it as <code>plugin-page:&lt;id&gt;</code> on the menu.</div></div>`;
     return;
+  }
+
+  if (id === "adinsert") {
+    return adinsertScreen(c);
   }
 
   const found = findPage(id);

@@ -15,6 +15,7 @@ import { mediaFieldHtml } from "../media-picker.js";
 import { contentList } from "./content-list.js";
 import { tableListScreen } from "./table-list.js";
 import { tableEditScreen } from "./table-edit.js";
+import { pluginPageScreen } from "./plugin-page.js";
 
 /** Find a declared menu by its id, whatever owner declared it. */
 function findMenu(menuId) {
@@ -133,6 +134,10 @@ export default async function themeMenuScreen(c, menuId) {
   }
   if (m.screen === "plugin-settings") {
     return extensionSettings(c, m, "plugin");
+  }
+
+  if (typeof m.screen === "string" && m.screen.startsWith("plugin-page:")) {
+    return pluginPageScreen(c, m.screen.slice("plugin-page:".length));
   }
 
   // Unknown screen type: show the declaration so it is not a dead end.

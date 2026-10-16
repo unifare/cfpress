@@ -64,7 +64,7 @@ export async function registerPluginMenus(
         screen: m.screen,
         args: m.args ?? {},
         capability: m.capability ?? null,
-        labelKey: m.label_key ?? null,
+        labelKey: m.label_key ?? (m as any).labelKey ?? null,
         sortOrder: i,
       }))
   );

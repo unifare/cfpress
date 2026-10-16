@@ -262,6 +262,8 @@ hook-tester|tests/suites/hook-tester.test.mjs
 shop-theme|tests/suites/shop-theme.test.mjs
 theme-assets|tests/suites/theme-assets.test.mjs
 api-keys|tests/suites/api-keys.test.mjs
+plugin-adinsert|tests/suites/plugin-adinsert.test.mjs
+widgets-categories|tests/suites/widgets-categories.test.mjs
 
 launcher-parity|tests/suites/launcher-parity.test.mjs"
 

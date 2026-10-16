@@ -62,8 +62,12 @@ const SCENARIOS = [
   {
     label: "a search route falls back to a hardcoded locale (rule 57)",
     file: API,
-    before: ["const q=String(url.searchParams.get(\"q\")||\"\").trim(); const locale=await resolveContentLocale(env,siteId,url.searchParams.get(\"locale\"));"],
-    after: ["const q=String(url.searchParams.get(\"q\")||\"\").trim(); const locale=await resolveContentLocale(env,siteId,url.searchParams.get(\"locale\"))||\"en\";"],
+    before: [
+      '    const q = String(url.searchParams.get("q") || "").trim();\n    const locale = await resolveContentLocale(env, siteId, url.searchParams.get("locale"));',
+    ],
+    after: [
+      '    const q = String(url.searchParams.get("q") || "").trim();\n    const locale = (await resolveContentLocale(env, siteId, url.searchParams.get("locale"))) || "en";',
+    ],
     runs: [[ARCH, "no hardcoded locale fallbacks outside platform/i18n (rule 57)"]],
   },
   {

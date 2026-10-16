@@ -1,0 +1,75 @@
+{
+  "name": "adinsert",
+  "title": "Ad Inserter",
+  "version": "1.0.0",
+  "description": "Professional ad and code insertion plugin for CFPress, providing flexible placement (Before/After Post, Content, Paragraphs, Head, Footer) and multi-block targeting.",
+  "permissions": ["content.read", "settings.read", "settings.write"],
+
+  "hooks": ["html", "head", "footer", "shortcode"],
+
+  "tables": [
+    {
+      "name": "blocks",
+      "label": "Ad Blocks",
+      "fields": [
+        { "key": "block_no", "type": "number", "label": "Block Number" },
+        { "key": "name", "type": "text", "label": "Block Name" },
+        { "key": "code", "type": "longtext", "label": "Ad Code (HTML/JS)" },
+        { "key": "position", "type": "text", "label": "Insertion Position" },
+        { "key": "paragraph_no", "type": "number", "label": "Paragraph Number" },
+        { "key": "alignment", "type": "text", "label": "Alignment" },
+        { "key": "page_types", "type": "text", "label": "Target Page Types" },
+        { "key": "device", "type": "text", "label": "Target Device" },
+        { "key": "enabled", "type": "number", "label": "Enabled" }
+      ],
+      "translatable": ["name", "code", "position", "alignment", "page_types", "device"]
+    }
+  ],
+
+  "adminPages": [
+    {
+      "id": "adinsert",
+      "path": "adinsert",
+      "titleKey": "plugin.adinsert.title",
+      "blocks": [
+        {
+          "type": "table",
+          "source": "blocks",
+          "columns": ["block_no", "name", "position", "enabled"],
+          "labelKey": "plugin.adinsert.block.recent"
+        }
+      ]
+    }
+  ],
+
+  "adminMenus": [
+    {
+      "id": "adinsert",
+      "label": "Ad Inserter",
+      "labelKey": "plugin.adinsert.menu.title",
+      "icon": "layers",
+      "screen": "plugin-page:adinsert",
+      "capability": "settings.read"
+    }
+  ],
+
+  "settings": [
+    { "key": "enabled", "type": "text", "label": "Plugin Enabled (1/0)", "default": "1" },
+    { "key": "min_paragraphs", "type": "number", "label": "Minimum Paragraphs Required", "default": 1 },
+    { "key": "header_code", "type": "textarea", "label": "Header Code (<head>)", "default": "" },
+    { "key": "footer_code", "type": "textarea", "label": "Footer Code (Before </body>)", "default": "" }
+  ],
+
+  "langs": {
+    "en": {
+      "plugin.adinsert.title": "Ad Inserter",
+      "plugin.adinsert.menu.title": "Ad Inserter",
+      "plugin.adinsert.block.recent": "Ad Blocks"
+    },
+    "zh-CN": {
+      "plugin.adinsert.title": "广告插入器 (Ad Inserter)",
+      "plugin.adinsert.menu.title": "广告插入器",
+      "plugin.adinsert.block.recent": "广告代码块"
+    }
+  }
+}

@@ -26,9 +26,11 @@ export interface ApiKeyCreatedResult {
   name: string;
   token: string;
   keyPrefix: string;
+  key_prefix?: string;
   scopes: string[];
   sites: string[];
   createdAt: number;
+  created_at?: number;
 }
 
 /** Compute lowercase hex SHA-256 without byteOffset or pool slicing issues. */

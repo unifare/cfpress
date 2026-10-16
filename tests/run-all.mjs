@@ -85,6 +85,7 @@ const suites = [
   // but not parts, and Parts are where the header's member chip lives) — the
   // reverse-validation note in the suite records what the injection showed.
   ["bundled themes", "suites/theme-bundled.test.mjs"],
+  ["widget categories (all/core/theme/plugin/custom)", "suites/widgets-categories.test.mjs"],
   // The launcher parity check is pure text analysis over scripts/cfpress.sh and
   // scripts/cfpress.ps1 — no Worker, no database. It guards the promise those
   // two files make to each other ("one set of actions"), which decays silently

@@ -5,6 +5,7 @@ import { isCapability } from "../contract/capabilities";
 import type { ChannelMessage, ChannelSendResult } from "../contract/channels";
 import { readChannelConfig, deliverNotification } from "./notify";
 import { registerPluginMenus, registerPluginTables } from "./menus";
+import { filterAdInsert, handleAdInsertShortcode } from "./adinsert";
 
 export type ExtensionContext = {
   env: Env;
@@ -107,6 +108,9 @@ export const HOOK_IMPLS: Record<string, HookImpl> = {
       if (foot && !out.includes(foot)) {
         out = out.includes("</body>") ? out.replace("</body>", `${foot}</body>`) : out;
       }
+      if (ctx.extension?.name === "adinsert") {
+        out = await filterAdInsert(ctx as ExtensionContext, out);
+      }
       return out;
     },
   },
@@ -167,7 +171,12 @@ export const HOOK_IMPLS: Record<string, HookImpl> = {
   shortcode: {
     phase: "filter",
     order: 10,
-    impl: async (_ctx, payload) => payload,
+    impl: async (ctx, payload) => {
+      if (payload?.name === "adinsert") {
+        return handleAdInsertShortcode(ctx as any, payload);
+      }
+      return payload;
+    },
   },
 };
 
@@ -352,6 +361,9 @@ async function filterHead(ctx: ExtensionContext): Promise<string> {
     if (map.default_description) {
       out.push(`<meta name="description" content="${escapeAttr(String(map.default_description))}">`);
     }
+    if (map.header_code) {
+      out.push(String(map.header_code));
+    }
     return out.join("");
   } catch {
     return "";
@@ -380,6 +392,9 @@ async function filterFooter(ctx: ExtensionContext): Promise<string> {
     }
     if (map.footer_html) {
       out.push(String(map.footer_html));
+    }
+    if (map.footer_code) {
+      out.push(String(map.footer_code));
     }
     return out.join("");
   } catch {

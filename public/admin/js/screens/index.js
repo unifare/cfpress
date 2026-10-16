@@ -29,6 +29,7 @@ import { tableEditScreen } from "./table-edit.js";
 import { pluginPageScreen } from "./plugin-page.js";
 import { themeAssetsScreen } from "./theme-assets.js";
 import apiKeys from "./api-keys.js";
+import adinsert from "./adinsert.js";
 
 export const SCREENS = {
   dashboard,
@@ -65,4 +66,5 @@ export const SCREENS = {
   // reached without an id it shows an explanatory panel.
   "plugin-page": pluginPageScreen,
   "theme-assets": themeAssetsScreen,
+  adinsert,
 };

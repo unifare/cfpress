@@ -254,18 +254,76 @@ async function renderWidget(env:Env,siteId:string,locale:string,w:any):Promise<s
   const title=w.title?`<h6 class="widget-title">${esc(String(w.title))}</h6>`:"";
   const slot=esc(String(w.sidebar||"sidebar"));
   const wid=esc(String(w.id||""));
-  if(w.widget_type==="text") return `<section class="widget widget-text" data-slot="${slot}" data-widget="${wid}">${title}<p>${esc(String(cfg.body||""))}</p></section>`;
-  if(w.widget_type==="html") return `<section class="widget widget-html" data-slot="${slot}" data-widget="${wid}">${title}${String(cfg.body||"")}</section>`;
-  if(w.widget_type==="recent-posts"){
+  const type=String(w.widget_type||"text").replace(/^core\./,"");
+
+  if(type==="text") return `<section class="widget widget-text" data-slot="${slot}" data-widget="${wid}">${title}<p>${esc(String(cfg.body||""))}</p></section>`;
+  if(type==="html") return `<section class="widget widget-html" data-slot="${slot}" data-widget="${wid}">${title}${String(cfg.body||"")}</section>`;
+  if(type==="recent-posts"){
     const n=Math.min(20,Math.max(1,Math.round(Number(cfg.count||5))));
     const r=await env.DB.prepare("SELECT p.slug, COALESCE(t.title,p.slug) AS title FROM posts p LEFT JOIN post_translations t ON t.post_id=p.id AND t.locale=? WHERE p.site_id=? AND p.type='post' AND p.status='published' ORDER BY p.created_at DESC LIMIT ?").bind(locale,siteId,n).all();
     const lis=((r.results as any[])??[]).map(x=>`<li><a href="/${locale}/blog/${esc(String(x.slug))}">${esc(String(x.title))}</a></li>`).join("");
     return `<section class="widget widget-recent" data-slot="${slot}" data-widget="${wid}">${title}<ul class="widget-list">${lis}</ul></section>`;
   }
   // menu — the widget pins a menu by id; the items carry site_id (rule 6).
-  const r=await env.DB.prepare("SELECT title,url FROM menu_items WHERE site_id=? AND menu_id=? AND (locale IS NULL OR locale='' OR locale=?) ORDER BY sort_order,id").bind(siteId,String(cfg.menu_id||""),locale).all();
-  const lis=((r.results as any[])??[]).map(x=>`<li><a href="${esc(String(x.url))}">${esc(String(x.title))}</a></li>`).join("");
-  return `<section class="widget widget-menu" data-slot="${slot}" data-widget="${wid}">${title}<ul class="widget-list">${lis}</ul></section>`;
+  if(type==="menu"){
+    const r=await env.DB.prepare("SELECT title,url FROM menu_items WHERE site_id=? AND menu_id=? AND (locale IS NULL OR locale='' OR locale=?) ORDER BY sort_order,id").bind(siteId,String(cfg.menu_id||""),locale).all();
+    const lis=((r.results as any[])??[]).map(x=>`<li><a href="${esc(String(x.url))}">${esc(String(x.title))}</a></li>`).join("");
+    return `<section class="widget widget-menu" data-slot="${slot}" data-widget="${wid}">${title}<ul class="widget-list">${lis}</ul></section>`;
+  }
+  // search — interactive site search widget
+  if(type==="search"){
+    const ph=esc(String(cfg.placeholder||"Search..."));
+    return `<section class="widget widget-search" data-slot="${slot}" data-widget="${wid}">${title}<form role="search" method="get" action="/search" class="search-form"><input type="search" name="q" placeholder="${ph}" class="search-field" /><button type="submit" class="search-submit">Search</button></form></section>`;
+  }
+  // categories — list of taxonomy categories
+  if(type==="categories"){
+    const r=await env.DB.prepare("SELECT slug, name FROM taxonomies WHERE site_id=? AND type='category' ORDER BY name").bind(siteId).all();
+    const lis=((r.results as any[])??[]).map(x=>`<li><a href="/category/${esc(String(x.slug))}">${esc(String(x.name))}</a></li>`).join("");
+    return `<section class="widget widget-categories" data-slot="${slot}" data-widget="${wid}">${title}<ul class="widget-list">${lis}</ul></section>`;
+  }
+  // custom widget — rendered via custom_widget_types template
+  if(String(w.widget_type).startsWith("custom.")){
+    const cType=await env.DB.prepare("SELECT template FROM custom_widget_types WHERE site_id=? AND type=? LIMIT 1").bind(siteId,w.widget_type).first<any>();
+    if(cType && cType.template){
+      let rendered=String(cType.template);
+      for(const [k,v] of Object.entries(cfg)){
+        const valStr=esc(String(v??""));
+        rendered=rendered.replace(new RegExp(`{{\\s*${k}\\s*}}`,"g"),valStr).replace(new RegExp(`{{\\s*settings\\.${k}\\s*}}`,"g"),valStr);
+      }
+      return `<section class="widget widget-custom" data-slot="${slot}" data-widget="${wid}">${title}${rendered}</section>`;
+    }
+  }
+  // theme widget / block
+  if(String(w.widget_type).startsWith("theme.")){
+    const bName=String(w.widget_type).replace(/^theme\./,"");
+    const tb=await env.DB.prepare("SELECT template FROM theme_blocks WHERE site_id=? AND name=? LIMIT 1").bind(siteId,bName).first<any>();
+    if(tb && tb.template){
+      return `<section class="widget widget-theme" data-slot="${slot}" data-widget="${wid}">${title}${String(tb.template)}</section>`;
+    }
+  }
+  // plugin widget: adinsert
+  if(type==="plugin.adinsert" || String(w.widget_type)==="plugin.adinsert"){
+    const blockNo=Math.max(1,Math.round(Number(cfg.block_no||1)));
+    try{
+      const blk=await env.DB.prepare("SELECT code, alignment FROM plugin_adinsert_blocks WHERE site_id=? AND block_no=? AND enabled=1 LIMIT 1").bind(siteId,blockNo).first<any>();
+      if(blk && blk.code){
+        let style="margin: 12px 0; max-width: 100%; box-sizing: border-box;";
+        if(blk.alignment==="center"){
+          style="text-align: center; margin: 16px auto; display: flex; flex-direction: column; align-items: center; justify-content: center; clear: both; max-width: 100%; box-sizing: border-box;";
+        }else if(blk.alignment==="left"){
+          style="text-align: left; margin: 16px 0; clear: both; max-width: 100%; box-sizing: border-box;";
+        }else if(blk.alignment==="right"){
+          style="text-align: right; margin: 16px 0; clear: both; max-width: 100%; box-sizing: border-box;";
+        }else if(blk.alignment==="float_left"){
+          style="float: left; margin: 0 16px 14px 0; max-width: 50%; clear: left; box-sizing: border-box;";
+        }else if(blk.alignment==="float_right"){
+          style="float: right; margin: 0 0 14px 16px; max-width: 50%; clear: right; box-sizing: border-box;";
+        }
+        return `<section class="widget widget-adinsert" data-slot="${slot}" data-widget="${wid}">${title}<div class="cfpress-adinsert-block" style="${style}">${blk.code}</div></section>`;
+      }
+    }catch{}
+  }
+  return null;
 }
 
 /**

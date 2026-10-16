@@ -134,6 +134,7 @@ export const PLATFORM_SCHEMA = [
   { table: "shortcodes", tenant: "platform", locale: null, note: "registered shortcodes (platform-global registry)" },
   { table: "platform_settings", tenant: "platform", locale: null, note: "install-wide settings (admin.path); the platform half of the two-level settings model - the site half is `settings`. Every key is declared in SETTING_DEFS (src/platform/settings.ts)" },
   { table: "widget_instances", tenant: "site", locale: { kind: "column" }, onSiteDelete: "purge", note: "sidebar widget placement; per site since 0020 (was install-wide — leaked across sites)" },
+  { table: "custom_widget_types", tenant: "site", locale: null, onSiteDelete: "purge", note: "user-defined custom widget templates and schemas; per site" },
   { table: "notification_log", tenant: "site", locale: null, onSiteDelete: "retain", note: "host-written send ledger: also the dedup store for ChannelMessage.dedupKey" },
   { table: "api_keys", tenant: "platform", locale: null, note: "machine-to-machine API keys for external AI agents and workflows; install-wide token registry" },
 ] as const;

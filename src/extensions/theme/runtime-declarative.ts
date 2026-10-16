@@ -980,7 +980,7 @@ async function decorateOutput(env: Env, o: ThemeRenderOptions, template: string,
   const hooks = hooksOf(o);
   await hooks.boot(env);
   const siteId = o.siteId;
-  const ctx = { env, siteId };
+  const ctx = { env, siteId, kind: o.kind, path: o.path, template, request: (o as any).request };
 
   let out = html;
   try {

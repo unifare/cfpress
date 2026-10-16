@@ -93,7 +93,7 @@ const WATCHED = new Set([
   "theme_settings", "theme_setting_defs",
   "extension_capabilities", "extension_versions",
   "plugin_installs", "plugin_settings", "plugin_setting_defs",
-  "admin_menu_registry", "widget_instances",
+  "admin_menu_registry", "widget_instances", "custom_widget_types",
   "i18n_overrides", "redirects", "rewrites", "media_files", "seo_meta", "shortcodes",
   "site_users",
 ]);

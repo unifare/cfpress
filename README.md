@@ -1,264 +1,353 @@
-# CFPress v0.7.0
+# CFPress
 
-Cloudflare-native WordPress-style CMS built on Workers, D1, R2, KV and Static Assets.
+**English** · [简体中文](README.zh-CN.md)
 
-## v0.7.0 implemented
+**A WordPress-style CMS that runs entirely on Cloudflare's edge — and never executes third-party code.**
 
-- D1 role/permission matrix: admin, editor, author
-- User management API + Admin Users screen
-- Plugin declared settings schema + settings API/UI
-- Safe declarative theme templates stored in R2 and rendered by a restricted template engine
-- Theme ZIP extraction to R2 for templates/assets (uploaded JS is stored, not executed by the Worker)
-- Scheduled publishing with Worker Cron every 5 minutes
-- Search API for published content
-- Admin Search screen
-- Cache version invalidation when content changes
-- Existing v0.6 ZIP extension installation, manifest validation, capabilities, revisions and autosave retained
-- Multilingual routing, menus, SEO, sitemap, robots, R2 media and block editor retained
+[![License: AGPL-3.0 + Commercial](https://img.shields.io/badge/license-AGPL--3.0%20%2B%20Commercial-blue.svg)](LICENSE)
+[![Platform: Cloudflare Workers](https://img.shields.io/badge/platform-Cloudflare%20Workers-f38020.svg)](https://workers.cloudflare.com/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](tsconfig.json)
+[![Tests](https://img.shields.io/badge/tests-28%20suites-brightgreen.svg)](package.json)
 
-## Theme template syntax
+**Live demo → [demo.cfpress.cc](https://demo.cfpress.cc)**
+**admin → [demo.cfpress.cc/admin](https://demo.cfpress.cc/admin)** — demo sign-in: `admin` / `change-me-now`
+> The demo restores its content hourly. The credentials above are for the demo only; a real
+> deployment must change the password before it is reachable from the internet.
+![The CFPress front page, running the shipped 墨白 MOBAI theme](assets/screenshots/hero.jpg)
 
-Supported placeholders:
+CFPress is a self-hosted content management system built on Cloudflare Workers, D1, R2 and KV.
+It gives you what you expect from WordPress — themes, plugins, multi-site, multilingual
+content, members, a media library, a block editor — without a server to maintain, and
+without the extension model that makes WordPress installs a standing security target.
 
-- `{{site.title}}`
-- `{{site.locale}}`
-- `{{page.title}}`
-- `{{page.description}}`
-- `{{content}}`
-- `{{menu.primary}}`
+---
 
-Templates live in a theme package under `templates/index.html`, `templates/single.html`, `templates/page.html` and `templates/404.html`.
+## What it looks like
 
-Uploaded extension JavaScript is **not executed in the main Worker**. This is intentional: packages are data plus declarative manifests/capabilities, avoiding arbitrary third-party code execution inside the CMS request process.
+Every screenshot in this README is a real capture of a local `wrangler dev` run: 24 migrations
+applied, demo content seeded in two languages, five images uploaded into R2, three sites served
+from one Worker. Nothing here is a mockup.
 
-## Migrations
+**Dark mode is not a second set of pages.** The theme declares its colours once, as tokens; the
+whole site — front page, article, admin-adjacent surfaces — follows.
 
-Apply migrations in order with Wrangler D1 migrations. v0.7 adds `content/migrations/0007_v070.sql`.
+![The same front page in dark mode](assets/screenshots/hero-dark.jpg)
 
-## Default admin
+**Articles are rendered server-side, in a single pass.** Code blocks, pull quotes, images and
+tags all come out of the same declarative template. The engine has no way to run anything else —
+which is the point.
 
-On first boot the Worker creates a single administrator account so you can log in:
+![A rendered article](assets/screenshots/post.jpg)
 
-- username: `admin`
-- password: `change-me-now`
+**The admin is sixteen modules in one Worker.** Content, media, themes, plugins, languages,
+sites, users, SEO, menus, widgets, redirects, activity — no separate service, no build step in
+the repository.
 
-> **Change this password immediately.** It is a publicly known bootstrap default,
-> not a secret. Any instance still using it is open to anyone who reads this file.
+![The admin dashboard](assets/screenshots/admin-dashboard.png)
 
-Authentication uses PBKDF2-hashed passwords (`src/shared/crypto.ts`); the plaintext
-is never stored. Sessions are signed cookies with a 14-day TTL.
+**One row, two languages.** The switcher at the top of the editor is the post's language
+versions. Each locale gets its own slug, its own URL, its own feed entry — not a translated
+copy stored in a plugin's side table.
 
-## Multilingual URLs
+![The block editor, with the language-version switcher at the top](assets/screenshots/admin-editor.png)
 
-Content is multilingual at the storage level (translation rows per
-locale) and at the URL level: each language version can carry its own
-slug. `/en/blog/hello` and `/zh-CN/blog/ni-hao` can be the same piece;
-an explicitly prefixed URL that does not exist 404s instead of silently
-serving another language. The platform also emits `hreflang`
-alternates, serves a feed per locale (`/{locale}/feed.xml`, with the
-bare `/feed.xml` as the default language), and exposes a language
-switcher to themes as `lang_nav`. See AGENTS.md rules 56-59 and
-`tests/suites/locale-url.test.mjs`.
+---
 
-## Platform feature switches
+## Why CFPress
 
-Some capabilities must not be on for every deploy — the Worker Loader binding
-(`worker_loaders`) only exists on paid plans, and mirroring the cache version
-into KV is pure write amplification on a free plan. Those are gated by
-**switches**, not by "the binding happens to be missing".
+### Third-party code never runs
 
-Both switches ship **off**:
+WordPress's plugin model lets any plugin execute arbitrary PHP inside your request path.
+That single design decision is the root cause of most of its security record.
 
-| Key | `wrangler.jsonc` var | What off means |
-|---|---|---|
-| `cache_mirror_kv` | `CFPRESS_CACHE_MIRROR_KV` | No KV mirror of the content-cache version. D1 stays authoritative. |
-| `theme_runtime_worker` | `CFPRESS_THEME_RUNTIME_WORKER` | The theme Worker sandbox never starts; every page renders through the declarative engine. |
+CFPress makes the opposite choice. **Extensions are data, not code.** A theme is a package
+of declarative templates rendered by a restricted engine; a plugin is a manifest that
+declares capabilities. An uploaded extension ZIP is stored — it is never executed by the
+Worker. There is no hook that hands your request to someone else's program.
 
-Resolution order, highest first: the site's `settings` row `cfpress.features`
-(set from **Tools → Features** in the admin) → the `vars` value from
-`wrangler.jsonc` → the declared default.
+The cost is real and worth stating plainly: declarative theming is less expressive than
+arbitrary PHP. If you need a plugin to do something the manifest vocabulary cannot express,
+CFPress will not let you hack it in. That is the trade being made, on purpose.
 
-```jsonc
-// wrangler.jsonc — deploy-time layer
-"vars": {
-  "CFPRESS_THEME_RUNTIME_WORKER": "true"
-}
-```
+A theme can also declare the *business capabilities* it needs — custom post types, routes,
+custom fields, blocks — and CFPress materialises them at install time. The theme describes
+what the site is; it does not run code to make it so.
 
-The definition lives in exactly one place, `src/shared/features.ts`
-(`FEATURE_SWITCHES`), because three readers have to agree on it: the resolver,
-the admin screen, and this `vars` name. A key spelled differently in any one of
-them produces a switch that saves fine and does nothing — the "declared but
-never consumed" defect `tests/suites/architecture.test.mjs` now guards against.
+![A theme declaring custom post types, routes, fields and blocks](assets/screenshots/admin-themes.png)
 
-Anything that cannot be resolved reads as **off**. Neither switch degrades the
-site when it is off; both require an explicit "on" before doing anything.
+### Multi-site and multilingual are built in, not bolted on
 
-## Documentation map
+In WordPress, multilingual sites need a third-party plugin and multi-site needs a network
+configuration. In CFPress both are first-class at the database level:
 
-| Document | Read it when |
-|---|---|
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | you want the design and the *why* behind every rule |
-| [`docs/HANDOVER.md`](docs/HANDOVER.md) | you are picking the project up — start here |
-| [`AGENTS.md`](AGENTS.md) | you are about to change code (hard rules, enforced by tests) |
-| [`docs/guides/THEME-DEV.md`](docs/guides/THEME-DEV.md) | you are writing a theme |
-| [`docs/guides/PLUGIN-DEV.md`](docs/guides/PLUGIN-DEV.md) | you are writing a plugin |
-| [`docs/guides/I18N.md`](docs/guides/I18N.md) | you are touching content or UI languages |
-| `docs/design/` | you want the architecture decisions and the research behind them |
-| `docs/history/` | you want a past review or a retired batch's record |
+- **Content languages** are translation rows per locale, each with its own slug. `/en/blog/hello`
+  and `/zh-CN/blog/ni-hao` can be the same post.
+- **Explicit locale prefixes 404 rather than silently serving another language** — a missing
+  translation is a missing page, not a surprise.
+- `hreflang` alternates, per-locale feeds and per-locale sitemaps are emitted by the platform.
+- **Sites** are isolated at the storage layer: every table carries an ownership declaration,
+  every query is scoped by `site_id`, and deleting a site leaves no registry residue.
 
-## Repository layout
+Three sites, one Worker. Routing matches a request by path prefix first (longest match wins),
+then by host; content, settings, menus, media and the active theme are all stored per site.
 
-```
-src/          Worker source (layers: shared <- platform <- rendering <- extensions <- index.ts)
-tests/
-  suites/     19 behaviour/architecture suites — the things `npm test` runs
-  tools/      injectors, diagnostics and migration appliers — run by hand
-  fixtures/   shared test harness code imported by suites
-public/admin/ the no-build admin SPA (served as static assets)
-content/      everything that gets *loaded* into a running install
-  themes/       shipped themes (`default`, `fixture`)
-  plugins/      shipped plugins (`notify`)
-  migrations/   ordered D1 migration stream
-scripts/      scaffolder (make-*), deploy helpers, the launcher pair
-docs/         see the documentation map above
-```
+![Three sites on one Worker](assets/screenshots/admin-sites.png)
 
-`content/` groups the content an install consumes — themes, plugins and the
-migration stream — so the repository root stays code-and-config only. Theme and
-plugin scaffolds default into `content/themes` and `content/plugins`; `wrangler.jsonc`
-points `migrations_dir` at `content/migrations`.
+Four language layers, kept independent on purpose: the languages the *site* serves, the
+languages a *piece of content* is written in, the language of the *admin interface*, and the
+languages a *theme's business data* is translated into. Running an English-only site with a
+Chinese admin is a normal configuration here, not a workaround.
 
-## Development
+![The four language layers](assets/screenshots/admin-languages.png)
+
+### A complete CMS inside Cloudflare's free tier
+
+Workers + D1 + R2 + KV all have free allowances. CFPress is built to run inside them:
+no paid binding is required, and the one optional capability that needs a paid plan
+(a sandbox for themes that ship their own Worker) is off by default and degrades cleanly
+when absent. A free-plan deploy is a working CMS that declines that one theme flavour —
+not a broken one.
+
+The same holds one layer down. R2 is where uploaded media and uploaded themes live, and a
+deploy that omits the bucket still renders — a bundled theme reads its templates and its
+strings from the worker assets, so `MEDIA` is optional and a bucketless install is a CMS
+with an empty media library rather than one that answers `1101` on every page.
+
+Storing is the part that genuinely needs the bucket, and it is opt-in as well: the
+`media_store_r2` switch (Tools → Features, **off by default**) decides whether this site
+writes to R2 at all, so a deploy can declare the bucket and still choose not to use it, and
+an operator can turn storage on without a redeploy. When an upload is refused, the `503`
+says which of the two is missing — the switch, or the binding — because the fixes are
+different and naming the wrong one sends you round a circle.
+
+---
+
+## Quick start
 
 ```bash
+git clone https://github.com/unifare/cfpress.git
+cd cfpress
 npm install
-npm run dev
 ```
 
-## Launcher (start / deploy)
-
-`scripts/cfpress.sh` (POSIX sh) and `scripts/cfpress.ps1` (Windows PowerShell)
-wrap the commands above into one entry point. Both offer the same actions with
-the same numbers and the same exit codes — a parity suite
-(`tests/suites/launcher-parity.test.mjs`) fails if they drift apart.
-
-**Numeric menu** — run with no arguments and pick a number:
-
-```
- 1) 启动本地服务   dev (port 47913)      6) 租户/语言审计   audit
- 2) 本地数据库迁移  migrate --local      7) 部署            deploy
- 3) 部署主题        theme deploy        8) 部署+远程迁移   deploy:full
- 4) 跑全部测试      test (per suite)    9) 诊断环境        doctor
- 5) 类型检查        tsc --noEmit
-```
+Create the two account-scoped resources, then record their ids:
 
 ```bash
-sh scripts/cfpress.sh            # Linux / macOS / Git Bash
-.\scripts\cfpress.ps1            # Windows PowerShell
+npx wrangler d1 create cfpress
+npx wrangler kv namespace create CACHE
 ```
 
-**Command mode** — pass an action to skip the menu, for CI and scripting:
-
-```bash
-sh scripts/cfpress.sh dev                  # start the local dev server
-sh scripts/cfpress.sh migrate:local        # apply migrations locally
-sh scripts/cfpress.sh theme content/themes/eshop  # upload + activate a theme
-sh scripts/cfpress.sh test                 # run every suite, one process each
-sh scripts/cfpress.sh test multisite       # run one suite
-sh scripts/cfpress.sh typecheck            # tsc --noEmit
-sh scripts/cfpress.sh doctor               # environment report
-sh scripts/cfpress.sh help                 # all actions
-```
-
-Two things the launcher does that `npm test` and `npm run deploy` do not:
-
-- **Tests run one suite per process.** `npm test` is a single `&&` chain, which
-  in a locked-down sandbox reports every suite as `SKIP` and is easy to misread.
-  The launcher runs each suite itself, parses that suite's own summary line, and
-  counts a run with **no** summary as a failure.
-- **`deploy` refuses to run while `wrangler.jsonc` still holds
-  `REPLACE_WITH_...` placeholders.** Deploying with those in place does not fail
-  loudly — it produces a Worker whose DB binding points nowhere. The launcher
-  prints the `wrangler d1 create` / `wrangler kv namespace create` commands to
-  run instead. Pass `--force` to override.
-
-### The dev port is deliberately uncommon
-
-The local dev server runs on **47913**, not wrangler's default 8787. 8787 is the
-default for *every* Wrangler project, so it collides with anything else on the
-machine — and two `wrangler dev` instances fighting over the same local D1 is
-how you get `SQLITE_BUSY` with no obvious cause. 47913 is in the private range
-and is not the default of any tool used here.
-
-Set `CFP_PORT` (both launchers honour it, and `npm run dev` is pinned to match)
-to use another one. The browser acceptance scripts default to the same port and
-can be pointed elsewhere with `CFPRESS_BASE`.
-
-## Deploy
-
-The committed `wrangler.jsonc` carries `REPLACE_WITH_...` placeholders for the
-D1 database id and the KV namespace id. That is deliberate: this is a public
-repo, and resource ids only mean anything inside one account. Create your own
-with `wrangler d1 create` / `wrangler kv namespace create`, then write the
-values into a gitignored **`wrangler.ids.json`**:
+Write the returned ids into a gitignored **`wrangler.ids.json`**:
 
 ```json
 {
-  "REPLACE_WITH_D1_DATABASE_ID": "…",
-  "REPLACE_WITH_KV_NAMESPACE_ID": "…"
+  "REPLACE_WITH_D1_DATABASE_ID": "<id from `wrangler d1 create`>",
+  "REPLACE_WITH_KV_NAMESPACE_ID": "<id from `wrangler kv namespace create`>"
 }
 ```
 
-`wrangler.local.jsonc` is then **generated** from those two files — it is not
-edited by hand:
+Start the dev server:
 
 ```bash
-node scripts/make-local-config.mjs      # or: npm run config, or: ./scripts/cfpress.sh config
+npm run dev
 ```
 
-The generated file is what every command runs against, so it is also what you
-pass with `-c`:
+The dev server listens on **47913** (not wrangler's default 8787 — 8787 collides with every
+other Wrangler project on the machine, and two `wrangler dev` instances fighting over one
+local D1 is how you get `SQLITE_BUSY` with no obvious cause). Override with `CFP_PORT`.
+
+Open `http://localhost:47913/admin/` and sign in as `admin` / `change-me-now`.
+
+> **On first boot the Worker creates a single administrator account — `admin` with the password
+> `change-me-now`, both publicly known. Change the password immediately — before the site is
+> reachable from the internet.**
+> Passwords are stored as PBKDF2 hashes and the plaintext is never persisted, but a default
+> that is written in a public repository is not a secret. Sessions are signed cookies with a
+> 14-day TTL.
+
+### Deploy
 
 ```bash
-npx wrangler d1 migrations apply cfpress --remote -c wrangler.local.jsonc
-npx wrangler deploy -c wrangler.local.jsonc
+npm run db:migrate   # apply migrations to the remote D1
+npm run deploy       # build the local config and deploy
 ```
 
-`npm run dev`, `npm run deploy`, `npm run db:migrate*` and both launchers all
-do the generation for you and pass `-c` themselves, so the usual path needs no
-flags. **Editing `wrangler.local.jsonc` by hand is pointless** — the next run
-overwrites it, and `npm run gate` fails if it does not match a fresh
-derivation. Editing ids into the committed `wrangler.jsonc` is worse: that file
-is tracked, so the next commit publishes the ids of a live database.
+Migrations must run **before** deploy: new code writes new columns, and a missing column is a
+500. The reverse order is harmless.
 
-Why two files instead of one: the reviewed config and the deployed config were
-the same file only by hand-maintenance, and that failed silently. A field added
-to `wrangler.jsonc` and not to the local copy changes nothing visible — an
-omitted `var` and an explicit `"false"` both resolve to off — so the deploy
-looks correct while running on half the configuration it documents.
+Two commands refuse to do the wrong thing on purpose. `deploy` will not run while the
+generated config still contains `REPLACE_WITH_...` placeholders — deploying with those does not
+fail loudly, it produces a Worker whose database binding points nowhere. And `wrangler.local.jsonc`
+is *generated*, never hand-edited; it is derived from the committed `wrangler.jsonc` plus your
+`wrangler.ids.json`.
 
-The launcher's `doctor` action reports all three files, and `deploy` refuses to
-run if the generated config still contains placeholders (pass `--force` to
-override).
+---
 
-### Paid-plan bindings are commented out by default
+## What's in the box
 
-`worker_loaders` and `services` are commented out in `wrangler.jsonc` because
-`worker_loaders` requires a Workers Paid plan. Neither is required to run: the
-theme runtime checks `env.LOADER` and degrades to declarative rendering when it
-is absent (`runtime-worker.ts` returns `null`, and `index.ts` falls through).
-A free-plan deploy is therefore a working CMS that declines `runtime: "worker"`
-themes — not a broken one. **Restore both together on a paid account**;
-restoring only `services` points `THEME_HOST` at a worker that cannot load.
+| Area | What you get |
+|---|---|
+| **Content** | Posts and pages, categories, tags, a block editor, revisions, autosave, scheduled publishing on a 5-minute cron |
+| **Media** | R2-backed library, a shared picker, ownership scoping per site |
+| **Multi-site** | Storage-level site isolation, per-site settings, per-site user roles |
+| **Languages** | Content languages, UI languages, per-locale slugs, `hreflang`, per-locale feeds and sitemaps |
+| **Members** | Front-end registration and accounts, separate from admin identity |
+| **Access control** | `admin` / `editor` / `author` capability matrix, enforced server-side |
+| **Themes** | Declarative template engine, packaged as ZIP, stored in R2, shipped with 3 examples |
+| **Plugins** | Manifest-declared capabilities, declared settings schema, notification channels |
+| **Search** | Search API over published content, plus an admin search screen |
+| **Caching** | Content-cache versioning, invalidated automatically when content changes |
+
+---
+
+## How it compares
+
+| | CFPress | WordPress | Ghost | Strapi |
+|---|---|---|---|---|
+| Runtime | Cloudflare edge (Workers) | PHP + a server | Node + a server | Node + a server |
+| Server to maintain | none | yes | yes | yes |
+| Cost to run a small site | free tier | VPS or hosting | VPS or hosted plan | VPS or hosted plan |
+| Third-party code executes | **never** | yes (PHP plugins) | yes (Node) | yes (Node) |
+| Multi-site | built in | network config | not built in | not built in |
+| Multilingual content | built in, per-locale slugs | plugin | partial | plugin |
+| Data store | D1 (SQLite) + R2 + KV | MySQL | MySQL | Postgres/MySQL |
+
+Not a like-for-like benchmark — it is a comparison of shapes. CFPress is the right choice when
+you want a CMS with no server and a smaller attack surface. It is the wrong choice when you need
+the WordPress plugin ecosystem, because that ecosystem is precisely what it refuses to run.
+
+---
+
+## Architecture
+
+The Worker source is layered, and the layers only depend rightward:
+
+```
+shared  <-  platform  <-  rendering  <-  extensions  <-  index.ts
+```
+
+| Layer | Responsibility |
+|---|---|
+| `src/shared/` | Primitives with no domain knowledge: crypto, cache versioning, feature switches |
+| `src/platform/` | Domain services: auth, sites, members, i18n, media policy, admin menus |
+| `src/rendering/` | The declarative template engine and the block renderer |
+| `src/extensions/` | Theme and plugin contracts, manifest validation, the plugin runtime |
+| `src/index.ts` | Request routing and composition |
+
+```
+content/          what gets loaded into a running install
+  themes/           shipped themes (default, prism, fixture)
+  plugins/          shipped plugins (notify)
+  migrations/       ordered D1 migration stream
+public/admin/     the no-build admin SPA, served as static assets
+scripts/          scaffolder, deploy helpers, the launcher pair
+tests/            28 suites — see below
+```
+
+### Tests
+
+```bash
+npm test                    # every suite
+sh scripts/cfpress.sh test  # the launcher, one suite per process
+```
+
+The suites are behavioural and architectural, not unit tests: they assert the invariants the
+system is supposed to hold — layer boundaries, tenant isolation, per-language URL resolution,
+cache invalidation, manifest validation, the admin SPA's contract. Several are *reverse-validated*
+by injection tools under `tests/tools/`, because a guard that has never been seen to go red is
+indistinguishable from no guard at all.
+
+### The launcher
+
+`scripts/cfpress.sh` (POSIX sh) and `scripts/cfpress.ps1` (Windows PowerShell) wrap the common
+commands into one entry point with a numeric menu. A parity suite fails if the two ever drift apart.
+
+```bash
+sh scripts/cfpress.sh            # interactive menu
+sh scripts/cfpress.sh dev        # start the dev server
+sh scripts/cfpress.sh migrate:local
+sh scripts/cfpress.sh test       # each suite in its own process
+sh scripts/cfpress.sh doctor     # environment report
+```
+
+---
+
+## Writing a theme
+
+A theme is a directory with a `theme.json` manifest, `templates/` and optional `langs/`:
+
+```
+content/themes/mytheme/
+  theme.json
+  templates/
+    index.html
+    single.html
+    page.html
+    404.html
+    parts/
+      layout.html
+      header.html
+      footer.html
+  langs/
+    en.json
+    zh-CN.json
+```
+
+Templates are declarative HTML with a small, deliberately restricted expression language —
+placeholders, `@extends` / `@section` / `@include` / `@query`, and ten helpers
+(`len`, `default`, `lower`, `upper`, `truncate`, `join`, `number`, `date`, `contains`).
+There is no arithmetic and no arbitrary code. Scaffold one with:
+
+```bash
+npm run make:theme
+```
+
+## Writing a plugin
+
+A plugin is a manifest that declares what it needs. It can own database tables, contribute admin
+menus, expose settings with a declared schema, and send notifications over channels. It cannot
+run code in the request path. Scaffold one with:
+
+```bash
+npm run make:plugin
+```
+
+---
+
+## Project status
+
+Pre-1.0. The core is complete and running: multi-site, multilingual, members, media, themes,
+plugins, scheduled publishing, search. APIs may still change before 1.0.
+
+This repository ships the runtime, the admin interface, the shipped themes and plugins, and the
+test suites. The project's internal design documents — the architecture record, the change
+contract, and the development handover — are maintained privately and are not part of this
+distribution.
+
+---
 
 ## License
 
-CFCMS is licensed under the **GNU Affero General Public License v3.0** (AGPL-3.0).
-See [LICENSE](LICENSE) for the full text.
+CFPress is licensed under the **GNU Affero General Public License v3.0**, with a **commercial
+license available** as an alternative. See [LICENSE](LICENSE) for the full AGPL text and
+[COMMERCIAL.md](COMMERCIAL.md) for when you need the commercial option.
 
-In short: you are free to use, study, modify and redistribute this software.
-The AGPL adds one obligation over the plain GPL — if you run a modified version
-as a network service (a hosted CMS, a SaaS offering), you must offer the
-corresponding source code to the users of that service. Running it unmodified
+In short:
+
+- **Free under AGPL-3.0** for running your own site, internal systems, evaluation, study, and any
+  project that is itself AGPL-3.0.
+- **Commercial license required** if you offer CFPress to third parties as a hosted service
+  without releasing your modifications, or embed it in a closed-source product.
+
+The AGPL adds one obligation over the plain GPL: if you run a *modified* version as a network
+service, you must offer the corresponding source to that service's users. Running it unmodified
 as your own site carries no such obligation beyond keeping the notices intact.
+
+Contributions require agreeing to the [CLA](CLA.md) — that is what makes the dual license
+possible, since the project must hold sufficient rights to offer a commercial option at all.
+
+## Trademarks
+
+CFPress is not affiliated with, endorsed by, or sponsored by Cloudflare, Inc. or the WordPress
+Foundation. "Cloudflare" and "WordPress" are trademarks of their respective owners and are used
+here only to describe what this software runs on and what it is comparable to.

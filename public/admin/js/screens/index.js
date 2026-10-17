@@ -30,6 +30,7 @@ import { pluginPageScreen } from "./plugin-page.js";
 import { themeAssetsScreen } from "./theme-assets.js";
 import apiKeys from "./api-keys.js";
 import adinsert from "./adinsert.js";
+import tags from "./tags.js";
 
 export const SCREENS = {
   dashboard,
@@ -38,6 +39,7 @@ export const SCREENS = {
   posts: (c) => contentList(c, "posts"),
   pages: (c) => contentList(c, "pages"),
   media,
+  tags,
   appearance: themes,
   menus,
   widgets,

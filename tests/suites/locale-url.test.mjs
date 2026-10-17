@@ -181,6 +181,8 @@ async function main() {
   // table and the menu registry are SITE-WIDE and the activation below rewrites
   // them clear-then-insert, so they are snapshotted and restored at the end.
   const previousActive = sqlite.prepare("SELECT value FROM settings WHERE site_id='default' AND key='theme.active'").get()?.value ?? null;
+  const previousPermalink = sqlite.prepare("SELECT value FROM settings WHERE site_id='default' AND key='permalink.structure'").get()?.value ?? null;
+  sqlite.exec("DELETE FROM settings WHERE site_id='default' AND key='permalink.structure'");
   // Activating the test theme below clear-then-inserts the default site's
   // capability rows — field_defs, theme_routes, admin_menu_registry — and
   // recomputes `theme_installs.active`. One whole-table snapshot covers all of
@@ -405,6 +407,11 @@ async function main() {
     sqlite.prepare("INSERT INTO settings (id,site_id,key,value,autoload) VALUES ('setting-theme-active','default','theme.active',?,1) ON CONFLICT(site_id,key) DO UPDATE SET value=excluded.value").run(previousActive);
   } else {
     sqlite.exec("DELETE FROM settings WHERE site_id='default' AND key='theme.active'");
+  }
+  if (previousPermalink !== null) {
+    sqlite.prepare("INSERT INTO settings (id,site_id,key,value,autoload) VALUES ('setting-permalink-structure','default','permalink.structure',?,1) ON CONFLICT(site_id,key) DO UPDATE SET value=excluded.value").run(previousPermalink);
+  } else {
+    sqlite.exec("DELETE FROM settings WHERE site_id='default' AND key='permalink.structure'");
   }
   // Drop this suite's test theme from the registry. The start block only removes
   // the *previous* run's copy, so without this second pass the theme and its

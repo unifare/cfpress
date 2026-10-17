@@ -32,7 +32,7 @@
  */
 import { Env } from "./types";
 
-export const BUNDLED_THEMES: readonly string[] = ["default", "prism", "showcase", "shop"];
+export const BUNDLED_THEMES: readonly string[] = ["default", "prism", "showcase", "shop", "ctblog"];
 
 /**
  * Read one file of a bundled theme from the worker assets.

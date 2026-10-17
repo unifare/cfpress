@@ -1,0 +1,630 @@
+<script>
+/* 手记 · blog behaviors: theme, nav, progress, dynamic TOC, search, reveal, live clock, fx */
+(function () {
+  "use strict";
+
+  var root = document.documentElement;
+
+  /* ---------- theme ---------- */
+  function applyTheme(t, animate) {
+    root.setAttribute("data-theme", t);
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", t === "dark" ? "#0a0a0a" : "#ffffff");
+    document.querySelectorAll("[data-theme-toggle]").forEach(function (b) {
+      b.setAttribute("aria-label", t === "dark" ? "切换到浅色模式" : "切换到深色模式");
+      if (animate) {
+        b.classList.remove("pop");
+        void b.offsetWidth;
+        b.classList.add("pop");
+        setTimeout(function () { b.classList.remove("pop"); }, 440);
+      }
+    });
+  }
+  function initTheme() {
+    var saved = null;
+    try { saved = localStorage.getItem("ctblog-theme") || localStorage.getItem("od-theme"); } catch (e) {}
+    applyTheme(saved || "dark");
+    document.querySelectorAll("[data-theme-toggle]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+        applyTheme(next, true);
+        try {
+          localStorage.setItem("ctblog-theme", next);
+          localStorage.setItem("od-theme", next);
+        } catch (e) {}
+      });
+    });
+  }
+
+  /* ---------- mobile nav ---------- */
+  function initNav() {
+    var btn = document.querySelector("[data-nav-toggle]");
+    var links = document.querySelector("[data-nav-links]");
+    if (!btn || !links) return;
+    btn.addEventListener("click", function () {
+      var open = links.classList.toggle("open");
+      btn.setAttribute("aria-expanded", String(open));
+    });
+    links.addEventListener("click", function (e) {
+      if (e.target.tagName === "A") links.classList.remove("open");
+    });
+  }
+
+  /* ---------- reading progress ---------- */
+  function initProgress() {
+    var bar = document.querySelector("[data-progress]");
+    var article = document.querySelector("[data-article]");
+    if (!bar || !article) return;
+    var rail = bar.parentElement;
+    if (rail) rail.hidden = false;
+    function update() {
+      var rect = article.getBoundingClientRect();
+      var total = rect.height - window.innerHeight;
+      var scrolled = Math.min(Math.max(-rect.top, 0), Math.max(total, 1));
+      var pct = total > 0 ? (scrolled / total) * 100 : 100;
+      bar.style.width = pct.toFixed(1) + "%";
+    }
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+  }
+
+  /* ---------- TOC active state & dynamic generator ---------- */
+  function initTOC() {
+    var toc = document.querySelector("[data-toc]");
+    if (!toc) return;
+    var ol = toc.querySelector("ol");
+    if (!ol) {
+      ol = document.createElement("ol");
+      toc.appendChild(ol);
+    }
+    var article = document.querySelector(".prose");
+    if (article && ol.children.length === 0) {
+      var headings = article.querySelectorAll("h2, h3");
+      if (!headings.length) {
+        toc.hidden = true;
+        return;
+      }
+      headings.forEach(function (h, idx) {
+        if (!h.id) {
+          h.id = "heading-" + idx;
+        }
+        var li = document.createElement("li");
+        li.className = h.tagName.toLowerCase() === "h3" ? "depth-3" : "depth-2";
+        var a = document.createElement("a");
+        a.href = "#" + h.id;
+        a.textContent = h.textContent;
+        li.appendChild(a);
+        ol.appendChild(li);
+      });
+    }
+
+    if (!("IntersectionObserver" in window)) return;
+    var links = Array.prototype.slice.call(toc.querySelectorAll("a[href^='#']"));
+    if (!links.length) return;
+    var map = {};
+    var heads = [];
+    links.forEach(function (a) {
+      var el = document.getElementById(a.getAttribute("href").slice(1));
+      if (el) { map[el.id] = a; heads.push(el); }
+    });
+    var visible = {};
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { visible[en.target.id] = en.isIntersecting ? en.boundingClientRect.top : null; });
+      var active = null;
+      heads.forEach(function (h) { if (visible[h.id] !== null && visible[h.id] !== void 0 && visible[h.id] < 140) active = h.id; });
+      links.forEach(function (a) { a.classList.toggle("active", a.getAttribute("href") === "#" + active); });
+    }, { rootMargin: "-72px 0px -70% 0px", threshold: [0, 1] });
+    heads.forEach(function (h) { io.observe(h); });
+  }
+
+  /* ---------- search ---------- */
+  function initSearch() {
+    var input = document.querySelector("[data-search-input]");
+    if (!input) return;
+    var list = document.querySelector("[data-search-results]");
+    var countEl = document.querySelector("[data-search-count]");
+    var emptyEl = document.querySelector("[data-search-empty]");
+    var posts = window.OD_POSTS || [];
+    var tagRow = document.querySelector("[data-search-tags]");
+
+    function render(q) {
+      var query = (q || "").trim().toLowerCase();
+      var words = query ? query.split(/\s+/) : [];
+      var hits = posts.filter(function (p) {
+        if (!words.length) return true;
+        var tagsStr = Array.isArray(p.tags) ? p.tags.join(" ") : (p.tags || "");
+        var hay = ((p.title || "") + " " + (p.excerpt || "") + " " + tagsStr + " " + (p.category || "")).toLowerCase();
+        return words.every(function (w) { return hay.indexOf(w) !== -1; });
+      });
+      if (list) {
+        list.innerHTML = hits.map(function (p) {
+          var tagArray = Array.isArray(p.tags) ? p.tags : (p.tags ? String(p.tags).split(",") : []);
+          var tagHtml = tagArray.filter(Boolean).map(function (t) { return '<span>#' + t.trim() + '</span>'; }).join("");
+          return '<article class="post-item" data-od-id="search-result">' +
+            '<div class="date">' + (p.date || "") + '</div>' +
+            '<div><h3><a href="' + (p.href || "#") + '">' + (p.title || "") + '</a></h3>' +
+            '<p>' + (p.excerpt || "") + '</p>' +
+            '<div class="meta">' + tagHtml + (p.read ? '<span>· ' + p.read + '</span>' : '') + '</div></div>' +
+            '<a class="arrow" href="' + (p.href || "#") + '">→</a></article>';
+        }).join("");
+      }
+      if (countEl) countEl.textContent = query ? '找到 ' + hits.length + ' 篇' : '共 ' + posts.length + ' 篇';
+      if (emptyEl) emptyEl.hidden = hits.length !== 0;
+    }
+
+    render("");
+    input.addEventListener("input", function () { render(input.value); });
+
+    if (tagRow) {
+      tagRow.addEventListener("click", function (e) {
+        var a = e.target.closest("[data-q]");
+        if (!a) return;
+        input.value = a.getAttribute("data-q");
+        render(input.value);
+        input.focus();
+      });
+    }
+
+    document.addEventListener("keydown", function (e) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault(); input.focus();
+      }
+    });
+  }
+
+  /* ---------- scroll reveal (timeline fade-up) ---------- */
+  function initReveal() {
+    var groups = document.querySelectorAll("[data-reveal]");
+    if (!groups.length || !("IntersectionObserver" in window)) return;
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    Array.prototype.forEach.call(groups, function (group) {
+      var items = Array.prototype.slice.call(group.children);
+      items.forEach(function (el, i) {
+        el.classList.add("reveal");
+        el.style.transitionDelay = Math.min(i * 60, 360) + "ms";
+      });
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (en.isIntersecting) {
+            items.forEach(function (el) { el.classList.add("in"); });
+            io.disconnect();
+          }
+        });
+      }, { rootMargin: "0px 0px -10% 0px", threshold: 0.05 });
+      io.observe(group);
+    });
+  }
+
+  /* ---------- live clock ---------- */
+  function initClock() {
+    var els = document.querySelectorAll("[data-clock]");
+    if (!els.length) return;
+    function tick() {
+      var d = new Date();
+      var s = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) + ":" + ("0" + d.getSeconds()).slice(-2);
+      Array.prototype.forEach.call(els, function (el) { el.textContent = s; });
+    }
+    tick();
+    setInterval(tick, 1000);
+  }
+
+  /* ---------- background fx (innei 式：鼠标跟随光晕 + 漂移微粒 + 连线) ---------- */
+  function initFx() {
+    var canvas = document.getElementById("bg-fx");
+    if (!canvas || !canvas.getContext) return;
+    var toggle = document.querySelector("[data-fx-toggle]");
+    var fine = window.matchMedia && window.matchMedia("(pointer: fine)").matches;
+    var calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var saved = null;
+    try { saved = localStorage.getItem("od-fx"); } catch (e) {}
+    var on = saved !== null ? saved === "1" : (fine && !calm);
+    var ctx = canvas.getContext("2d");
+    var W = 0, H = 0, parts = [], raf = 0;
+    var mx = -9999, my = -9999, gx = -9999, gy = -9999;
+    var ring = null, rx = -9999, ry = -9999;
+    function ensureFxEls() {
+      if (ring || !fine || calm) return;
+      ring = document.createElement("div");
+      ring.id = "cursor-ring";
+      ring.setAttribute("aria-hidden", "true");
+      document.body.appendChild(ring);
+      document.addEventListener("mouseover", function (e) {
+        if (!ring) return;
+        var t = e.target && e.target.closest ? e.target.closest("a,button") : null;
+        ring.classList.toggle("hot", !!t);
+      });
+    }
+    function label() { if (toggle) toggle.textContent = on ? "背景特效 · 开" : "背景特效 · 关"; }
+    function resize() {
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      W = window.innerWidth; H = window.innerHeight;
+      canvas.width = Math.floor(W * dpr); canvas.height = Math.floor(H * dpr);
+      canvas.style.width = W + "px"; canvas.style.height = H + "px";
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    function dark() { return root.getAttribute("data-theme") === "dark"; }
+    function seed() {
+      parts = [];
+      var n = Math.max(24, Math.min(90, Math.floor(W * H / 22000)));
+      for (var i = 0; i < n; i++) {
+        parts.push({
+          x: Math.random() * W, y: Math.random() * H,
+          vx: (Math.random() - 0.5) * 0.28, vy: (Math.random() - 0.5) * 0.28,
+          r: 0.8 + Math.random() * 1.8, ci: (Math.random() * 3) | 0 });
+      }
+    }
+    function frame() {
+      ctx.clearRect(0, 0, W, H);
+      var d = dark(), i, j, p, q, dx, dy, dist;
+      if (gx < -9000) {
+        if (mx > -9000) { gx = mx; gy = my; }
+      } else if (mx > -9000) {
+        gx += (mx - gx) * 0.08;
+        gy += (my - gy) * 0.08;
+      } else {
+        gx = gy = -9999;
+      }
+
+      if (ring) {
+        if (rx < -9000) { rx = mx; ry = my; }
+        else { rx += (mx - rx) * 0.16; ry += (my - ry) * 0.16; }
+        ring.classList.toggle("on", mx > -9000);
+        var rs = ring.offsetWidth || 26;
+        ring.style.transform = "translate(" + (rx - rs / 2) + "px," + (ry - rs / 2) + "px)";
+      }
+
+      var hasSpotlight = gx > -9000;
+      if (hasSpotlight) {
+        var g = ctx.createRadialGradient(gx, gy, 0, gx, gy, 280);
+        g.addColorStop(0, d ? "rgba(255,214,10,.12)" : "rgba(138,109,0,.08)");
+        g.addColorStop(0.5, d ? "rgba(255,214,10,.05)" : "rgba(138,109,0,.03)");
+        g.addColorStop(1, "rgba(255,214,10,0)");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(gx, gy, 280, 0, 6.2832);
+        ctx.fill();
+      }
+
+      var spotAlphas = [];
+      for (i = 0; i < parts.length; i++) {
+        p = parts[i];
+        p.x += p.vx; p.y += p.vy;
+        if (hasSpotlight) {
+          dx = p.x - gx; dy = p.y - gy; dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 160 && dist > 1) { p.x += (dx / dist) * 0.6; p.y += (dy / dist) * 0.6; }
+          spotAlphas[i] = dist < 280 ? Math.max(0, 1 - dist / 280) : 0;
+        } else {
+          spotAlphas[i] = 0;
+        }
+        if (p.x < -20) p.x = W + 20; if (p.x > W + 20) p.x = -20;
+        if (p.y < -20) p.y = H + 20; if (p.y > H + 20) p.y = -20;
+
+        if (spotAlphas[i] > 0.02) {
+          var a = spotAlphas[i];
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.2832);
+          ctx.fillStyle = p.ci === 1
+            ? (d ? "rgba(255,107,53," + (0.75 * a).toFixed(3) + ")" : "rgba(194,65,12," + (0.55 * a).toFixed(3) + ")")
+            : p.ci === 2
+            ? (d ? "rgba(255,255,255," + (0.75 * a).toFixed(3) + ")" : "rgba(24,24,27," + (0.6 * a).toFixed(3) + ")")
+            : (d ? "rgba(255,214,10," + (0.8 * a).toFixed(3) + ")" : "rgba(138,109,0," + (0.55 * a).toFixed(3) + ")");
+          ctx.fill();
+        }
+      }
+
+      if (hasSpotlight) {
+        ctx.lineWidth = 1;
+        for (i = 0; i < parts.length; i++) {
+          if (spotAlphas[i] <= 0.02) continue;
+          for (j = i + 1; j < parts.length; j++) {
+            if (spotAlphas[j] <= 0.02) continue;
+            p = parts[i]; q = parts[j];
+            dx = p.x - q.x; dy = p.y - q.y;
+            if (dx > 110 || dx < -110 || dy > 110 || dy < -110) continue;
+            dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < 110) {
+              var la = Math.min(spotAlphas[i], spotAlphas[j]) * (d ? 0.22 : 0.18);
+              ctx.strokeStyle = d ? "rgba(255,214,10," + la.toFixed(3) + ")" : "rgba(138,109,0," + la.toFixed(3) + ")";
+              ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+            }
+          }
+        }
+      }
+      raf = requestAnimationFrame(frame);
+    }
+    function start() { ensureFxEls(); resize(); seed(); if (!raf) raf = requestAnimationFrame(frame); label(); }
+    function stop() { if (raf) cancelAnimationFrame(raf); raf = 0; ctx.clearRect(0, 0, W, H); if (ring) ring.classList.remove("on", "hot"); label(); }
+    window.addEventListener("resize", function () { if (on) { resize(); seed(); } });
+    window.addEventListener("pointermove", function (e) { mx = e.clientX; my = e.clientY; }, { passive: true });
+    document.addEventListener("mouseleave", function () { mx = my = gx = gy = -9999; });
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden) { if (raf) cancelAnimationFrame(raf); raf = 0; }
+      else if (on && !raf) raf = requestAnimationFrame(frame);
+    });
+    if (toggle) toggle.addEventListener("click", function () {
+      on = !on;
+      try { localStorage.setItem("od-fx", on ? "1" : "0"); } catch (e) {}
+      if (on) start(); else stop();
+    });
+    if (on) start(); else label();
+  }
+
+  window.defaultToast = function (msg) {
+    var el = document.getElementById("toast");
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(el._t);
+    el._t = setTimeout(function () { el.classList.remove("show"); }, 2400);
+  };
+  /* ---------- full sticky mini audio player (classical & hymns) ---------- */
+  function initAudio() {
+    var defaultPlaylist = [
+      {
+        title: "奇异恩典 (Amazing Grace)",
+        artist: "传统赞美诗 · 铜管与合唱",
+        glyph: "恩",
+        audio: "https://upload.wikimedia.org/wikipedia/commons/4/4e/Amazing_Grace_-_brass.ogg"
+      },
+      {
+        title: "G弦上的咏叹调 (Air on G)",
+        artist: "J.S. 巴赫 · 管弦乐组曲 No. 3",
+        glyph: "巴",
+        audio: "https://upload.wikimedia.org/wikipedia/commons/d/dd/Bach_Air_on_the_G_string.ogg"
+      },
+      {
+        title: "月光奏鸣曲 第一乐章",
+        artist: "贝多芬 · 升C小调钢琴奏鸣曲",
+        glyph: "月",
+        audio: "https://upload.wikimedia.org/wikipedia/commons/e/eb/Beethoven_Moonlight_1st_movement.ogg"
+      },
+      {
+        title: "哈利路亚大合唱 (Hallelujah)",
+        artist: "亨德尔 · 清唱剧《弥赛亚》",
+        glyph: "赞",
+        audio: "https://upload.wikimedia.org/wikipedia/commons/1/15/Handel_-_messiah_-_44_hallelujah.ogg"
+      },
+      {
+        title: "降E大调夜曲 Op. 9 No. 2",
+        artist: "肖邦 · 钢琴独奏",
+        glyph: "夜",
+        audio: "https://upload.wikimedia.org/wikipedia/commons/a/aa/Chopin_Nocturne_Op_9_No_2.ogg"
+      }
+    ];
+
+    // Build playlist from on-page cards if available
+    var playlist = [];
+    var pageCards = document.querySelectorAll(".rail-card.music-card[data-audio]");
+    if (pageCards.length > 0) {
+      pageCards.forEach(function (card) {
+        var t = card.querySelector(".rail-meta .t");
+        var a = card.querySelector(".rail-meta .a");
+        var g = card.querySelector(".rail-art .glyph");
+        playlist.push({
+          title: t ? t.textContent.trim() : "Music Track",
+          artist: a ? a.textContent.trim() : "Classical / Hymn",
+          glyph: g ? g.textContent.trim() : "♫",
+          audio: card.getAttribute("data-audio"),
+          card: card
+        });
+      });
+    }
+
+    if (!playlist.length) {
+      playlist = defaultPlaylist;
+    }
+
+    var dock = document.getElementById("ctblog-player-dock");
+    if (!dock) return;
+
+    var elTitle = document.getElementById("cfp-player-title");
+    var elArtist = document.getElementById("cfp-player-artist");
+    var elGlyph = document.getElementById("cfp-disc-glyph");
+    var elTime = document.getElementById("cfp-player-time");
+    var elBar = document.getElementById("cfp-player-bar");
+    var elProgress = document.getElementById("cfp-player-progress");
+    var btnToggle = document.getElementById("cfp-btn-toggle");
+    var btnPrev = document.getElementById("cfp-btn-prev");
+    var btnNext = document.getElementById("cfp-btn-next");
+    var btnMin = document.getElementById("cfp-btn-minimize");
+    var elDisc = document.getElementById("cfp-player-disc");
+
+    var currentIndex = 0;
+    try {
+      var savedIdx = parseInt(localStorage.getItem("cfp-track-idx"), 10);
+      if (!isNaN(savedIdx) && savedIdx >= 0 && savedIdx < playlist.length) currentIndex = savedIdx;
+    } catch (e) {}
+
+    var audio = new Audio();
+    audio.preload = "none";
+
+    function formatTime(secs) {
+      if (isNaN(secs) || secs < 0) return "00:00";
+      var m = Math.floor(secs / 60);
+      var s = Math.floor(secs % 60);
+      return (m < 10 ? "0" + m : m) + ":" + (s < 10 ? "0" + s : s);
+    }
+
+    function renderTrackInfo(idx) {
+      var item = playlist[idx] || playlist[0];
+      if (elTitle) elTitle.textContent = item.title;
+      if (elArtist) elArtist.textContent = item.artist;
+      if (elGlyph) elGlyph.textContent = item.glyph || "♫";
+      if (elBar) elBar.style.width = "0%";
+      if (elTime) elTime.textContent = "00:00 / " + formatTime(audio.duration || 0);
+
+      // sync card highlights on page
+      document.querySelectorAll(".rail-card.music-card").forEach(function (c) {
+        c.classList.remove("is-playing");
+      });
+      if (item.card) {
+        if (!audio.paused) item.card.classList.add("is-playing");
+      }
+    }
+
+    function loadTrack(idx, playImmediately) {
+      currentIndex = (idx + playlist.length) % playlist.length;
+      try { localStorage.setItem("cfp-track-idx", String(currentIndex)); } catch (e) {}
+      var item = playlist[currentIndex];
+      renderTrackInfo(currentIndex);
+      if (item.audio) {
+        audio.src = item.audio;
+        if (playImmediately) {
+          audio.play().catch(function (e) {
+            dock.classList.remove("is-playing");
+          });
+        }
+      }
+    }
+
+    // Audio element event bindings
+    audio.addEventListener("play", function () {
+      dock.classList.add("is-playing");
+      var item = playlist[currentIndex];
+      if (item && item.card) item.card.classList.add("is-playing");
+    });
+
+    audio.addEventListener("pause", function () {
+      dock.classList.remove("is-playing");
+      document.querySelectorAll(".rail-card.music-card").forEach(function (c) {
+        c.classList.remove("is-playing");
+      });
+    });
+
+    audio.addEventListener("timeupdate", function () {
+      if (!audio.duration) return;
+      var pct = (audio.currentTime / audio.duration) * 100;
+      if (elBar) elBar.style.width = pct.toFixed(2) + "%";
+      if (elTime) elTime.textContent = formatTime(audio.currentTime) + " / " + formatTime(audio.duration);
+    });
+
+    audio.addEventListener("ended", function () {
+      loadTrack(currentIndex + 1, true);
+    });
+
+    audio.addEventListener("error", function () {
+      dock.classList.remove("is-playing");
+      if (window.ctblogToast) window.ctblogToast("音频加载失败，请检查播放地址");
+    });
+
+    // Control buttons
+    if (btnToggle) {
+      btnToggle.addEventListener("click", function (e) {
+        e.stopPropagation();
+        if (audio.paused) {
+          if (!audio.src) loadTrack(currentIndex, true);
+          else audio.play().catch(function () {});
+        } else {
+          audio.pause();
+        }
+      });
+    }
+
+    if (elDisc) {
+      elDisc.addEventListener("click", function (e) {
+        e.stopPropagation();
+        if (dock.getAttribute("data-collapsed") === "true") {
+          dock.setAttribute("data-collapsed", "false");
+          try { localStorage.setItem("cfp-player-collapsed", "false"); } catch (err) {}
+          return;
+        }
+        if (audio.paused) {
+          if (!audio.src) loadTrack(currentIndex, true);
+          else audio.play().catch(function () {});
+        } else {
+          audio.pause();
+        }
+      });
+    }
+
+    if (btnPrev) {
+      btnPrev.addEventListener("click", function (e) {
+        e.stopPropagation();
+        loadTrack(currentIndex - 1, !audio.paused);
+      });
+    }
+
+    if (btnNext) {
+      btnNext.addEventListener("click", function (e) {
+        e.stopPropagation();
+        loadTrack(currentIndex + 1, !audio.paused);
+      });
+    }
+
+    if (btnMin) {
+      btnMin.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var isCol = dock.getAttribute("data-collapsed") === "true";
+        var next = isCol ? "false" : "true";
+        dock.setAttribute("data-collapsed", next);
+        try { localStorage.setItem("cfp-player-collapsed", next); } catch (err) {}
+      });
+    }
+
+    // Progress bar seeking
+    if (elProgress) {
+      elProgress.addEventListener("click", function (e) {
+        e.stopPropagation();
+        if (!audio.duration) return;
+        var rect = elProgress.getBoundingClientRect();
+        var clickX = e.clientX - rect.left;
+        var ratio = Math.max(0, Math.min(1, clickX / rect.width));
+        audio.currentTime = ratio * audio.duration;
+      });
+    }
+
+    // Page cards click interaction
+    document.addEventListener("click", function (e) {
+      var card = e.target.closest(".rail-card.music-card");
+      if (!card) return;
+
+      var foundIdx = -1;
+      for (var i = 0; i < playlist.length; i++) {
+        if (playlist[i].card === card || (card.getAttribute("data-audio") && playlist[i].audio === card.getAttribute("data-audio"))) {
+          foundIdx = i;
+          break;
+        }
+      }
+
+      if (foundIdx === -1) {
+        var cardAudio = card.getAttribute("data-audio");
+        if (cardAudio) {
+          var t = card.querySelector(".rail-meta .t");
+          var a = card.querySelector(".rail-meta .a");
+          var g = card.querySelector(".rail-art .glyph");
+          playlist.push({
+            title: t ? t.textContent.trim() : "Music Track",
+            artist: a ? a.textContent.trim() : "Classical / Hymn",
+            glyph: g ? g.textContent.trim() : "♫",
+            audio: cardAudio,
+            card: card
+          });
+          foundIdx = playlist.length - 1;
+        }
+      }
+
+      if (foundIdx !== -1) {
+        if (foundIdx === currentIndex && !audio.paused) {
+          audio.pause();
+        } else {
+          loadTrack(foundIdx, true);
+        }
+      }
+    });
+
+    // Restore collapsed preference
+    try {
+      if (localStorage.getItem("cfp-player-collapsed") === "true") {
+        dock.setAttribute("data-collapsed", "true");
+      }
+    } catch (e) {}
+
+    // Init track presentation (paused)
+    renderTrackInfo(currentIndex);
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    initTheme(); initNav(); initProgress(); initTOC(); initSearch(); initReveal(); initClock(); initFx(); initAudio();
+  });
+})();
+</script>

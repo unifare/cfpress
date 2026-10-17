@@ -17,7 +17,8 @@ export default async function apiKeys(c) {
   let keys = [];
   try {
     const res = await api("auth/api-keys");
-    keys = Array.isArray(res?.items) ? res.items : Array.isArray(res?.keys) ? res.keys : [];
+    const rawKeys = Array.isArray(res?.items) ? res.items : Array.isArray(res?.keys) ? res.keys : [];
+    keys = rawKeys.filter((k) => k.status !== "revoked");
   } catch {
     keys = [];
   }
@@ -124,7 +125,7 @@ export default async function apiKeys(c) {
     <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(28rem, 1fr));gap:1.5rem">
       <div class="panel">
         <h3 style="font-size:.95rem;font-weight:600;margin-bottom:.75rem;display:flex;align-items:center;gap:.5rem">
-          ${icon("code")}${esc(t("core.apiKeys.quickStartTitle", "Quick API Call Example (cURL)"))}
+          ${icon("code", 'style="width:1.125rem;height:1.125rem;flex-shrink:0"')}${esc(t("core.apiKeys.quickStartTitle", "Quick API Call Example (cURL)"))}
         </h3>
         <p class="muted text-sm" style="margin-bottom:.75rem">
           ${esc(t("core.apiKeys.quickStartSub", "Pass your API Key in the Authorization header to call any authorized CFPress API:"))}
@@ -135,12 +136,22 @@ curl -X GET "${esc(hostOrigin)}/api/v1/auth/me" \\
 
 # 2. ${esc(t("core.apiKeys.exampleListPosts", "List Posts for Site"))} "${esc(activeSiteName)}"
 curl -X GET "${esc(hostOrigin)}/api/v1/posts?site=${esc(state.site || "default")}" \\
+  -H "Authorization: Bearer cfp_live_YOUR_KEY"
+
+# 3. ${esc(t("core.apiKeys.exampleCreatePost", "Create / Publish Post"))}
+curl -X POST "${esc(hostOrigin)}/api/v1/posts?site=${esc(state.site || "default")}" \\
+  -H "Authorization: Bearer cfp_live_YOUR_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"title":"Hello World","content":"\u003cp\u003ePost via API\u003c/p\u003e","status":"publish"}'
+
+# 4. ${esc(t("core.apiKeys.exampleSiteStats", "Get Site Overview & Statistics"))}
+curl -X GET "${esc(hostOrigin)}/api/v1/stats?site=${esc(state.site || "default")}" \\
   -H "Authorization: Bearer cfp_live_YOUR_KEY"</code></pre>
       </div>
 
       <div class="panel">
         <h3 style="font-size:.95rem;font-weight:600;margin-bottom:.75rem;display:flex;align-items:center;gap:.5rem">
-          ${icon("sparkles")}${esc(t("core.apiKeys.agentGuideTitle", "AI Agent Setup (Cursor / Dify / Claude)"))}
+          ${icon("sparkles", 'style="width:1.125rem;height:1.125rem;flex-shrink:0"')}${esc(t("core.apiKeys.agentGuideTitle", "AI Agent Setup (Cursor / Dify / Claude)"))}
         </h3>
         <ul style="padding-left:1.25rem;font-size:.875rem;color:var(--muted-foreground);display:flex;flex-direction:column;gap:.6rem;line-height:1.4">
           <li>
@@ -247,7 +258,7 @@ document.addEventListener("click", async (e) => {
     if (!ok) return;
 
     try {
-      const res = await api(`auth/api-keys/${id}`, { method: "DELETE" });
+      const res = await api(`auth/api-keys/${encodeURIComponent(id)}`, { method: "DELETE" });
       if (res.error) {
         await alertDialog({ title: t("core.apiKeys.revokeTitle", "Revoke API Key"), description: res.error });
         return;

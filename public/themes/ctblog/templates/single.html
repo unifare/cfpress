@@ -1,0 +1,111 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+<div class="progress-rail" hidden><div class="progress-bar" data-progress></div></div>
+
+<article data-article data-od-id="article">
+  <header class="section" style="padding-bottom:0">
+    <div class="wrap">
+      <div class="article-head">
+        <p class="eyebrow">{{#if post.meta.category}}{{post.meta.category}} · {{/if}}{{#if post.date_display}}{{post.date_display}}{{else}}{{date(post.created_at)}}{{/if}}</p>
+        <h1>{{post.title}}</h1>
+        {{#if post.excerpt}}<p class="lede">{{post.excerpt}}</p>{{/if}}
+        <div class="article-meta">
+          <span>{{default(theme.strings.footer.author, "手记作者")}}</span>
+          <span class="dot"></span>
+          <span>{{#if post.date_display}}{{post.date_display}}{{else}}{{date(post.created_at)}}{{/if}}</span>
+          {{#if post.reading_time}}
+            <span class="dot"></span>
+            <span>{{post.reading_time}}</span>
+          {{/if}}
+          {{#if post.meta.category}}
+            <span class="dot"></span>
+            <a href="/{{locale}}/tags" class="tag">#{{post.meta.category}}</a>
+          {{/if}}
+          {{#if post.meta.tags}}
+            <span class="dot"></span>
+            <a href="/{{locale}}/tags" class="tag">#{{post.meta.tags}}</a>
+          {{/if}}
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="section" style="padding-top:34px">
+    <div class="wrap article-grid">
+      <div class="prose" data-od-id="article-body">
+        {{#if post.html}}
+          {{{post.html}}}
+        {{else}}
+          <p>先说结论：不是微服务不好，是我一个人扛不动它的运维成本。如果你的团队是 3 到 5 个人，且没有专门的平台工程，那这篇文章里的坑，你大概率也会踩。</p>
+
+          <h2 id="why">为什么要拆</h2>
+          <p>2024 年底，我那个产品开始出现「改一处、崩一片」的情况。支付、内容、通知混在同一个进程里，一次上线要等 20 分钟的测试，任何一个小改动都得全量发布。当时的判断很直觉：拆开就能独立发布、独立伸缩。</p>
+
+          <h2 id="cost">拆分的隐性成本</h2>
+          <p>拆是拆开了，但成本并不在你预期的地方。真正吃掉时间的是下面这三样。</p>
+
+          <h3 id="deploy">部署与调用链</h3>
+          <p>7 个服务意味着 7 套健康检查、7 份配置、7 条日志流。一个下单请求要穿过网关、账户、库存、通知四个服务。出问题时，我需要在四个日志面板之间来回跳，才能拼出一次完整的失败路径。</p>
+          <blockquote>分布式系统里，你会用一生去追一个本可以在本地断点就能解决的问题。</blockquote>
+
+          <h3 id="data">跨服务的数据一致性</h3>
+          <p>原本一个事务能搞定的事，现在要引入消息队列和补偿逻辑。下面这段是当时的「退款」流程，为了跨服务一致性写了近 40 行状态机，而它在单体里只是两行 SQL：</p>
+          <pre><code>// 分布式版：退款要先冻结、再通知、最后对账
+await reserve.refund(orderId)      // 服务 A
+await ledger.credit(orderId)       // 服务 B（可能失败）
+await notify.refunded(orderId)     // 服务 C（可重试）
+// 任何一步失败 → 补偿任务排队处理 → 第二个 bug 诞生</code></pre>
+
+          <h2 id="when">什么时候单体真的不够用</h2>
+          <ul>
+            <li><strong>团队规模</strong>：多个团队并行开发、需要独立发布节奏时，模块化的边界比部署边界更重要。</li>
+            <li><strong>伸缩差异</strong>：某个模块的负载比其余高两个数量级，需要单独扩容。</li>
+            <li><strong>故障隔离</strong>：一条业务线的崩溃不能拖垮全站，且你有专门的 SRE 兜底。</li>
+          </ul>
+          <p>如果你一条都不满足，那「微服务」带给你的主要是简历上的名词，而不是产品上的收益。</p>
+
+          <h2 id="how">我们怎么退回来的</h2>
+          <p>没有大张旗鼓地重构。做法是：先把服务间的调用改成进程内的模块接口，但保留原有边界；一个模块一个模块地并回去，每并一个跑一周观察。三个月后，进程从 7 个变成 2 个——一个 Web、一个异步 Worker。</p>
+          <p>关键在于，我们保留的是<strong>模块边界</strong>，丢掉的只是<strong>网络边界</strong>。代码结构没有变乱，反而因为少了序列化和超时处理更干净了。</p>
+
+          <h2 id="takeaway">结论</h2>
+          <p>单体的真正问题从来不是「单体」，而是<em>没有边界的单体</em>。用模块把内部切清楚，先从单体开始；等团队和规模真的撑不住，再把边界升级成服务。到那时你会发现，前面省下的每一次运维，都在为你要拆的那一天攒底气。</p>
+        {{/if}}
+      </div>
+
+      <aside class="toc" data-toc aria-label="{{default(theme.strings.article.toc, "文章目录")}}">
+        <div class="toc-title">{{default(theme.strings.article.toc, "目录")}}</div>
+        <ol>
+          <li class="depth-2"><a href="#why">为什么要拆</a></li>
+          <li class="depth-2"><a href="#cost">拆分的隐性成本</a></li>
+          <li class="depth-3"><a href="#deploy">部署与调用链</a></li>
+          <li class="depth-3"><a href="#data">跨服务的数据一致性</a></li>
+          <li class="depth-2"><a href="#when">什么时候单体不够用</a></li>
+          <li class="depth-2"><a href="#how">我们怎么退回来的</a></li>
+          <li class="depth-2"><a href="#takeaway">结论</a></li>
+        </ol>
+      </aside>
+    </div>
+  </div>
+
+  <footer class="section" style="padding-top:0">
+    <div class="wrap">
+      <hr class="rule" style="margin-bottom:28px">
+      <div style="display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:center">
+        <div>
+          <p class="eyebrow" style="margin-bottom:8px">{{default(theme.strings.article.prevNext, "上一篇 / 下一篇")}}</p>
+          <div style="display:flex;gap:24px;flex-wrap:wrap">
+            <a href="/{{locale}}/archive" style="font-family:var(--font-serif);font-size:16px">← {{default(theme.strings.home.allArchive, "全部归档")}}</a>
+          </div>
+        </div>
+        <a class="btn" href="/{{locale}}/feed.xml">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 12a7 7 0 0 1 7 7M5 5a14 14 0 0 1 14 14"/><circle cx="5" cy="19" r="1.2" fill="currentColor" stroke="none"/></svg>
+          {{default(theme.strings.article.subscribe, "订阅更新")}}
+        </a>
+      </div>
+    </div>
+  </footer>
+</article>
+
+{{/section}}

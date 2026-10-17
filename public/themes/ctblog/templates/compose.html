@@ -1,0 +1,82 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+{{#if member}}
+<div class="wrap narrow compose">
+
+  <section class="panel">
+    <div class="kicker">{{default(theme.strings.compose.kicker, "写作台")}}</div>
+    {{#if edit_post}}
+      <h1>{{default(theme.strings.compose.editTitle, "编辑随笔")}}</h1>
+    {{else}}
+      <h1>{{default(theme.strings.compose.title, "撰写随笔")}}</h1>
+    {{/if}}
+    <p class="lede">{{default(theme.strings.compose.lede, "保存为草稿，审核通过后即刻发布。")}}</p>
+    <p class="byline" style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin-bottom:20px">
+      {{default(theme.strings.compose.writingAs, "正在以身份写作：")}} <b>{{member.display_name}}</b>
+    </p>
+
+    {{#if query.error}}
+      <p class="form-error" role="alert">
+        {{#if contains(query.error, "slug")}}
+          {{default(theme.strings.compose.errSlug, "该语言下该网址已被占用，请换一个。")}}
+        {{else}}
+          {{default(theme.strings.compose.errGeneric, "保存失败，请稍后重试。")}}
+        {{/if}}
+      </p>
+    {{/if}}
+
+    <form method="post" class="compose-form" action="/api/v1/front/posts{{#if query.id}}/{{query.id}}{{/if}}">
+      <label class="field">
+        <span>{{default(theme.strings.compose.language, "语言")}}</span>
+        <select name="locale">
+          {{#each locales as l}}
+            <option value="{{l.code}}">{{l.name}}</option>
+          {{/each}}
+        </select>
+      </label>
+
+      <label class="field">
+        <span>{{default(theme.strings.compose.postTitle, "标题")}}</span>
+        <input name="title" type="text" required value="{{#if edit_post}}{{edit_post.title}}{{/if}}">
+      </label>
+
+      <label class="field">
+        <span>{{default(theme.strings.compose.slug, "网址缩略名 (Slug)")}}</span>
+        <input name="slug" type="text" value="{{#if edit_post}}{{edit_post.slug}}{{/if}}">
+        <small>{{default(theme.strings.compose.slugHint, "小写英文字母与连字符。留空将自动根据标题生成。")}}</small>
+      </label>
+
+      <label class="field">
+        <span>{{default(theme.strings.compose.excerpt, "摘要")}}</span>
+        <textarea name="excerpt" rows="2">{{#if edit_post}}{{edit_post.excerpt}}{{/if}}</textarea>
+      </label>
+
+      <label class="field">
+        <span>{{default(theme.strings.compose.body, "正文内容 (Markdown / HTML)")}}</span>
+        <textarea name="content" rows="14" required>{{#if edit_post}}{{edit_post.content}}{{/if}}</textarea>
+      </label>
+
+      <input type="hidden" name="redirect" value="/{{locale}}/account">
+
+      <div class="compose-actions">
+        <button class="btn btn-primary" type="submit">{{default(theme.strings.compose.save, "保存草稿")}}</button>
+        <a class="btn" href="/{{locale}}/account">{{default(theme.strings.compose.cancel, "取消")}}</a>
+      </div>
+    </form>
+  </section>
+
+</div>
+{{else}}
+<div class="auth">
+  <div class="auth-card">
+    <div class="kicker">{{default(theme.strings.compose.kicker, "写作台")}}</div>
+    <h1>{{default(theme.strings.account.signedOutTitle, "你尚未登录")}}</h1>
+    <p class="lede">{{default(theme.strings.compose.signedOutLede, "请登录后使用写作台。")}}</p>
+    <a class="btn btn-primary" href="/{{locale}}/login">{{default(theme.strings.auth.signIn, "登录")}}</a>
+    <p class="auth-alt">{{default(theme.strings.auth.noAccount, "还没有账号？")}} <a href="/{{locale}}/register">{{default(theme.strings.auth.createOne, "立即注册")}}</a></p>
+  </div>
+</div>
+{{/if}}
+
+{{/section}}

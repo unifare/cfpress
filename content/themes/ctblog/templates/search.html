@@ -1,0 +1,56 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+<section class="section" data-od-id="search">
+  <div class="wrap">
+    <p class="eyebrow">{{default(theme.strings.search.eyebrow, "Search")}}</p>
+    <h1 class="display" style="margin:14px 0 22px;font-size:clamp(28px,3.6vw,38px)">{{default(theme.strings.search.title, "搜索文章")}}</h1>
+
+    <label class="search-box" data-od-id="search-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
+      <input type="search" data-search-input placeholder="{{default(theme.strings.search.placeholder, "搜索标题、摘要或标签，比如「架构」「SQLite」「定价」")}}" aria-label="搜索关键词" autofocus>
+    </label>
+
+    <div class="search-hint">
+      <span><kbd>⌘</kbd> <kbd>K</kbd> {{default(theme.strings.search.shortcut, "快速聚焦搜索框")}}</span>
+      <span>{{default(theme.strings.search.multiKeywords, "支持多关键词，用空格分隔，全部命中才显示")}}</span>
+    </div>
+
+    <div class="tag-row mt-m" data-search-tags>
+      <button class="tag" data-q="架构" type="button">#架构</button>
+      <button class="tag" data-q="性能" type="button">#性能</button>
+      <button class="tag" data-q="SQLite" type="button">#SQLite</button>
+      <button class="tag" data-q="定价" type="button">#定价</button>
+      <button class="tag" data-q="开源" type="button">#开源</button>
+    </div>
+  </div>
+</section>
+
+<section class="section" style="padding-top:8px" data-od-id="search-results">
+  <div class="wrap">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--border);padding-bottom:14px">
+      <span class="result-count" data-search-count></span>
+      <span class="eyebrow">{{default(theme.strings.search.results, "结果")}}</span>
+    </div>
+    <div class="post-list" data-search-results></div>
+    <div class="center-empty" data-search-empty hidden>{{default(theme.strings.search.empty, "没有匹配的文章，换个关键词试试。")}}</div>
+  </div>
+</section>
+
+<script>
+window.OD_POSTS = [
+  {{#each posts as post}}
+  {
+    title: "{{post.title}}",
+    href: "{{post.url}}",
+    excerpt: "{{#if post.excerpt}}{{post.excerpt}}{{/if}}",
+    date: "{{#if post.date_short}}{{post.date_short}}{{else}}{{#if post.date_display}}{{post.date_display}}{{else}}{{date(post.created_at)}}{{/if}}{{/if}}",
+    read: "{{#if post.reading_time}}{{post.reading_time}}{{else}}5{{/if}}",
+    category: "{{#if post.meta.category}}{{post.meta.category}}{{/if}}",
+    tags: [{{#if post.meta.tags}}"{{post.meta.tags}}"{{/if}}]
+  }{{#if @last}}{{else}},{{/if}}
+  {{/each}}
+];
+</script>
+
+{{/section}}

@@ -15,7 +15,7 @@ import { requirePermission, can, accessibleSiteIds, SITE_ROLES, SUPERADMIN_ROLE 
 import { bumpContentCache } from "./shared/cache";
 import { BUNDLED_THEMES } from "./shared/bundled";
 import { featureSnapshot, inheritedValue, truthy, FEATURE_SETTINGS_KEY, FEATURE_SWITCHES, type FeatureSwitch } from "./shared/features";
-import { DEMO_CONTENTS, DEMO_LOCALES, DEMO_MENUS, DEMO_SEED_STAMP } from "./shared/demo-content";
+import { DEMO_CONTENTS, DEMO_LOCALES, DEMO_MENUS, DEMO_SEED_STAMP, CTBLOG_MENUS } from "./shared/demo-content";
 import { clearOwnerMenusAllSites, listAdminMenuGroups } from "./platform/admin-menus";
 import { clearPluginMenus } from "./extensions/plugin/menus";
 import { createSite, updateSite, deleteSite, listSites, DEFAULT_SITE_ID } from "./platform/sites";
@@ -28,6 +28,7 @@ import { registerMember, loginMember, logoutMember, requireMember } from "./plat
 // with what the front end renders for the same post in the same language.
 import { resolveMetaByPost } from "./platform/post-meta";
 import { defaultLocale } from "./platform/frontend";
+import { resolvePostUrl, DEFAULT_PERMALINK_STRUCTURE } from "./platform/permalink";
 // Media access policy — the same module the front-end `/media/<key>` read path
 // uses, so the library a user can list is the library they can fetch.
 import { readMediaPolicy, mediaOwnerClause } from "./platform/media-policy";
@@ -355,6 +356,7 @@ async function listPosts(env: Env, url: URL, kind: string, siteId: string) {
   const offset = (page - 1) * limit;
   const q = url.searchParams.get("q") ?? "";
   const locale = String(url.searchParams.get("locale") ?? "").trim();
+  const category = String(url.searchParams.get("category") ?? "").trim();
   // A post has one row per locale, so joining translations without pinning a
   // locale would return the same post several times — the list pins one row
   // per post. Which row is the question: this used to be `MIN(locale)`, i.e.
@@ -365,36 +367,138 @@ async function listPosts(env: Env, url: URL, kind: string, siteId: string) {
   // (the content list's language filter) overrides it.
   const dflt = await defaultLocale(env, siteId);
   const pinned = locale || dflt;
-  // `?q=''` keeps untranslated rows visible under a language filter: a post
-  // with no row in the filtered language must still be *listed* (its title
-  // column renders empty and its `locales` badges say which languages exist),
-  // because silently dropping it is how "the Chinese version is lost" gets
-  // believed. With a real `q`, an untranslated row can still match on `p.slug`.
-  const rows = await env.DB.prepare(`
-    SELECT p.id, p.slug, p.status, p.type, p.author_id, p.created_at, p.updated_at,
-           t.locale, t.title, t.excerpt, t.content
-    FROM posts p LEFT JOIN post_translations t ON t.post_id = p.id AND t.locale = ?
-    WHERE p.site_id = ? AND p.type = ? AND (? = '' OR t.title LIKE ? OR p.slug LIKE ?)
-    ORDER BY p.updated_at DESC LIMIT ? OFFSET ?
-  `).bind(pinned, siteId, kind, q, `%${q}%`, `%${q}%`, limit, offset).all();
-  const items = ((rows.results as any[]) ?? []).map((i) => ({ ...i, locales: [i.locale].filter(Boolean) as string[] }));
-  // Which languages each item actually has — the list shows version badges
-  // from this, so "does this post have a Chinese version yet" has an answer
-  // that does not require opening every post.
+
+  // Resolve category and its hierarchical descendants
+  let categoryTermIds: string[] = [];
+  if (category) {
+    const termRows = await env.DB.prepare(
+      "SELECT id, slug, parent_id FROM terms WHERE site_id=? AND (taxonomy='category' OR taxonomy='categories')"
+    ).bind(siteId).all<any>().catch(() => ({ results: [] }));
+    const allTerms = (termRows.results as any[]) ?? [];
+    const root = allTerms.find((t) => t.id === category || t.slug === category);
+    if (root) {
+      const queue = [root.id];
+      categoryTermIds.push(root.id);
+      while (queue.length > 0) {
+        const cur = queue.shift()!;
+        for (const t of allTerms) {
+          if (t.parent_id === cur && !categoryTermIds.includes(t.id)) {
+            categoryTermIds.push(t.id);
+            queue.push(t.id);
+          }
+        }
+      }
+    } else {
+      categoryTermIds.push(category);
+    }
+  }
+
+  let rows: any;
+  if (categoryTermIds.length > 0) {
+    const catPh = categoryTermIds.map(() => "?").join(",");
+    rows = await env.DB.prepare(`
+      SELECT p.id, p.slug, p.status, p.type, p.template, p.author_id, p.created_at, p.updated_at,
+             t.locale, t.title, t.excerpt, t.content, COALESCE(t.slug, p.slug) AS slug_own
+      FROM posts p LEFT JOIN post_translations t ON t.post_id = p.id AND t.locale = ?
+      WHERE p.site_id = ? AND p.type = ? AND (? = '' OR t.title LIKE ? OR p.slug LIKE ?)
+        AND EXISTS (SELECT 1 FROM term_relationships r JOIN terms tm ON tm.id = r.term_id WHERE r.post_id = p.id AND tm.site_id = ? AND r.term_id IN (${catPh}))
+      ORDER BY p.updated_at DESC LIMIT ? OFFSET ?
+    `).bind(pinned, siteId, kind, q, `%${q}%`, `%${q}%`, siteId, ...categoryTermIds, limit, offset).all();
+  } else {
+    rows = await env.DB.prepare(`
+      SELECT p.id, p.slug, p.status, p.type, p.template, p.author_id, p.created_at, p.updated_at,
+             t.locale, t.title, t.excerpt, t.content, COALESCE(t.slug, p.slug) AS slug_own
+      FROM posts p LEFT JOIN post_translations t ON t.post_id = p.id AND t.locale = ?
+      WHERE p.site_id = ? AND p.type = ? AND (? = '' OR t.title LIKE ? OR p.slug LIKE ?)
+      ORDER BY p.updated_at DESC LIMIT ? OFFSET ?
+    `).bind(pinned, siteId, kind, q, `%${q}%`, `%${q}%`, limit, offset).all();
+  }
+
+  const items = ((rows.results as any[]) ?? []).map((i) => ({
+    ...i,
+    slug: i.slug_own || i.slug,
+    locales: [i.locale].filter(Boolean) as string[],
+    categories: [] as any[],
+    tags: [] as any[],
+    url: "",
+  }));
+  // Which languages and terms each item actually has — the list shows version badges
+  // and category tags from this.
   const ids = items.map((i) => i.id);
   if (ids.length) {
     const ph = ids.map(() => "?").join(",");
-    const vr = await env.DB.prepare(
-      `SELECT post_id, locale FROM post_translations WHERE post_id IN (${ph}) ORDER BY locale`
-    ).bind(...ids).all().catch(() => ({ results: [] as any[] }));
+    const [vr, tr] = await Promise.all([
+      env.DB.prepare(
+        `SELECT post_id, locale FROM post_translations WHERE post_id IN (${ph}) ORDER BY locale`
+      ).bind(...ids).all().catch(() => ({ results: [] as any[] })),
+      env.DB.prepare(
+        `SELECT r.post_id, t.id, t.taxonomy, t.slug, t.name
+         FROM term_relationships r
+         JOIN terms t ON t.id = r.term_id
+         WHERE r.post_id IN (${ph}) AND t.site_id = ?`
+      ).bind(...ids, siteId).all().catch(() => ({ results: [] as any[] })),
+    ]);
     const have = new Map<string, string[]>();
     for (const r of (vr.results as any[]) ?? []) {
       const list = have.get(r.post_id) ?? [];
       list.push(String(r.locale));
       have.set(r.post_id, list);
     }
-    for (const i of items) i.locales = have.get(i.id) ?? i.locales;
+    const postCats = new Map<string, any[]>();
+    const postTags = new Map<string, any[]>();
+    for (const r of (tr.results as any[]) ?? []) {
+      if (r.taxonomy === "category" || r.taxonomy === "categories") {
+        const list = postCats.get(r.post_id) ?? [];
+        list.push({ id: r.id, slug: r.slug, name: r.name });
+        postCats.set(r.post_id, list);
+      } else if (r.taxonomy === "tag" || r.taxonomy === "post_tag") {
+        const list = postTags.get(r.post_id) ?? [];
+        list.push({ id: r.id, slug: r.slug, name: r.name });
+        postTags.set(r.post_id, list);
+      }
+    }
+    for (const i of items) {
+      i.locales = have.get(i.id) ?? i.locales;
+      i.categories = postCats.get(i.id) ?? [];
+      i.tags = postTags.get(i.id) ?? [];
+    }
   }
+
+  const permalinkPattern = (await getSetting(env, siteId, "permalink.structure")) || DEFAULT_PERMALINK_STRUCTURE;
+  const sites = await listSites(env).catch(() => []);
+  const curSite = sites.find((s) => s.id === siteId);
+  const rawPrefix = curSite?.path_prefix ? String(curSite.path_prefix).trim().replace(/\/+$/, "") : "";
+  const sitePrefix = rawPrefix ? (rawPrefix.startsWith("/") ? rawPrefix : `/${rawPrefix}`) : "";
+  const activePt = (kind !== "post" && kind !== "page") ? await findActivePostType(env, kind, siteId) : null;
+
+  for (const i of items) {
+    if (kind === "page") {
+      const pageSlug = String(i.slug || "").trim();
+      let pagePath = pageSlug ? (pageSlug.startsWith("/") ? pageSlug : `/${pageSlug}`) : "/";
+      if (i.locale && i.locale !== dflt) {
+        pagePath = `/${i.locale}${pagePath.startsWith("/") ? pagePath : "/" + pagePath}`;
+      }
+      i.url = sitePrefix ? `${sitePrefix}${pagePath}` : pagePath;
+    } else if (kind === "post") {
+      const primaryCat = i.categories?.[0]?.slug || "uncategorized";
+      const postPath = resolvePostUrl(permalinkPattern, {
+        ...i,
+        category: primaryCat,
+      }, {
+        locale: i.locale,
+        isDefaultLocale: !i.locale || i.locale === dflt,
+      });
+      i.url = sitePrefix ? `${sitePrefix}${postPath.startsWith("/") ? postPath : "/" + postPath}` : postPath;
+    } else {
+      const ptBase = String(activePt?.rewrite_slug || activePt?.name || kind).replace(/^\/+/, "");
+      let cptPath = `/${ptBase}/${i.slug || ""}`;
+      if (i.locale && i.locale !== dflt) {
+        cptPath = `/${i.locale}${cptPath}`;
+      }
+      i.url = sitePrefix ? `${sitePrefix}${cptPath}` : cptPath;
+    }
+  }
+
   return ok({ items, page, limit, site: siteId });
 }
 
@@ -480,9 +584,10 @@ async function savePost(
     // A new post starts as its own group of one; a translation added later
     // adopts the existing group (see the i18n/translations endpoint).
     const langGroup = String(body.lang_group ?? "").trim() || entityId;
+    const initialTemplate = body.template !== undefined ? String(body.template ?? "").trim() : (kind === "page" ? "none" : null);
     try {
-      await env.DB.prepare("INSERT INTO posts (id, site_id, author_id, type, slug, status, lang_group, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .bind(entityId, siteId, userId, kind, tSlug || entityId, status, langGroup, now(), now()).run();
+      await env.DB.prepare("INSERT INTO posts (id, site_id, author_id, type, slug, status, lang_group, template, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(entityId, siteId, userId, kind, tSlug || entityId, status, langGroup, initialTemplate || (kind === "page" ? "none" : null), now(), now()).run();
     } catch (e: any) {
       // Serial callers can never see this: the existence check above read no
       // row. Concurrent ones can — two demo seeds racing (the boot hook and a
@@ -515,12 +620,23 @@ async function savePost(
     // that omits the slug (a status-only publish, an editor saving just the
     // body) must not touch the URL at all — rewriting it to the entity id
     // silently renamed every existing permalink.
+    const updTemplate = body.template !== undefined ? (String(body.template ?? "").trim() || (kind === "page" ? "none" : null)) : undefined;
     if (ownsMainSlug && tSlug) {
-      await env.DB.prepare("UPDATE posts SET slug = ?, status = ?, updated_at = ? WHERE id = ? AND site_id = ?")
-        .bind(tSlug, status, now(), entityId, siteId).run();
+      if (updTemplate !== undefined) {
+        await env.DB.prepare("UPDATE posts SET slug = ?, status = ?, template = ?, updated_at = ? WHERE id = ? AND site_id = ?")
+          .bind(tSlug, status, updTemplate, now(), entityId, siteId).run();
+      } else {
+        await env.DB.prepare("UPDATE posts SET slug = ?, status = ?, updated_at = ? WHERE id = ? AND site_id = ?")
+          .bind(tSlug, status, now(), entityId, siteId).run();
+      }
     } else {
-      await env.DB.prepare("UPDATE posts SET status = ?, updated_at = ? WHERE id = ? AND site_id = ?")
-        .bind(status, now(), entityId, siteId).run();
+      if (updTemplate !== undefined) {
+        await env.DB.prepare("UPDATE posts SET status = ?, template = ?, updated_at = ? WHERE id = ? AND site_id = ?")
+          .bind(status, updTemplate, now(), entityId, siteId).run();
+      } else {
+        await env.DB.prepare("UPDATE posts SET status = ?, updated_at = ? WHERE id = ? AND site_id = ?")
+          .bind(status, now(), entityId, siteId).run();
+      }
     }
   }
   const existing = await env.DB.prepare("SELECT id, slug FROM post_translations WHERE post_id = ? AND locale = ? LIMIT 1").bind(entityId, locale).first<any>();
@@ -542,6 +658,92 @@ async function savePost(
   // category name is prose, and the language that saved it owns what it says.
   // Reading is the ladder in `platform/post-meta.ts` — never here.
   await writePostMeta(env, siteId, entityId, locale, body.meta);
+  if (Array.isArray(body.terms) || Array.isArray(body.tags) || Array.isArray(body.categories)) {
+    // Preserve existing tags or categories if only one of them is updated in this save
+    let existingTerms: any[] = [];
+    if (!Array.isArray(body.terms) && (!Array.isArray(body.tags) || !Array.isArray(body.categories))) {
+      const exRes = await env.DB.prepare(
+        "SELECT t.id, t.taxonomy FROM terms t JOIN term_relationships r ON r.term_id=t.id WHERE r.post_id=? AND t.site_id=?"
+      ).bind(entityId, siteId).all<any>().catch(() => ({ results: [] }));
+      existingTerms = (exRes.results as any[]) ?? [];
+    }
+
+    const combinedTerms = [...(Array.isArray(body.terms) ? body.terms : [])];
+
+    // Handle categories
+    if (Array.isArray(body.categories)) {
+      for (const cItem of body.categories) {
+        const cStr = typeof cItem === "object" && cItem !== null ? String(cItem.id || cItem.name || "").trim() : String(cItem ?? "").trim();
+        if (!cStr) continue;
+        let termRow = await env.DB.prepare(
+          "SELECT id FROM terms WHERE site_id=? AND (taxonomy='category' OR taxonomy='categories') AND (id=? OR slug=? OR name=?) LIMIT 1"
+        ).bind(siteId, cStr, cStr.toLowerCase(), cStr).first<any>().catch(() => null);
+        if (termRow?.id) {
+          combinedTerms.push(termRow.id);
+        } else {
+          const newId = "term_" + await randomId();
+          const catSlug = cStr.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || newId;
+          const ts = now();
+          await env.DB.prepare(
+            "INSERT INTO terms(id, site_id, taxonomy, slug, name, description, parent_id, count, locale, lang_group, created_at, updated_at) VALUES(?,?,?,?,?,NULL,NULL,0,?,?,?,?)"
+          ).bind(newId, siteId, "category", catSlug, cStr, locale, newId, ts, ts).run().catch(() => {});
+          combinedTerms.push(newId);
+        }
+      }
+    } else if (!Array.isArray(body.terms)) {
+      // Keep existing categories if body.categories wasn't explicitly provided
+      for (const et of existingTerms) {
+        if (et.taxonomy === "category" || et.taxonomy === "categories") combinedTerms.push(et.id);
+      }
+    }
+
+    // Handle tags
+    if (Array.isArray(body.tags)) {
+      for (const tItem of body.tags) {
+        const tStr = String(tItem ?? "").trim();
+        if (!tStr) continue;
+        let termRow = await env.DB.prepare(
+          "SELECT id FROM terms WHERE site_id=? AND (taxonomy='tag' OR taxonomy='post_tag') AND (id=? OR slug=? OR name=?) AND (locale='' OR locale=?) LIMIT 1"
+        ).bind(siteId, tStr, tStr.toLowerCase(), tStr, locale).first<any>().catch(() => null);
+        if (!termRow?.id) {
+          const newId = "term_" + await randomId();
+          const tagSlug = tStr.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || newId;
+          const ts = now();
+          await env.DB.prepare(
+            "INSERT INTO terms(id, site_id, taxonomy, slug, name, description, parent_id, count, locale, lang_group, created_at, updated_at) VALUES(?,?,?,?,?,NULL,NULL,0,?,?,?,?)"
+          ).bind(newId, siteId, "tag", tagSlug, tStr, locale, newId, ts, ts).run().catch(() => {});
+          combinedTerms.push(newId);
+        } else {
+          combinedTerms.push(termRow.id);
+        }
+      }
+    } else if (!Array.isArray(body.terms)) {
+      // Keep existing tags if body.tags wasn't explicitly provided
+      for (const et of existingTerms) {
+        if (et.taxonomy === "tag" || et.taxonomy === "post_tag") combinedTerms.push(et.id);
+      }
+    }
+
+    await env.DB.prepare("DELETE FROM term_relationships WHERE post_id=?").bind(entityId).run().catch(() => {});
+    for (const termItem of combinedTerms) {
+      const tid = String(termItem ?? "").trim();
+      if (tid) {
+        const termRow = await env.DB.prepare("SELECT id FROM terms WHERE site_id=? AND (id=? OR slug=?) LIMIT 1")
+          .bind(siteId, tid, tid).first<any>().catch(() => null);
+        const resolvedId = termRow?.id ? String(termRow.id) : tid;
+        await env.DB.prepare("INSERT OR IGNORE INTO term_relationships(term_id, post_id) VALUES(?,?)")
+          .bind(resolvedId, entityId).run().catch(() => {});
+      }
+    }
+    // Re-aggregate count for active terms in this site
+    await env.DB.prepare(`
+      UPDATE terms SET count = (
+        SELECT COUNT(DISTINCT r.post_id) FROM term_relationships r
+        JOIN posts p ON p.id = r.post_id
+        WHERE r.term_id = terms.id AND p.status = 'published' AND p.site_id = ?
+      ) WHERE site_id = ?
+    `).bind(siteId, siteId).run().catch(() => {});
+  }
   await bumpContentCache(env, siteId);
   await activity(env, userId, isCreate ? "create" : "update", kind, entityId, { locale, title, status, siteId });
   // The URL segment this save left the locale with: the override just written,
@@ -1809,12 +2011,12 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   if (siteParamMalformed(url)) return ok({ error: "invalid site" }, 400);
 
   // Cross-cutting gates
-  if ((path === "posts" || path === "pages" || /^posts\//.test(path) || /^pages\//.test(path)) && method !== "GET") {
+  if ((path === "posts" || path === "pages" || /^posts\//.test(path) || /^pages\//.test(path) || path === "terms" || /^terms\//.test(path) || /^taxonomies\//.test(path)) && method !== "GET") {
     if (!(await requirePermission(env, user, "content.write", siteId))) return ok({ error: "Forbidden" }, 403);
   }
   if (path === "media" && method === "POST" && !(await requirePermission(env, user, "media.write", siteId))) return ok({ error: "Forbidden" }, 403);
 
-  if (method === "GET" && /^(posts|pages|content\/|search|media|settings|features|dashboard|widgets|menus|menu_items|redirects|rewrites|locales|theme\/|theme-tables|i18n\/(locales|overrides|translations|messages|ui-locale))/.test(path)) {
+  if (method === "GET" && /^(posts|pages|content\/|search|media|settings|features|dashboard|stats|taxonomies|terms|tables|widgets|menus|menu_items|redirects|rewrites|locales|theme\/|theme-tables|i18n\/(locales|overrides|translations|messages|ui-locale))/.test(path)) {
     if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
   }
 
@@ -1839,6 +2041,9 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
 
   const resContent = await dispatchContentAdminRoutes(env, request, user, siteId, path, method, url);
   if (resContent) return resContent;
+
+  const resTax = await dispatchTaxonomyAndTermRoutes(env, request, user, siteId, path, method, url);
+  if (resTax) return resTax;
 
   const resMedia = await dispatchMediaAdminRoutes(env, request, user, siteId, path, method, url);
   if (resMedia) return resMedia;
@@ -2035,6 +2240,16 @@ async function dispatchSiteAdminRoutes(
   }
   const siteMatch = path.match(/^sites\/([^/]+)$/);
   if (siteMatch) {
+    if (method === "GET") {
+      const allowed = await accessibleSiteIds(env, user);
+      if (allowed !== null && !allowed.includes(siteMatch[1])) return ok({ error: "Forbidden" }, 403);
+      const site = (await listSites(env)).find((s: any) => String(s.id) === siteMatch[1]);
+      if (!site) return ok({ error: "site not found" }, 404);
+      const activeT = await activeTheme(env, siteMatch[1]).catch(() => null);
+      const defLocale = await siteDefaultLocale(env, siteMatch[1]);
+      const locs = await siteLocaleCodes(env, siteMatch[1]);
+      return ok({ site: { ...site, active_theme: activeT?.name ?? null, default_locale: defLocale, enabled_locales: locs } });
+    }
     if (method === "PUT" || method === "PATCH") {
       if(!(await requirePermission(env,user,"platform.manage",siteId))) return ok({error:"Forbidden"},403);
       const b = await jsonBody(request);
@@ -2075,6 +2290,18 @@ async function dispatchSiteAdminRoutes(
       await activity(env, user.id, "delete", "site", siteMatch[1]);
       return ok({ ok: true });
     }
+  }
+  const siteLocMatch = path.match(/^sites\/([^/]+)\/locales$/);
+  if (siteLocMatch && method === "GET") {
+    const sid = siteLocMatch[1];
+    const allowed = await accessibleSiteIds(env, user);
+    if (allowed !== null && !allowed.includes(sid)) return ok({ error: "Forbidden" }, 403);
+    return ok({
+      site: sid,
+      default: await siteDefaultLocale(env, sid),
+      enabled: await siteLocaleCodes(env, sid),
+      items: await siteLocaleRows(env, sid),
+    });
   }
 
   return null;
@@ -2328,7 +2555,7 @@ async function dispatchThemeTableAdminRoutes(
   url: URL
 ): Promise<Response | null> {
   // -- Extension-owned tables (L3) ----------------------------------------
-  if (path === "theme-tables" && method === "GET") {
+  if ((path === "theme-tables" || path === "tables") && method === "GET") {
     const theme = await activeTheme(env, siteId).catch(() => null);
     const defs = await listOwnerTableDefs(env, siteId);
     const enabledPlugins = new Set(
@@ -2346,7 +2573,7 @@ async function dispatchThemeTableAdminRoutes(
       })),
     });
   }
-  const ttMatch = path.match(/^theme-tables\/([a-z][a-z0-9_]{0,63})$/);
+  const ttMatch = path.match(/^(?:theme-tables|tables)\/([a-z][a-z0-9_]{0,63})$/);
   if (ttMatch) {
     const def = await resolveTableForSite(env, siteId, ttMatch[1]);
     if (!def) return ok({ error: `no table "${ttMatch[1]}" is declared for this site` }, 404);
@@ -2385,7 +2612,7 @@ async function dispatchThemeTableAdminRoutes(
       }
     }
   }
-  const ttRowMatch = path.match(/^theme-tables\/([a-z][a-z0-9_]{0,63})\/([^/]+)$/);
+  const ttRowMatch = path.match(/^(?:theme-tables|tables)\/([a-z][a-z0-9_]{0,63})\/([^/]+)$/);
   if (ttRowMatch) {
     const def = await resolveTableForSite(env, siteId, ttRowMatch[1]);
     if (!def) return ok({ error: `no table "${ttRowMatch[1]}" is declared for this site` }, 404);
@@ -2427,7 +2654,7 @@ async function dispatchDashboardAndBlockRoutes(
   method: string,
   url: URL
 ): Promise<Response | null> {
-  if (path === "dashboard" && method === "GET") {
+  if ((path === "dashboard" || path === "stats") && method === "GET") {
     const mediaPolicy = await readMediaPolicy(env, siteId);
     const mediaOwner = mediaOwnerClause(mediaPolicy, user.id);
     const [posts, pages, media, drafts, published, recent] = await Promise.all([
@@ -2444,6 +2671,13 @@ async function dispatchDashboardAndBlockRoutes(
       ).bind(siteId).all()
     ]);
     return ok({
+      counts: {
+        posts: Number(posts?.count ?? 0),
+        pages: Number(pages?.count ?? 0),
+        media: Number(media?.count ?? 0),
+        drafts: Number(drafts?.count ?? 0),
+        published: Number(published?.count ?? 0),
+      },
       cards: await (async () => {
         const uiLocale = await resolveUiLocale(env, siteId, {
           userLang: (user as any).ui_lang ?? null,
@@ -2550,14 +2784,23 @@ async function dispatchContentAdminRoutes(
     if (method === "GET") {
       if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
       const dflt = await defaultLocale(env, siteId);
-      const row = await env.DB.prepare(`
-        SELECT p.*, t.locale, t.title, t.excerpt, t.content, t.slug AS slug_own
-        FROM posts p LEFT JOIN post_translations t ON t.post_id=p.id
-        WHERE p.id=? AND p.site_id=? ORDER BY CASE WHEN t.locale = ? THEN 0 ELSE 1 END, t.locale
-      `).bind(id, siteId, dflt).all();
+      const [row, termRows] = await Promise.all([
+        env.DB.prepare(`
+          SELECT p.*, t.locale, t.title, t.excerpt, t.content, t.slug AS slug_own
+          FROM posts p LEFT JOIN post_translations t ON t.post_id=p.id
+          WHERE p.id=? AND p.site_id=? ORDER BY CASE WHEN t.locale = ? THEN 0 ELSE 1 END, t.locale
+        `).bind(id, siteId, dflt).all(),
+        env.DB.prepare(
+          "SELECT t.id, t.taxonomy, t.slug, t.name FROM terms t JOIN term_relationships r ON r.term_id=t.id WHERE r.post_id=? AND t.site_id=?"
+        ).bind(id, siteId).all<any>().catch(() => ({ results: [] })),
+      ]);
       const items = (row.results as any[]) ?? [];
       const metaRows = await postMetaRows(env, id);
-      return ok({ items: items.map((i) => ({ ...i, meta: resolveMetaByPost(metaRows, String(i.locale ?? ""), dflt).get(id) ?? {} })) });
+      const terms = (termRows.results as any[]) ?? [];
+      const categories = terms.filter((t: any) => t.taxonomy === "category" || t.taxonomy === "categories");
+      const tags = terms.filter((t: any) => t.taxonomy === "tag" || t.taxonomy === "post_tag");
+      const mapped = items.map((i) => ({ ...i, meta: resolveMetaByPost(metaRows, String(i.locale ?? ""), dflt).get(id) ?? {}, terms, categories, tags }));
+      return ok({ items: mapped, item: mapped[0] ?? null, terms, categories, tags });
     }
   }
 
@@ -2570,14 +2813,23 @@ async function dispatchContentAdminRoutes(
     if (method === "GET") {
       if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
       const dflt = await defaultLocale(env, siteId);
-      const row = await env.DB.prepare(`
-        SELECT p.*, t.locale, t.title, t.excerpt, t.content, t.slug AS slug_own
-        FROM posts p LEFT JOIN post_translations t ON t.post_id=p.id
-        WHERE p.id=? AND p.site_id=? ORDER BY CASE WHEN t.locale = ? THEN 0 ELSE 1 END, t.locale
-      `).bind(id, siteId, dflt).all();
+      const [row, termRows] = await Promise.all([
+        env.DB.prepare(`
+          SELECT p.*, t.locale, t.title, t.excerpt, t.content, t.slug AS slug_own
+          FROM posts p LEFT JOIN post_translations t ON t.post_id=p.id
+          WHERE p.id=? AND p.site_id=? ORDER BY CASE WHEN t.locale = ? THEN 0 ELSE 1 END, t.locale
+        `).bind(id, siteId, dflt).all(),
+        env.DB.prepare(
+          "SELECT t.id, t.taxonomy, t.slug, t.name FROM terms t JOIN term_relationships r ON r.term_id=t.id WHERE r.post_id=? AND t.site_id=?"
+        ).bind(id, siteId).all<any>().catch(() => ({ results: [] })),
+      ]);
       const items = (row.results as any[]) ?? [];
       const metaRows = await postMetaRows(env, id);
-      return ok({ items: items.map((i) => ({ ...i, meta: resolveMetaByPost(metaRows, String(i.locale ?? ""), dflt).get(id) ?? {} })) });
+      const terms = (termRows.results as any[]) ?? [];
+      const categories = terms.filter((t: any) => t.taxonomy === "category" || t.taxonomy === "categories");
+      const tags = terms.filter((t: any) => t.taxonomy === "tag" || t.taxonomy === "post_tag");
+      const mapped = items.map((i) => ({ ...i, meta: resolveMetaByPost(metaRows, String(i.locale ?? ""), dflt).get(id) ?? {}, terms, categories, tags }));
+      return ok({ items: mapped, item: mapped[0] ?? null, terms, categories, tags });
     }
   }
 
@@ -2631,6 +2883,123 @@ async function dispatchContentAdminRoutes(
   return null;
 }
 
+async function dispatchTaxonomyAndTermRoutes(
+  env: Env,
+  request: Request,
+  user: SessionUser,
+  siteId: string,
+  path: string,
+  method: string,
+  url: URL
+): Promise<Response | null> {
+  // 1. Taxonomies list
+  if (path === "taxonomies" && method === "GET") {
+    if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
+    const r = await env.DB.prepare("SELECT * FROM taxonomies WHERE site_id=? AND active=1 ORDER BY name").bind(siteId).all<any>();
+    let items = (r.results as any[]) ?? [];
+    if (items.length === 0) {
+      items = [
+        { name: "category", site_id: siteId, label: "Categories", post_types: "[\"post\"]", hierarchical: 1, active: 1 },
+        { name: "post_tag", site_id: siteId, label: "Tags", post_types: "[\"post\"]", hierarchical: 0, active: 1 },
+      ];
+    }
+    return ok({ site: siteId, items });
+  }
+
+  // 2. Terms list: GET taxonomies/:tax/terms, GET terms, or GET tags
+  const taxTermsMatch = path.match(/^taxonomies\/([a-z0-9_-]+)\/terms$/);
+  if ((taxTermsMatch || path === "terms" || path === "tags") && method === "GET") {
+    if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
+    const taxonomy = taxTermsMatch ? taxTermsMatch[1] : (path === "tags" ? "tag" : (url.searchParams.get("taxonomy") || "category"));
+    const isTagTax = taxonomy === "tag" || taxonomy === "post_tag";
+    let query = isTagTax
+      ? "SELECT id, site_id, taxonomy, slug, name, description, parent_id, count, locale, lang_group, declared_by_theme, created_at, updated_at FROM terms WHERE site_id=? AND (taxonomy='tag' OR taxonomy='post_tag')"
+      : "SELECT id, site_id, taxonomy, slug, name, description, parent_id, count, locale, lang_group, declared_by_theme, created_at, updated_at FROM terms WHERE site_id=? AND taxonomy=?";
+    const params: any[] = isTagTax ? [siteId] : [siteId, taxonomy];
+    const reqLocale = (url.searchParams.get("locale") || "").trim();
+    if (reqLocale) {
+      query += " AND (locale='' OR locale=?)";
+      params.push(reqLocale);
+    }
+    query += " ORDER BY name";
+    const r = await env.DB.prepare(query).bind(...params).all<any>();
+    return ok({ site: siteId, taxonomy, items: r.results ?? [] });
+  }
+
+  // 3. Create term: POST taxonomies/:tax/terms, POST terms, or POST tags
+  if ((taxTermsMatch || path === "terms" || path === "tags") && method === "POST") {
+    if (!(await requirePermission(env, user, "content.write", siteId))) return ok({ error: "Forbidden" }, 403);
+    const b = await jsonBody(request);
+    const taxonomy = taxTermsMatch ? taxTermsMatch[1] : (path === "tags" ? "tag" : String(b.taxonomy || "category"));
+    const name = String(b.name || "").trim();
+    if (!name) return ok({ error: "name is required" }, 400);
+    const id = "term_" + await randomId();
+    const rawSlug = String(b.slug || name).toLowerCase().trim();
+    const slug = rawSlug.replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || id;
+    const desc = b.description ? String(b.description) : null;
+    const parentId = b.parent_id ? String(b.parent_id) : null;
+    const termLocale = String(b.locale ?? "").trim();
+    const langGroup = String(b.lang_group || b.translation_of || "").trim() || id;
+    const ts = now();
+    try {
+      await env.DB.prepare(
+        "INSERT INTO terms(id, site_id, taxonomy, slug, name, description, parent_id, count, locale, lang_group, created_at, updated_at) VALUES(?,?,?,?,?,?,?,0,?,?,?,?)"
+      ).bind(id, siteId, taxonomy, slug, name, desc, parentId, termLocale, langGroup, ts, ts).run();
+      await bumpContentCache(env, siteId);
+      await activity(env, user.id, "create", "term", id, { taxonomy, name, slug, siteId, locale: termLocale });
+      return ok({ ok: true, item: { id, site_id: siteId, taxonomy, slug, name, description: desc, parent_id: parentId, count: 0, locale: termLocale, lang_group: langGroup } }, 201);
+    } catch (e: any) {
+      return ok({ error: e?.message || "term already exists" }, 400);
+    }
+  }
+
+  // 4. Single term: GET/PUT/DELETE taxonomies/:tax/terms/:id, terms/:id, or tags/:id
+  const termItemMatch = path.match(/^(?:taxonomies\/[a-z0-9_-]+\/terms|terms|tags)\/([^/]+)$/);
+  if (termItemMatch) {
+    const termId = decodeURIComponent(termItemMatch[1]);
+    if (method === "GET") {
+      if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
+      const row = await env.DB.prepare("SELECT * FROM terms WHERE site_id=? AND (id=? OR slug=?) LIMIT 1")
+        .bind(siteId, termId, termId).first<any>();
+      if (!row) return ok({ error: "term not found" }, 404);
+      return ok({ item: row });
+    }
+    if (method === "PUT" || method === "PATCH") {
+      if (!(await requirePermission(env, user, "content.write", siteId))) return ok({ error: "Forbidden" }, 403);
+      const b = await jsonBody(request);
+      const row = await env.DB.prepare("SELECT * FROM terms WHERE site_id=? AND (id=? OR slug=?) LIMIT 1")
+        .bind(siteId, termId, termId).first<any>();
+      if (!row) return ok({ error: "term not found" }, 404);
+      const newName = b.name !== undefined ? String(b.name).trim() : row.name;
+      const newSlug = b.slug !== undefined ? String(b.slug).trim() : row.slug;
+      const newDesc = b.description !== undefined ? String(b.description) : row.description;
+      const newParent = b.parent_id !== undefined ? (b.parent_id ? String(b.parent_id) : null) : row.parent_id;
+      const newLocale = b.locale !== undefined ? String(b.locale).trim() : (row.locale ?? "");
+      const newLangGroup = b.lang_group !== undefined ? String(b.lang_group).trim() : (row.lang_group ?? row.id);
+      const ts = now();
+      await env.DB.prepare(
+        "UPDATE terms SET name=?, slug=?, description=?, parent_id=?, locale=?, lang_group=?, updated_at=? WHERE id=? AND site_id=?"
+      ).bind(newName, newSlug, newDesc, newParent, newLocale, newLangGroup, ts, row.id, siteId).run();
+      await bumpContentCache(env, siteId);
+      await activity(env, user.id, "update", "term", row.id, { name: newName, slug: newSlug });
+      return ok({ ok: true, item: { ...row, name: newName, slug: newSlug, description: newDesc, parent_id: newParent, locale: newLocale, lang_group: newLangGroup, updated_at: ts } });
+    }
+    if (method === "DELETE") {
+      if (!(await requirePermission(env, user, "content.write", siteId))) return ok({ error: "Forbidden" }, 403);
+      const row = await env.DB.prepare("SELECT id FROM terms WHERE site_id=? AND (id=? OR slug=?) LIMIT 1")
+        .bind(siteId, termId, termId).first<any>();
+      if (!row) return ok({ error: "term not found" }, 404);
+      await env.DB.prepare("DELETE FROM term_relationships WHERE term_id=?").bind(row.id).run().catch(() => {});
+      await env.DB.prepare("DELETE FROM terms WHERE id=? AND site_id=?").bind(row.id, siteId).run();
+      await bumpContentCache(env, siteId);
+      await activity(env, user.id, "delete", "term", row.id);
+      return ok({ ok: true });
+    }
+  }
+
+  return null;
+}
+
 async function dispatchMediaAdminRoutes(
   env: Env,
   request: Request,
@@ -2641,12 +3010,20 @@ async function dispatchMediaAdminRoutes(
   url: URL
 ): Promise<Response | null> {
   if (path === "media" && method === "GET") return mediaList(env, url, siteId, user.id);
-  if (path === "media" && method === "POST") {
+  if ((path === "media" || path === "media/upload") && method === "POST") {
     if (!(await requirePermission(env, user, "media.write", siteId))) return ok({ error: "Forbidden" }, 403);
     return mediaUpload(env, user.id, request, siteId);
   }
   const mediaItem = path.match(/^media\/([^/]+)$/);
-  if (mediaItem && method === "PATCH") {
+  if (mediaItem && method === "GET") {
+    if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
+    const key = decodeURIComponent(mediaItem[1]);
+    const row = await env.DB.prepare("SELECT * FROM media_files WHERE site_id=? AND (id=? OR file_name=? OR r2_key=?) LIMIT 1")
+      .bind(siteId, key, key, key).first<any>();
+    if (!row) return ok({ error: "media not found" }, 404);
+    return ok({ item: row });
+  }
+  if (mediaItem && (method === "PATCH" || method === "PUT")) {
     if (!(await requirePermission(env, user, "media.write", siteId))) return ok({ error: "Forbidden" }, 403);
     return mediaUpdate(env, user.id, decodeURIComponent(mediaItem[1]), await jsonBody(request), siteId);
   }
@@ -2695,7 +3072,7 @@ async function dispatchSettingsAdminRoutes(
   return null;
 }
 
-const CORE_WIDGET_TYPES = new Set(["text", "html", "recent-posts", "menu", "search", "categories"]);
+const CORE_WIDGET_TYPES = new Set(["text", "html", "recent-posts", "menu", "search", "categories", "tag-cloud", "tags"]);
 
 async function isWidgetTypeAllowed(siteId: string, env: Env, type: string): Promise<boolean> {
   const norm = type.replace(/^core\./, "");
@@ -2729,6 +3106,12 @@ async function normaliseWidgetConfig(siteId: string, env: Env, type: string, cfg
   }
   if (norm === "categories") {
     return { title: String(c.title ?? ""), show_count: c.show_count ? 1 : 0 };
+  }
+  if (norm === "tag-cloud" || norm === "tags") {
+    const count = Math.min(100, Math.max(1, Math.round(Number(c.count ?? 30))));
+    const taxonomy = String(c.taxonomy ?? "tag").trim() || "tag";
+    const order_by = String(c.order_by ?? "count") === "name" ? "name" : "count";
+    return { title: String(c.title ?? ""), count, taxonomy, order_by };
   }
   return c;
 }
@@ -2904,11 +3287,34 @@ async function dispatchNavAndWidgetRoutes(
         name: "Categories",
         title: "Categories",
         description: "List of post categories and archives",
-        icon: "tag",
+        icon: "folder",
         category: "core",
         fields: [
           { name: "title", label: "Title", type: "text" },
           { name: "show_count", label: "Show Post Count", type: "boolean", default: true },
+        ],
+      },
+      {
+        type: "core.tag-cloud",
+        name: "Tag Cloud",
+        title: "Tag Cloud",
+        description: "Display popular tags or taxonomy terms as a cloud",
+        icon: "tag",
+        category: "core",
+        fields: [
+          { name: "title", label: "Title", type: "text" },
+          { name: "taxonomy", label: "Taxonomy", type: "text", default: "tag" },
+          { name: "count", label: "Number of Tags", type: "number", default: 30, min: 1, max: 100 },
+          {
+            name: "order_by",
+            label: "Order By",
+            type: "select",
+            options: [
+              { value: "count", label: "Popularity (Post count)" },
+              { value: "name", label: "Name (Alphabetical)" },
+            ],
+            default: "count",
+          },
         ],
       },
     ];
@@ -3058,11 +3464,20 @@ async function dispatchNavAndWidgetRoutes(
     let cfg: Record<string, unknown>;
     try { cfg = await normaliseWidgetConfig(siteId, env, type, b.config); } catch (e: any) { return ok({ error: e?.message || "invalid config" }, 400); }
     const id = await randomId();
+    const sidebar = String(b.sidebar || "sidebar");
+    let sortOrder: number;
+    if (b.sort_order !== undefined && b.sort_order !== null && b.sort_order !== "" && !isNaN(Number(b.sort_order))) {
+      sortOrder = Number(b.sort_order);
+    } else {
+      const maxRow = await env.DB.prepare("SELECT COALESCE(MAX(sort_order), 0) AS max_order FROM widget_instances WHERE site_id=? AND sidebar=?")
+        .bind(siteId, sidebar).first<any>();
+      sortOrder = Number(maxRow?.max_order ?? 0) + 10;
+    }
     await env.DB.prepare("INSERT INTO widget_instances (id,site_id,sidebar,widget_type,title,config,sort_order,enabled,locale) VALUES (?,?,?,?,?,?,?,?,?)")
-      .bind(id, siteId, String(b.sidebar || "sidebar"), type, String(b.title || ""), JSON.stringify(cfg), Number(b.sort_order || 0), b.enabled === false ? 0 : 1, String(b.locale || "")).run();
+      .bind(id, siteId, sidebar, type, String(b.title || ""), JSON.stringify(cfg), sortOrder, b.enabled === false ? 0 : 1, String(b.locale || "")).run();
     await bumpContentCache(env, siteId);
     await activity(env, user.id, "create", "widget", id);
-    return ok({ id, site: siteId }, 201);
+    return ok({ id, site: siteId, sort_order: sortOrder }, 201);
   }
   const wim = path.match(/^widgets\/([^/]+)$/);
   if (wim && method === "PUT") {
@@ -3107,7 +3522,7 @@ async function dispatchExtensionAdminRoutes(
     return ok({ ok: true });
   }
   if (path === "extensions/plugins" && method === "GET") {
-    if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
     const rows = await env.DB.prepare("SELECT * FROM plugin_installs ORDER BY title").all();
     const runtime = await pluginRuntimeStatus(env).catch(() => []);
     const wired = Object.fromEntries(runtime.map(r => [r.name, r.hooks]));
@@ -3123,17 +3538,23 @@ async function dispatchExtensionAdminRoutes(
       };
     }) });
   }
-  const pm = path.match(/^extensions\/plugins\/([^/]+)\/(enable|disable)$/);
+  const pm = path.match(/^extensions\/plugins\/([^/]+)\/(enable|disable|toggle)$/);
   if (pm && method === "POST") {
     if (!(await requirePermission(env, user, "extensions.manage", siteId))) return ok({ error: "Forbidden" }, 403);
-    await env.DB.prepare("UPDATE plugin_installs SET enabled=?,updated_at=? WHERE name=?").bind(pm[2] === "enable" ? 1 : 0, now(), pm[1]).run();
-    if (pm[2] === "disable") {
-      await clearPluginMenus(env, pm[1]);
+    const pluginName = pm[1];
+    let action = pm[2];
+    if (action === "toggle") {
+      const cur = await env.DB.prepare("SELECT enabled FROM plugin_installs WHERE name=? LIMIT 1").bind(pluginName).first<any>();
+      action = cur?.enabled ? "disable" : "enable";
+    }
+    await env.DB.prepare("UPDATE plugin_installs SET enabled=?,updated_at=? WHERE name=?").bind(action === "enable" ? 1 : 0, now(), pluginName).run();
+    if (action === "disable") {
+      await clearPluginMenus(env, pluginName);
     }
     resetPluginRuntime();
     await bootPluginRuntime(env);
-    await activity(env, user.id, pm[2], "plugin", pm[1]);
-    return ok({ ok: true });
+    await activity(env, user.id, action, "plugin", pluginName);
+    return ok({ ok: true, action, enabled: action === "enable" ? 1 : 0 });
   }
   if (path === "extensions/themes" && method === "GET") {
     if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
@@ -3255,10 +3676,61 @@ async function dispatchExtensionAdminRoutes(
   }
 
   if (path === "theme/post-types" && method === "GET") return ok({ items: await listPostTypes(env, siteId), site: siteId });
+  if (path === "theme/templates" && method === "GET") {
+    const t = await activeTheme(env, siteId).catch(() => null);
+    const themeName = t?.name || "default";
+    let templates: string[] = [];
+    if (Array.isArray(t?.manifest?.templates) && t.manifest.templates.length > 0) {
+      templates = [...t.manifest.templates];
+    } else {
+      const filesRes = await listThemeFiles(env, themeName).catch(() => ({ files: [] }));
+      const files = "files" in filesRes ? filesRes.files : [];
+      templates = files
+        .filter((f: any) => f.path.startsWith("templates/") && !f.path.startsWith("templates/parts/") && f.path.endsWith(".html"))
+        .map((f: any) => f.path.slice("templates/".length, -".html".length));
+    }
+    const unique = Array.from(new Set(templates)).sort();
+    return ok({ items: unique, theme: themeName, site: siteId });
+  }
   if (path === "theme/menu-locations" && method === "GET") {
     const t = await activeTheme(env, siteId).catch(() => null);
     const locs = t?.manifest?.menuLocations?.length ? t.manifest.menuLocations : [{ id: "header" }];
-    return ok({ items: locs, site: siteId });
+    const themeName = t?.name || "ctblog";
+    const themeTitle = t?.manifest?.title || themeName;
+    return ok({ items: locs, site: siteId, theme: themeName, themeTitle });
+  }
+  if (path === "theme/seed-menus" && method === "POST") {
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const t = await activeTheme(env, siteId).catch(() => null);
+    const themeName = t?.name || "ctblog";
+    const b = (await jsonBody(request).catch(() => ({}))) as any;
+    const targetTheme = String(b.theme || themeName);
+
+    if (targetTheme === "ctblog") {
+      const createdIds: string[] = [];
+      for (const m of CTBLOG_MENUS) {
+        const menuId = `ctblog_${m.id}_${siteId}`;
+        createdIds.push(menuId);
+        await env.DB.prepare(
+          "INSERT INTO menus (id,site_id,name,location,created_at,updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(site_id,id) DO UPDATE SET name=excluded.name,location=excluded.location,updated_at=excluded.updated_at"
+        ).bind(menuId, siteId, m.name, m.location, now(), now()).run();
+
+        await env.DB.prepare("DELETE FROM menu_items WHERE site_id=? AND menu_id=?").bind(siteId, menuId).run();
+        let mOrder = 0;
+        for (const it of m.items) {
+          const itemId = `${menuId}_${mOrder}`;
+          await env.DB.prepare(
+            "INSERT INTO menu_items (id,site_id,menu_id,parent_id,title,url,target,sort_order,locale,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+          ).bind(itemId, siteId, menuId, null, it.title, it.url, null, mOrder++, it.locale ?? "", now(), now()).run();
+        }
+      }
+
+      await bumpContentCache(env, siteId);
+      await activity(env, user.id, "create", "menus", createdIds[0] || "", { theme: "ctblog" });
+      return ok({ ok: true, theme: "ctblog", created: createdIds, site: siteId });
+    }
+
+    return ok({ ok: true, theme: targetTheme, created: [], site: siteId });
   }
   if (path === "theme/sidebars" && method === "GET") {
     const t = await activeTheme(env, siteId).catch(() => null);

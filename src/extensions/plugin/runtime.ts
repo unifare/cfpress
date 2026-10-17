@@ -466,12 +466,27 @@ export async function shortcode(env: Env, name: string, attrs: any, content: str
   return content;
 }
 export async function renderShortcodes(env: Env, html: string, siteId?: string) {
-  let out = html;
+  // Never expand shortcodes inside <style> or <script> blocks.
+  // Extract them temporarily so CSS attribute selectors like [data-foo] remain intact.
+  const protectedBlocks: string[] = [];
+  let out = html.replace(/<(style|script)\b[^>]*>[\s\S]*?<\/\1>/gi, (m) => {
+    protectedBlocks.push(m);
+    return `<!--CFP_PROTECTED_${protectedBlocks.length - 1}-->`;
+  });
+
   const re = /\[([a-zA-Z0-9_-]+)(?:\s+([^\]]+))?\](.*?)\[\/\1\]|\[([a-zA-Z0-9_-]+)\]/gs;
   for (const m of [...out.matchAll(re)]) {
-    const name = m[1] || m[4],
-      body = m[3] || "";
-    out = out.replace(m[0], await shortcode(env, name, {}, body, siteId));
+    const isEnclosed = Boolean(m[1]);
+    const name = m[1] || m[4];
+    const body = isEnclosed ? (m[3] || "") : m[0];
+    const replaced = await shortcode(env, name, {}, body, siteId);
+    if (replaced !== m[0]) {
+      out = out.replace(m[0], replaced);
+    }
+  }
+
+  if (protectedBlocks.length > 0) {
+    out = out.replace(/<!--CFP_PROTECTED_(\d+)-->/g, (_, i) => protectedBlocks[Number(i)] ?? "");
   }
   return out;
 }

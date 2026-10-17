@@ -69,14 +69,8 @@ const PATHS = {
 };
 
 export function icon(name, attrs = "") {
-  // An unknown name silently renders the `info` glyph. That is a deliberate
-  // fallback — the alternative is a broken <svg> in the middle of the admin —
-  // but it is also invisible: a typo'd icon name looks like a real icon that
-  // happens to be wrong. `hasIcon()` exists so callers *can* check, and
-  // `tests/suites/admin-spa.test.mjs` parses the nav/screens for literal
-  // `icon("...")` names and fails on any that this table does not define.
   const body = PATHS[name] ?? PATHS["info"];
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${attrs}>${body}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="cf-icon" ${attrs}>${body}</svg>`;
 }
 
 export const hasIcon = (name) => Object.hasOwn(PATHS, name);

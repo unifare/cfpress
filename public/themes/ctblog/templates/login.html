@@ -1,0 +1,38 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+<div class="auth">
+  <div class="auth-card">
+    {{#if member}}
+      <div class="kicker">{{default(theme.strings.auth.accountKicker, "账户")}}</div>
+      <h1>{{default(theme.strings.auth.welcome, "欢迎回来")}}</h1>
+      <p class="lede">{{default(theme.strings.auth.signedInAs, "已登录为")}} <b>{{member.display_name}}</b></p>
+      <a class="btn btn-primary" href="/{{locale}}/account">{{default(theme.strings.auth.openAccount, "打开我的账户")}}</a>
+      <p class="auth-alt"><a href="/{{locale}}">{{default(theme.strings.notFound.back, "返回首页")}}</a></p>
+    {{else}}
+      <div class="kicker">{{default(theme.strings.auth.loginKicker, "欢迎回来")}}</div>
+      <h1>{{default(theme.strings.auth.loginTitle, "登录读者账户")}}</h1>
+      <p class="lede">{{default(theme.strings.auth.loginLede, "登录以同步阅读历史与发表评论。")}}</p>
+
+      <form method="post" action="/api/v1/front/auth/login" class="auth-form">
+        <label class="field">
+          <span>{{default(theme.strings.auth.username, "用户名")}}</span>
+          <input name="username" type="text" autocomplete="username" required>
+        </label>
+        <label class="field">
+          <span>{{default(theme.strings.auth.password, "密码")}}</span>
+          <input name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <input type="hidden" name="redirect" value="/{{locale}}/account">
+        <button class="btn btn-primary" type="submit">{{default(theme.strings.auth.signIn, "登录")}}</button>
+      </form>
+
+      <p class="auth-alt">
+        {{default(theme.strings.auth.noAccount, "还没有账号？")}}
+        <a href="/{{locale}}/register">{{default(theme.strings.auth.createOne, "立即注册")}}</a>
+      </p>
+    {{/if}}
+  </div>
+</div>
+
+{{/section}}

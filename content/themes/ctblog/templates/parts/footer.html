@@ -1,0 +1,42 @@
+<footer class="site-footer" data-od-id="site-footer">
+  <div class="wrap narrow">
+    <div class="me-foot">
+      <span class="avatar avatar-xs" aria-hidden="true">手</span>
+      <div><strong>{{default(theme.strings.footer.author, "阿手")}}</strong> <span class="sub">· {{default(theme.strings.footer.authorSub, "独立开发技术随笔 / indie dev notes")}}</span></div>
+    </div>
+    <div class="foot-links" aria-label="{{default(theme.strings.footer.contact, "联系 contact")}}">
+      <span class="k">{{default(theme.strings.footer.contact, "联系 contact")}}</span>
+      <a href="https://x.com" target="_blank" rel="noopener">X</a>
+      <a href="https://t.me" target="_blank" rel="noopener">Telegram</a>
+      <a href="https://github.com" target="_blank" rel="noopener">GitHub</a>
+      <a href="mailto:hi@notes.indie.dev">{{default(theme.strings.home.email, "邮箱")}}</a>
+      <a href="/{{locale}}/feed.xml">{{default(theme.strings.home.rss, "RSS")}}</a>
+    </div>
+    <div class="foot-links" aria-label="{{default(theme.strings.footer.index, "索引 index")}}">
+      <span class="k">{{default(theme.strings.footer.index, "索引 index")}}</span>
+      {{#if menu.footer}}
+        {{#each menu.footer as item}}
+          <a href="{{item.url}}"{{#if item.target}} target="{{item.target}}"{{/if}}>{{item.title}}</a>
+        {{/each}}
+      {{else}}
+        <a href="/{{locale}}">{{default(theme.strings.nav.home, "首页")}}</a>
+        <a href="/{{locale}}/archive">{{default(theme.strings.nav.archive, "归档")}}</a>
+        <a href="/{{locale}}/tags">{{default(theme.strings.nav.tags, "标签")}}</a>
+        <a href="/{{locale}}/about">{{default(theme.strings.nav.about, "关于")}}</a>
+        <a href="/{{locale}}/search">{{default(theme.strings.search.title, "搜索")}}</a>
+        {{#if member}}
+          <a href="/{{locale}}/account">{{default(theme.strings.auth.accountKicker, "账户")}}</a>
+        {{else}}
+          <a href="/{{locale}}/login">{{default(theme.strings.auth.signIn, "登录")}}</a>
+        {{/if}}
+      {{/if}}
+    </div>
+    <div class="footer-note">
+      <span>© 2026 {{#if site.title}}{{site.title}}{{else}}手记{{/if}}</span>
+      <span><span class="status-dot"></span> UTC+8 · <span data-clock>--:--:--</span></span>
+      <span><button data-fx-toggle type="button">背景特效 · 开</button></span>
+      <span aria-hidden="true" title="shouji">⠎⠓⠕⠥⠚⠊ · <span class="cross">✝</span></span>
+      <span>{{default(theme.strings.footer.built, "由 CFPress 驱动")}}</span>
+    </div>
+  </div>
+</footer>

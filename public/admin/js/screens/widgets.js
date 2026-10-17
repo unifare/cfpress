@@ -33,12 +33,17 @@ const TYPE_KEY = {
   html: "core.widgets.typeHtml",
   "recent-posts": "core.widgets.typeRecent",
   menu: "core.widgets.typeMenu",
+  search: "core.widgets.typeSearch",
+  categories: "core.widgets.typeCategories",
+  "tag-cloud": "core.widgets.typeTagCloud",
+  tags: "core.widgets.typeTagCloud",
   "core.text": "core.widgets.typeText",
   "core.html": "core.widgets.typeHtml",
   "core.recent-posts": "core.widgets.typeRecent",
   "core.menu": "core.widgets.typeMenu",
   "core.search": "core.widgets.typeSearch",
   "core.categories": "core.widgets.typeCategories",
+  "core.tag-cloud": "core.widgets.typeTagCloud",
 };
 
 const VIEWPORT_WIDTHS = {
@@ -143,6 +148,7 @@ async function openWidgetDialog(existing, defaultSlot, defaultType) {
     { type: "core.menu", title: "Menu", category: "core" },
     { type: "core.search", title: "Search", category: "core" },
     { type: "core.categories", title: "Categories", category: "core" },
+    { type: "core.tag-cloud", title: "Tag Cloud", category: "core" },
   ]).map((t) => {
     const catLabel = t.category === "core" ? _t("Core", "核心")
       : t.category === "theme" ? _t("Theme", "主题")
@@ -168,6 +174,10 @@ async function openWidgetDialog(existing, defaultSlot, defaultType) {
     fields.push({ name: "placeholder", label: _t("Placeholder Text", "搜索框提示文字"), type: "text", value: cfg.placeholder || "Search..." });
   } else if (normType === "categories") {
     fields.push({ name: "show_count", label: _t("Show Count (1/0)", "显示文章数量 (1/0)"), type: "number", value: cfg.show_count ?? 1 });
+  } else if (normType === "tag-cloud") {
+    fields.push({ name: "taxonomy", label: _t("Taxonomy", "分类法标识 (默认 tag)"), type: "text", value: cfg.taxonomy || "tag" });
+    fields.push({ name: "count", label: _t("Number of Tags", "标签数量"), type: "number", value: cfg.count ?? 30 });
+    fields.push({ name: "order_by", label: _t("Order By", "排序方式"), type: "select", value: cfg.order_by || "count", options: [{ value: "count", label: _t("By Post Count (Popularity)", "按文章数量 (热度)") }, { value: "name", label: _t("By Name", "按名称") }] });
   } else if (chosenType.startsWith("custom.") && matchedDef) {
     for (const f of matchedDef.fields || []) {
       if (f.name === "title" || f.key === "title") continue;
@@ -203,6 +213,7 @@ function configFor(type, v) {
   if (norm === "menu") return { menu_id: v.menu_id || "" };
   if (norm === "search") return { placeholder: v.placeholder || "Search..." };
   if (norm === "categories") return { show_count: Number(v.show_count) || 1 };
+  if (norm === "tag-cloud") return { taxonomy: v.taxonomy || "tag", count: Math.max(1, Math.min(100, Number(v.count) || 30)), order_by: v.order_by || "count" };
   if (type === "plugin.adinsert") return { block_no: Math.max(1, Math.min(16, Number(v.block_no) || 1)) };
 
   const cfg = {};
@@ -268,15 +279,15 @@ export default async function widgets(c) {
 
   const listHtml = groups.map((sb) => {
     const rows = items.filter((w) => (w.sidebar || "sidebar") === sb)
-      .sort((a, b) => (a.sort_order - b.sort_order) || String(a.id).localeCompare(String(b.id)));
-    const body = rows.map((w) => `<tr data-widget-id="${attr(w.id)}">
+      .sort((a, b) => (Number(a.sort_order || 0) - Number(b.sort_order || 0)) || String(a.id).localeCompare(String(b.id)));
+    const body = rows.map((w, idx) => `<tr data-widget-id="${attr(w.id)}">
       <td><span class="badge outline">${typeLabel(w)}</span></td>
       <td style="font-weight:500">${esc(w.title || "—")}</td>
       <td>${w.locale ? `<span class="badge outline">${esc(w.locale)}</span>` : `<span class="muted text-sm">${esc(t("core.widgets.localeAll", "All languages"))}</span>`}</td>
       <td>${w.enabled ? `<span class="badge success">${esc(t("core.widgets.enabled", "on"))}</span>` : `<span class="badge">${esc(t("core.widgets.disabled", "off"))}</span>`}</td>
       <td class="actions">
-        <button class="btn outline sm" data-w-up="${attr(w.id)}" title="↑">${icon("arrow-up")}</button>
-        <button class="btn outline sm" data-w-down="${attr(w.id)}" title="↓">${icon("arrow-down")}</button>
+        <button class="btn outline sm" data-w-up="${attr(w.id)}" ${idx === 0 ? "disabled" : ""} title="↑">${icon("arrow-up")}</button>
+        <button class="btn outline sm" data-w-down="${attr(w.id)}" ${idx === rows.length - 1 ? "disabled" : ""} title="↓">${icon("arrow-down")}</button>
         <button class="btn outline sm" data-w-edit="${attr(w.id)}">${icon("pencil")}</button>
         <button class="btn outline danger sm" data-w-del="${attr(w.id)}">${icon("trash")}</button>
       </td>
@@ -480,20 +491,47 @@ async function findWidget(id) {
   return (d.items || []).find((w) => w.id === id) || null;
 }
 
-/** Swap a widget with its neighbour inside the same sidebar. */
-async function move(id, dir) {
+/** Swap a widget with its neighbour inside the same sidebar and re-index sort_order. */
+async function move(id, dir, { inPlace = false } = {}) {
   const d = await api(scoped("widgets"));
-  const rows = (d.items || []).sort((a, b) => (a.sort_order - b.sort_order) || String(a.id).localeCompare(String(b.id)));
-  const me = rows.find((w) => w.id === id);
+  const all = d.items || [];
+  const me = all.find((w) => w.id === id);
   if (!me) return;
-  const group = rows.filter((w) => (w.sidebar || "sidebar") === (me.sidebar || "sidebar"));
+  const targetSidebar = me.sidebar || "sidebar";
+  // Get all widgets in this sidebar, sorted by current effective sort_order, then id
+  const group = all
+    .filter((w) => (w.sidebar || "sidebar") === targetSidebar)
+    .sort((a, b) => (Number(a.sort_order || 0) - Number(b.sort_order || 0)) || String(a.id).localeCompare(String(b.id)));
+
   const at = group.findIndex((w) => w.id === id);
-  const other = group[at + dir];
-  if (!other) return;
-  await api(scoped(`widgets/${me.id}`), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sort_order: other.sort_order }) });
-  await api(scoped(`widgets/${other.id}`), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sort_order: me.sort_order }) });
+  const targetIdx = at + dir;
+  if (at === -1 || targetIdx < 0 || targetIdx >= group.length) return;
+
+  // Swap in array
+  const next = [...group];
+  const [removed] = next.splice(at, 1);
+  next.splice(targetIdx, 0, removed);
+
+  // Assign clean, spaced sort_orders: 10, 20, 30, 40...
+  const updates = [];
+  next.forEach((w, idx) => {
+    const expectedOrder = (idx + 1) * 10;
+    if (Number(w.sort_order) !== expectedOrder) {
+      w.sort_order = expectedOrder;
+      updates.push(
+        api(scoped(`widgets/${w.id}`), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sort_order: expectedOrder }),
+        })
+      );
+    }
+  });
+
+  await Promise.all(updates);
   toast(t("core.widgets.moved", "Order saved"));
-  render();
+  if (currentView === "canvas") refreshCanvasSlots();
+  else if (!inPlace) render();
 }
 
 // Global change & input delegation
@@ -640,7 +678,35 @@ document.addEventListener("click", async (e) => {
 
   const up = e.target.closest("[data-w-up]");
   const down = e.target.closest("[data-w-down]");
-  if (up || down) { await move((up || down).dataset.wUp || (up || down).dataset.wDown, up ? -1 : 1); return; }
+  if (up || down) {
+    const btn = up || down;
+    if (btn.disabled) return;
+    const row = btn.closest("tr[data-widget-id]");
+    const tbody = row?.closest("tbody");
+    if (row && tbody) {
+      if (up) {
+        const prev = row.previousElementSibling;
+        if (prev && prev.matches("tr[data-widget-id]")) {
+          prev.before(row);
+        }
+      } else {
+        const next = row.nextElementSibling;
+        if (next && next.matches("tr[data-widget-id]")) {
+          next.after(row);
+        }
+      }
+      // Update disabled states on all rows in this tbody immediately
+      const allRows = Array.from(tbody.querySelectorAll("tr[data-widget-id]"));
+      allRows.forEach((r, idx) => {
+        const u = r.querySelector("[data-w-up]");
+        const d = r.querySelector("[data-w-down]");
+        if (u) u.disabled = (idx === 0);
+        if (d) d.disabled = (idx === allRows.length - 1);
+      });
+    }
+    await move(btn.dataset.wUp || btn.dataset.wDown, up ? -1 : 1, { inPlace: true });
+    return;
+  }
 
   const del = e.target.closest("[data-w-del]");
   if (del) {
@@ -682,6 +748,12 @@ if (typeof window !== "undefined") {
     if (!data || typeof data !== "object") return;
     if (data.action === "frame:ready") {
       detectedSlots = Array.isArray(data.slots) ? data.slots : [];
+      return;
+    }
+    if (data.action === "widget:move") {
+      if (data.widgetId && data.direction) {
+        await move(data.widgetId, Number(data.direction));
+      }
       return;
     }
     if (data.action === "widget:drop") {

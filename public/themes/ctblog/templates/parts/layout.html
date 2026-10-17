@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="{{locale}}" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{#if page.document_title}}{{page.document_title}}{{else}}{{page.title}}{{#if site.title}} · {{site.title}}{{/if}}{{/if}}</title>
+{{#if page.description}}<meta name="description" content="{{page.description}}">{{else}}{{#if site.description}}<meta name="description" content="{{site.description}}">{{/if}}{{/if}}
+<meta name="robots" content="{{#if site.robots}}{{site.robots}}{{else}}index,follow{{/if}}">
+<meta name="theme-color" content="#0a0a0a">
+{{#if site.url}}<link rel="canonical" href="{{site.url}}{{page.path}}">{{/if}}
+{{#if post.alternates}}
+  {{#each post.alternates as alt}}<link rel="alternate" hreflang="{{alt.locale}}" href="{{alt.url}}">
+  {{#if alt.default}}<link rel="alternate" hreflang="x-default" href="{{alt.url}}">{{/if}}
+  {{/each}}
+{{else}}
+  {{#if site.url}}{{#each locales as l}}<link rel="alternate" hreflang="{{l.code}}" href="{{site.url}}/{{l.code}}">
+  {{/each}}{{/if}}
+{{/if}}
+<meta property="og:type" content="{{#if post}}article{{else}}website{{/if}}">
+<meta property="og:title" content="{{page.title}}">
+{{#if page.description}}<meta property="og:description" content="{{page.description}}">{{/if}}
+{{#if site.url}}<meta property="og:url" content="{{site.url}}{{page.path}}">{{/if}}
+<meta property="og:site_name" content="{{site.title}}">
+{{#if post.cover}}<meta property="og:image" content="{{post.cover}}">{{/if}}
+<meta name="twitter:card" content="{{#if post.cover}}summary_large_image{{else}}summary{{/if}}">
+<link rel="alternate" type="application/rss+xml" title="{{site.title}}" href="/{{locale}}/feed.xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/themes/ctblog/assets/blog.css">
+<script>try{document.documentElement.setAttribute('data-theme',localStorage.getItem('od-theme')||localStorage.getItem('ctblog-theme')||'dark')}catch(e){document.documentElement.setAttribute('data-theme','dark')}</script>
+{{@include "parts/styles"}}
+{{{hook("head")}}}
+</head>
+<body>
+<canvas id="bg-fx" aria-hidden="true"></canvas>
+<a class="skip-link" href="#main">{{default(theme.strings.a11y.skip, "跳到正文")}}</a>
+{{@include "parts/header"}}
+<main id="main">
+{{@section "content"}}
+</main>
+{{#if widgets.sidebar}}<aside class="wrap side-widgets">{{{widgets.sidebar}}}</aside>{{/if}}
+{{@include "parts/footer"}}
+<div class="toast" id="toast"></div>
+{{@include "parts/player"}}
+{{@include "parts/scripts"}}
+{{{hook("footer")}}}
+</body>
+</html>

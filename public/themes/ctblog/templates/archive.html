@@ -1,0 +1,66 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+<section class="section" data-od-id="archive-intro">
+  <div class="wrap">
+    <p class="eyebrow">{{default(theme.strings.archive.eyebrow, "Archive · 2015 年起没断更，2025 年重开")}}</p>
+    <h1 class="display" style="margin:14px 0 16px">{{default(theme.strings.archive.title, "全部文章")}}</h1>
+    <p class="lede">{{default(theme.strings.archive.desc, "按时间倒序排列")}}，{{default(theme.strings.archive.countPrefix, "共")}} {{#if posts}}{{len(posts)}}{{else}}0{{/if}} {{default(theme.strings.archive.countSuffix, "篇")}}。{{default(theme.strings.archive.descTags, "想按主题找，去")}}<a href="/{{locale}}/tags" style="color:var(--fg);text-decoration:underline;text-decoration-color:var(--accent);text-underline-offset:3px">{{default(theme.strings.nav.tags, "标签页")}}</a>；{{default(theme.strings.archive.descSearch, "记得关键词就用")}}<a href="/{{locale}}/search" style="color:var(--fg);text-decoration:underline;text-decoration-color:var(--accent);text-underline-offset:3px">{{default(theme.strings.nav.search, "搜索")}}</a>。</p>
+  </div>
+</section>
+
+<section class="section" style="padding-top:0" data-od-id="archive-list">
+  <div class="wrap" style="display:grid;gap:clamp(32px,5vw,56px)" data-reveal>
+
+    {{#if posts_by_year}}
+      {{#each posts_by_year as group}}
+        <div class="year-group" data-od-id="archive-year-{{group.year}}">
+          <div class="y">{{group.year}}</div>
+          <div class="year-list">
+            {{#each group.posts as post}}
+              <a href="{{post.url}}">
+                <span class="d">{{#if post.date_short}}{{post.date_short}}{{else}}{{#if post.date_display}}{{post.date_display}}{{else}}{{date(post.created_at)}}{{/if}}{{/if}}</span>
+                <span class="t">{{post.title}}</span>
+              </a>
+            {{/each}}
+          </div>
+        </div>
+      {{/each}}
+    {{else}}
+      {{#if posts}}
+        <div class="year-group" data-od-id="archive-year-published">
+          <div class="y">{{default(theme.strings.home.latestBadge, "最新")}}</div>
+          <div class="year-list">
+            {{#each posts as post}}
+              <a href="{{post.url}}">
+                <span class="d">{{#if post.date_short}}{{post.date_short}}{{else}}{{#if post.date_display}}{{post.date_display}}{{else}}{{date(post.created_at)}}{{/if}}{{/if}}</span>
+                <span class="t">{{post.title}}</span>
+              </a>
+            {{/each}}
+          </div>
+        </div>
+      {{else}}
+        <div class="center-empty" style="padding:48px 0;text-align:center">{{default(theme.strings.archive.empty, "暂无已发布文章。")}}</div>
+      {{/if}}
+    {{/if}}
+
+  </div>
+</section>
+
+<section class="section" style="padding-top:0" data-od-id="archive-cta">
+  <div class="wrap">
+    <div class="feature" style="grid-template-columns:1fr auto;align-items:center">
+      <div>
+        <p class="eyebrow">{{default(theme.strings.archive.subEyebrow, "订阅")}}</p>
+        <h2 style="margin:12px 0 8px;font-size:22px">{{default(theme.strings.archive.subTitle, "新文章发出时，让 RSS 告诉你")}}</h2>
+        <p style="margin:0">{{default(theme.strings.archive.subDesc, "没有邮件列表负担，一个订阅源就够。")}}</p>
+      </div>
+      <a class="btn btn-primary" href="/{{locale}}/feed.xml">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 12a7 7 0 0 1 7 7M5 5a14 14 0 0 1 14 14"/><circle cx="5" cy="19" r="1.2" fill="currentColor" stroke="none"/></svg>
+        RSS
+      </a>
+    </div>
+  </div>
+</section>
+
+{{/section}}

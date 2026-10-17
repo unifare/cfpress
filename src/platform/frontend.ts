@@ -142,6 +142,11 @@ export async function findContent(env:Env,type:string,slug:string,locale:string,
     const dflt=await defaultLocale(env,siteId);
     const mr=await env.DB.prepare("SELECT post_id, meta_key, locale, meta_value FROM post_meta WHERE post_id=?").bind(row.id).all().catch(()=>({results:[] as any[]}));
     row.meta=resolveMetaByPost((mr.results as any[])??[],locale,dflt).get(row.id)??{};
+    const tr=await env.DB.prepare("SELECT t.id, t.taxonomy, t.slug, t.name, t.locale FROM terms t JOIN term_relationships r ON r.term_id=t.id WHERE r.post_id=? AND t.site_id=?").bind(row.id,siteId).all().catch(()=>({results:[] as any[]}));
+    const allTerms=(tr.results as any[])??[];
+    row.terms=allTerms;
+    const tagBase=(await setting(env,"permalink.tag_base","tag",siteId)).replace(/^\/+|\/+$/g,"");
+    row.tags=allTerms.filter((t:any)=>t.taxonomy==="tag"||t.taxonomy==="post_tag").map((t:any)=>({...t,url:`/${locale}/${tagBase}/${encodeURIComponent(t.slug)}`}));
   }
   return row;
 }
@@ -158,6 +163,11 @@ export async function findContentById(env:Env,type:string,id:string,locale:strin
     const dflt=await defaultLocale(env,siteId);
     const mr=await env.DB.prepare("SELECT post_id, meta_key, locale, meta_value FROM post_meta WHERE post_id=?").bind(row.id).all().catch(()=>({results:[] as any[]}));
     row.meta=resolveMetaByPost((mr.results as any[])??[],locale,dflt).get(row.id)??{};
+    const tr=await env.DB.prepare("SELECT t.id, t.taxonomy, t.slug, t.name, t.locale FROM terms t JOIN term_relationships r ON r.term_id=t.id WHERE r.post_id=? AND t.site_id=?").bind(row.id,siteId).all().catch(()=>({results:[] as any[]}));
+    const allTerms=(tr.results as any[])??[];
+    row.terms=allTerms;
+    const tagBase=(await setting(env,"permalink.tag_base","tag",siteId)).replace(/^\/+|\/+$/g,"");
+    row.tags=allTerms.filter((t:any)=>t.taxonomy==="tag"||t.taxonomy==="post_tag").map((t:any)=>({...t,url:`/${locale}/${tagBase}/${encodeURIComponent(t.slug)}`}));
   }
   return row;
 }
@@ -276,10 +286,44 @@ async function renderWidget(env:Env,siteId:string,locale:string,w:any):Promise<s
     return `<section class="widget widget-search" data-slot="${slot}" data-widget="${wid}">${title}<form role="search" method="get" action="/search" class="search-form"><input type="search" name="q" placeholder="${ph}" class="search-field" /><button type="submit" class="search-submit">Search</button></form></section>`;
   }
   // categories — list of taxonomy categories
-  if(type==="categories"){
-    const r=await env.DB.prepare("SELECT slug, name FROM taxonomies WHERE site_id=? AND type='category' ORDER BY name").bind(siteId).all();
-    const lis=((r.results as any[])??[]).map(x=>`<li><a href="/category/${esc(String(x.slug))}">${esc(String(x.name))}</a></li>`).join("");
-    return `<section class="widget widget-categories" data-slot="${slot}" data-widget="${wid}">${title}<ul class="widget-list">${lis}</ul></section>`;
+  if(type==="categories"||type==="category"||String(w.widget_type)==="core.categories"){
+    const catBase=(await setting(env,"permalink.category_base","category",siteId)).replace(/^\/+|\/+$/g,"");
+    const r=await env.DB.prepare("SELECT slug, name, count FROM terms WHERE site_id=? AND (taxonomy='category' OR taxonomy='categories') AND (locale='' OR locale=?) ORDER BY name").bind(siteId,locale).all<any>().catch(()=>({results:[]}));
+    const terms=((r.results as any[])??[]);
+    const showCount=cfg.show_count===undefined||cfg.show_count===null||Number(cfg.show_count)===1||cfg.show_count===true;
+    const localePrefix=locale?`/${locale}`:"";
+    const lis=terms.map(x=>{
+      const countHtml=showCount?` <span class="count">(${Number(x.count||0)})</span>`:"";
+      return `<li><a href="${localePrefix}/${catBase}/${esc(String(x.slug))}">${esc(String(x.name))}</a>${countHtml}</li>`;
+    }).join("");
+    const content=lis
+      ? `<ul class="widget-list">${lis}</ul>`
+      : `<p class="empty-categories" style="font-size:.85rem;color:var(--muted,#888);margin:.5rem 0;">No categories found.</p>`;
+    return `<section class="widget widget-categories" data-slot="${slot}" data-widget="${wid}">${title}${content}</section>`;
+  }
+  // tag-cloud — dynamic tag cloud widget supporting i18n & theme taxonomies
+  if(type==="tag-cloud"||type==="tags"||String(w.widget_type)==="core.tag-cloud"){
+    const tax=String(cfg.taxonomy||"tag").trim()||"tag";
+    const maxCount=Math.min(100,Math.max(1,Math.round(Number(cfg.count||30))));
+    const orderBy=String(cfg.order_by||"count")==="name"?"name ASC":"count DESC, name ASC";
+    const tagBase=(await setting(env,"permalink.tag_base","tag",siteId)).replace(/^\/+|\/+$/g,"");
+    const r=await env.DB.prepare(`SELECT id, name, slug, count FROM terms WHERE site_id=? AND (taxonomy=? OR taxonomy='tag' OR taxonomy='post_tag') AND (locale='' OR locale=?) AND count>0 ORDER BY ${orderBy} LIMIT ?`).bind(siteId,tax,locale,maxCount).all<any>().catch(()=>({results:[]}));
+    const terms=((r.results as any[])??[]);
+    if(terms.length===0){
+      return `<section class="widget widget-tag-cloud" data-slot="${slot}" data-widget="${wid}">${title}<p class="empty-tag-cloud">No tags found.</p></section>`;
+    }
+    const counts=terms.map(t=>Number(t.count||1));
+    const minC=Math.min(...counts);
+    const maxC=Math.max(...counts);
+    const spread=maxC-minC||1;
+    const tagsHtml=terms.map(t=>{
+      const c=Number(t.count||1);
+      const weight=1+Math.round(((c-minC)/spread)*4);
+      const fontSize=12+Math.round(((c-minC)/spread)*8);
+      const href=`/${locale}/${tagBase}/${encodeURIComponent(t.slug)}`;
+      return `<a href="${esc(href)}" class="tag-cloud-link tag-link-${esc(String(t.id))} tag-weight-${weight}" style="font-size: ${fontSize}px;" title="${esc(String(t.name))} (${c})">${esc(String(t.name))} <span class="count">(${c})</span></a>`;
+    }).join(" ");
+    return `<section class="widget widget-tag-cloud" data-slot="${slot}" data-widget="${wid}">${title}<div class="tagcloud cf-tag-cloud">${tagsHtml}</div></section>`;
   }
   // custom widget — rendered via custom_widget_types template
   if(String(w.widget_type).startsWith("custom.")){

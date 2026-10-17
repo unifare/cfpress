@@ -148,10 +148,11 @@ async function main() {
   const worker = (await compileWorker()).default;
   const env = makeEnv(sqlite);
 
-  // Sweep helper: clean up only test keys created by this suite
+  // Sweep helper: clean up test keys and test terms created by this suite
   const sweep = () => {
     try {
       sqlite.exec("DELETE FROM api_keys WHERE name LIKE 'test-ai-%'");
+      sqlite.exec("DELETE FROM terms WHERE slug LIKE 'ai-tech-%' OR slug LIKE 'edge-cn-%' OR slug LIKE 'edge-en-%' OR slug='ai-tech'");
     } catch {
       /* ignore */
     }
@@ -231,6 +232,70 @@ async function main() {
       headers: { Authorization: `Bearer ${token}` },
     });
     check("GET /api/v1/posts with Bearer token returns 200", postsRes.status === 200, `status=${postsRes.status}`);
+
+    // Verify expanded REST endpoints for AI Agents (stats, taxonomies, terms)
+    const statsRes = await req(worker, env, "/api/v1/stats?site=default", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    check("GET /api/v1/stats with Bearer token returns 200", statsRes.status === 200, `status=${statsRes.status}`);
+    const statsData = await statsRes.json();
+    check("statsData contains counts object", typeof statsData.counts?.posts === "number");
+
+    const taxRes = await req(worker, env, "/api/v1/taxonomies?site=default", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    check("GET /api/v1/taxonomies with Bearer token returns 200", taxRes.status === 200, `status=${taxRes.status}`);
+
+    const createTermRes = await req(worker, env, "/api/v1/taxonomies/category/terms?site=default", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ name: "AI Tech", slug: "ai-tech-" + Date.now() }),
+    });
+    check("POST /api/v1/taxonomies/category/terms returns 201", createTermRes.status === 201, `status=${createTermRes.status}`);
+
+    // Verify tag creation with multi-language support (locale & lang_group)
+    const createZhTag = await req(worker, env, "/api/v1/tags?site=default", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ name: "边缘计算", slug: "edge-cn-" + Date.now(), locale: "zh-CN", lang_group: "grp_edge" }),
+    });
+    check("POST /api/v1/tags with locale zh-CN returns 201", createZhTag.status === 201, `status=${createZhTag.status}`);
+
+    const createEnTag = await req(worker, env, "/api/v1/tags?site=default", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ name: "Edge Computing", slug: "edge-en-" + Date.now(), locale: "en", lang_group: "grp_edge" }),
+    });
+    check("POST /api/v1/tags with locale en returns 201", createEnTag.status === 201, `status=${createEnTag.status}`);
+
+    // Verify locale-scoped tag listing
+    const zhListRes = await req(worker, env, "/api/v1/tags?site=default&locale=zh-CN", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const zhListData = await zhListRes.json();
+    const hasZh = (zhListData.items || []).some((t) => t.name === "边缘计算");
+    const hasEnInZh = (zhListData.items || []).some((t) => t.name === "Edge Computing");
+    check("locale-filtered tag list includes zh tag", hasZh);
+    check("locale-filtered tag list excludes other language tag", !hasEnInZh);
+
+    // Verify post creation with tags (auto-bind and auto-create)
+    const postWithTagsRes = await req(worker, env, "/api/v1/posts?site=default", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        title: "Test Tagging Post",
+        slug: "test-tagging-post-" + Date.now(),
+        content: "Testing automatic tagging and term relationships",
+        status: "published",
+        tags: ["边缘计算", "CloudflareAutoTag"],
+      }),
+    });
+    check("POST /api/v1/posts with tags returns 200/201", postWithTagsRes.status === 200 || postWithTagsRes.status === 201, `status=${postWithTagsRes.status}`);
+
+    // Verify terms.count was incremented and auto-created tag exists
+    const autoTagRow = sqlite.prepare("SELECT name, count FROM terms WHERE name = ? AND site_id = 'default'").get("CloudflareAutoTag");
+    check("auto-created tag exists in terms table", !!autoTagRow, `autoTagRow=${JSON.stringify(autoTagRow)}`);
+    check("tag count was incremented for published post", Number(autoTagRow?.count) >= 1, `count=${autoTagRow?.count}`);
 
     // Verify last_used_at was updated in D1
     const row = sqlite.prepare("SELECT last_used_at FROM api_keys WHERE id = ?").get(createData.key.id);

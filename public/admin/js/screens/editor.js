@@ -16,11 +16,15 @@ import { mediaFieldHtml, openMediaPicker } from "../media-picker.js";
 import { fromLocalInput, toLocalInput } from "../table-form.js";
 import { t } from "../i18n.js";
 import { alertDialog, attr, confirmDialog, esc, fmtDate, openDialog, toast } from "../../ui.js";
+import { buildTermTree } from "./tags.js";
 
 export function newContent(type) {
   state.editing = {
     id: null, slug: "", title: "", excerpt: "", locale: state.defaultLocale,
     status: "draft", content: "[]", meta: {}, publish_at: null,
+    template: (type === "page" || type === "pages") ? "none" : "",
+    currentTags: [],
+    currentCategories: [],
   };
   state.type = type;
   render();
@@ -35,17 +39,28 @@ export async function editContent(type, id, wantLocale) {
   // translation row per language) carries *every* language's content in this
   // one response. Pick the requested language; fall back to the first row.
   const x = (wantLocale ? items.find((i) => i.locale === wantLocale) : null) || items[0] || {};
+  const rawTerms = x.terms || d.terms || [];
+  const initialTerms = rawTerms.filter((term) => term.taxonomy === "tag" || term.taxonomy === "post_tag");
+  const initialTagNames = initialTerms.map((term) => term.name).filter(Boolean);
+  const initialCats = Array.isArray(x.categories) && x.categories.length
+    ? x.categories
+    : rawTerms.filter((term) => term.taxonomy === "category" || term.taxonomy === "categories");
+  const initialCatIds = initialCats.map((c) => String(c.id || c)).filter(Boolean);
+
   state.editing = {
     // `slug_own` is this language's own URL segment (NULL = follows the
     // main-table slug); `slug` is always the row's main-table value.
     id, slug: x.slug_own || x.slug || "", title: x.title || "", excerpt: x.excerpt || "",
     locale: x.locale || state.defaultLocale, status: x.status || "draft",
     content: x.content || "[]", meta: x.meta || {},
+    template: x.template || ((type === "page" || type === "pages") ? "none" : ""),
     // Carried so the editor can show the existing schedule. It used to be
     // dropped on the floor: opening a scheduled post and saving it silently
     // cancelled the schedule, because `#publishAt` rendered empty and the save
     // sent `publish_at: null`.
     publish_at: x.publish_at ?? null,
+    currentTags: initialTagNames.length > 0 ? initialTagNames : (Array.isArray(x.tags) ? x.tags : []),
+    currentCategories: initialCatIds,
   };
   state.type = type;
   render();
@@ -197,6 +212,137 @@ export async function editor(c, type) {
     .map((s) => `<option value="${s}"${x.status === s ? " selected" : ""}>${esc(t(`core.status.${s}`, s))}</option>`)
     .join("");
 
+  // Ensure currentCategories is properly initialized as an array
+  if (!Array.isArray(x.currentCategories)) {
+    const rawTerms = x.terms || [];
+    const catTerms = Array.isArray(x.categories) && x.categories.length
+      ? x.categories
+      : rawTerms.filter((term) => term.taxonomy === "category" || term.taxonomy === "categories");
+    x.currentCategories = catTerms.map((c) => String(c.id || c)).filter(Boolean);
+  }
+
+  // Load site categories for tree selector
+  let catTree = [];
+  try {
+    const catRes = await api(scoped("taxonomies/category/terms")).catch(() => ({ items: [] }));
+    catTree = buildTermTree(Array.isArray(catRes.items) ? catRes.items : []);
+  } catch { catTree = []; }
+  state.catTree = catTree;
+
+  const categoryChecklist = catTree.map((cat) => {
+    const isChecked = x.currentCategories.includes(cat.id);
+    const indent = cat.depth * 1.25;
+    return `<label style="display:flex;align-items:center;gap:.5rem;padding:.2rem 0;padding-left:${indent}rem;cursor:pointer;font-size:.875rem">
+      <input type="checkbox" data-cat-check="${attr(cat.id)}" ${isChecked ? "checked" : ""}>
+      <span>${cat.depth > 0 ? "— " : ""}${esc(cat.name)}</span>
+    </label>`;
+  }).join("") || `<div class="muted text-sm" style="padding:.25rem 0">${esc(t("core.tags.none", "No categories yet."))}</div>`;
+
+  const categoryFieldHtml = `
+    <div class="field" style="margin-bottom:1.25rem">
+      <label>${esc(t("core.editor.categories", "Categories"))}</label>
+      <div class="category-tree-box" style="max-height:160px;overflow-y:auto;border:1px solid var(--cf-border);border-radius:4px;padding:.5rem;background:var(--cf-card-bg)">
+        ${categoryChecklist}
+      </div>
+      <div style="margin-top:.4rem">
+        <button type="button" class="btn text sm" data-action="toggle-quick-cat" style="padding:0;font-size:.8rem;color:var(--cf-primary)">+ ${esc(t("core.editor.addCategory", "Add New Category"))}</button>
+        <div id="quick-cat-box" style="display:none;margin-top:.5rem;padding:.5rem;border:1px dashed var(--cf-border);border-radius:4px">
+          <input id="quick-cat-name" placeholder="${attr(t("core.tags.namePlaceholder", "New category name"))}" style="margin-bottom:.35rem;font-size:.85rem;padding:.3rem .5rem;width:100%;box-sizing:border-box">
+          <select id="quick-cat-parent" style="margin-bottom:.35rem;font-size:.85rem;padding:.3rem .5rem;width:100%;box-sizing:border-box">
+            <option value="">${esc(t("core.tags.noParent", "— None (Top Level) —"))}</option>
+            ${catTree.map((c) => `<option value="${attr(c.id)}">${"　".repeat(c.depth)}${c.depth > 0 ? "— " : ""}${esc(c.name)}</option>`).join("")}
+          </select>
+          <button type="button" class="btn primary sm" data-action="submit-quick-cat" style="width:100%">${esc(t("core.editor.addCategoryBtn", "Add"))}</button>
+        </div>
+      </div>
+    </div>`;
+
+  let templateFieldHtml = "";
+  const isPage = type === "page" || type === "pages" || state.type === "page" || state.type === "pages";
+  if (isPage) {
+    let tplRes = await api(scoped("theme/templates")).catch(() => ({ items: [] }));
+    const rawItems = Array.isArray(tplRes?.items) ? tplRes.items : [];
+    const availableTpls = rawItems
+      .map((item) => (typeof item === "string" ? item : String(item?.name || item?.id || "")))
+      .filter((tpl) => tpl && tpl !== "parts" && !tpl.startsWith("parts/"));
+    const curTpl = x.template || "none";
+    const noneSelected = curTpl === "none" || !curTpl ? " selected" : "";
+    const defaultSelected = curTpl === "default" ? " selected" : "";
+    const otherOptions = availableTpls
+      .filter((tpl) => tpl !== "none" && tpl !== "default")
+      .map((tpl) => `<option value="${attr(tpl)}"${curTpl === tpl ? " selected" : ""}>${esc(tpl)}</option>`)
+      .join("");
+
+    templateFieldHtml = `
+      <div class="field" style="margin-bottom:1.25rem">
+        <label for="template">${esc(t("core.editor.template", "Template"))}</label>
+        <select id="template">
+          <option value="none"${noneSelected}>${esc(t("core.editor.templateNone", "No Template (Default - Raw HTML)"))}</option>
+          <option value="default"${defaultSelected}>${esc(t("core.editor.templateDefault", "Theme Default Template"))}</option>
+          ${otherOptions}
+        </select>
+        <span class="hint">${esc(t("core.editor.templateHint", "No Template outputs pure raw HTML with no theme preset wrappers or styles."))}</span>
+      </div>`;
+  }
+
+  // Ensure currentTags is properly initialized as an array
+  if (!Array.isArray(x.currentTags)) {
+    const rawTerms = (x.terms || []).filter((term) => term.taxonomy === "tag" || term.taxonomy === "post_tag");
+    x.currentTags = rawTerms.map((term) => term.name).filter(Boolean);
+  }
+
+  // Load site tags for quick select & autocomplete
+  let siteTags = [];
+  try {
+    const tagRes = await api(scoped("taxonomies/tag/terms")).catch(() => ({ items: [] }));
+    siteTags = (tagRes.items || []).map((term) => ({
+      name: term.name,
+      count: Number(term.count || 0),
+      declared_by_theme: term.declared_by_theme || null,
+    }));
+    siteTags.sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      const aTheme = a.declared_by_theme ? 1 : 0;
+      const bTheme = b.declared_by_theme ? 1 : 0;
+      if (bTheme !== aTheme) return bTheme - aTheme;
+      return a.name.localeCompare(b.name);
+    });
+  } catch { siteTags = []; }
+  state.siteTags = siteTags;
+
+  const popularTags = (state.siteTags || []).slice(0, 16);
+  const popularHtml = popularTags.length > 0 ? `
+    <div class="tag-popular-wrap">
+      <span class="muted text-sm" style="display:block;margin-bottom:.25rem">${esc(t("core.editor.popularTags", "Quick select / Popular tags:"))}</span>
+      <div class="tag-popular-list">
+        ${popularTags.map((tagItem) => {
+          const isSel = x.currentTags.includes(tagItem.name);
+          const badge = tagItem.count > 0 ? ` (${tagItem.count})` : (tagItem.declared_by_theme ? " ★" : "");
+          return `<button type="button" class="tag-quick-btn${isSel ? " selected" : ""}" data-quick-tag="${attr(tagItem.name)}" title="${tagItem.declared_by_theme ? attr(t("core.tags.presetByTheme", "Preset by {theme}", { theme: tagItem.declared_by_theme })) : ""}">${isSel ? "✓ " : "+ "}${esc(tagItem.name)}${badge}</button>`;
+        }).join("")}
+      </div>
+    </div>` : "";
+
+  const tagChips = x.currentTags.map((name) => `
+    <span class="tag-chip">
+      ${esc(name)}
+      <button type="button" class="tag-chip-remove" data-remove-tag="${attr(name)}" title="${attr(t("core.action.delete", "Delete"))}">×</button>
+    </span>
+  `).join("");
+
+  const tagFieldHtml = `
+    <div class="field" style="margin-bottom:1.25rem">
+      <label for="tag-input-field">${esc(t("core.editor.tags", "Tags"))}</label>
+      <input id="tags" type="hidden" value="${attr(x.currentTags.join(", "))}">
+      <div class="tag-input-box" id="tag-box">
+        ${tagChips}
+        <input id="tag-input-field" class="tag-input-field" placeholder="${x.currentTags.length === 0 ? attr(t("core.editor.tagsPlaceholder", "Type tag & press Enter...")) : ""}" autocomplete="off">
+        <div class="tag-suggestions" id="tag-suggestions"></div>
+      </div>
+      <span class="hint">${esc(t("core.editor.tagsHint", "Press Enter or comma to add. Click popular tags to toggle."))}</span>
+      ${popularHtml}
+    </div>`;
+
   c.innerHTML = `${pageHead({
     title: `${x.id ? t("core.editor.edit", "Edit") : t("core.editor.add", "Add")} ${pt.singular}`,
     sub: x.id
@@ -230,6 +376,9 @@ export async function editor(c, type) {
         <div class="field"><label for="slug">${esc(t("core.content.slug", "Slug"))}</label><input id="slug" value="${attr(x.slug)}" placeholder="${attr(t("core.editor.slugAuto", "auto from title"))}"><span class="hint">${esc(t("core.editor.slugHint", "URL segment for this language — must be unique within the language"))}</span></div>
         <div class="field"><label for="status">${esc(t("core.editor.status", "Status"))}</label><select id="status">${statusOptions}</select></div>
         <div class="field"><label for="publishAt">${esc(t("core.editor.publishAt", "Publish at"))}</label><input id="publishAt" type="datetime-local" value="${attr(toLocalInput(x.publish_at))}"><span class="hint">${esc(t("core.editor.publishAtHint", "Used when status is scheduled"))}</span></div>
+        ${templateFieldHtml}
+        ${categoryFieldHtml}
+        ${tagFieldHtml}
         <button class="btn primary" style="width:100%" data-action="save-content">${icon("save")}${esc(t("core.action.save", "Save"))}</button>
         ${x.id ? `<div class="toolbar" style="margin-top:.5rem">
           <button class="btn outline sm" data-action="revisions">${icon("history")}${esc(t("core.editor.revisions", "Revisions"))}</button>
@@ -244,6 +393,65 @@ export async function editor(c, type) {
   if (x.id) {
     stopAutosave();
     state.autosaveTimer = setInterval(doAutosave, 10000);
+  }
+}
+
+function refreshTagsUi() {
+  const currentTags = state.editing?.currentTags || [];
+  const siteTags = state.siteTags || [];
+  const hiddenInput = document.querySelector("#tags");
+  if (hiddenInput) hiddenInput.value = currentTags.join(", ");
+
+  const box = document.querySelector("#tag-box");
+  if (box) {
+    const chipsHtml = currentTags.map((name) => `
+      <span class="tag-chip">
+        ${esc(name)}
+        <button type="button" class="tag-chip-remove" data-remove-tag="${attr(name)}" title="${attr(t("core.action.delete", "Delete"))}">×</button>
+      </span>
+    `).join("");
+    box.innerHTML = `${chipsHtml}
+      <input id="tag-input-field" class="tag-input-field" placeholder="${currentTags.length === 0 ? attr(t("core.editor.tagsPlaceholder", "Type tag & press Enter...")) : ""}" autocomplete="off">
+      <div class="tag-suggestions" id="tag-suggestions"></div>`;
+    const newInp = box.querySelector("#tag-input-field");
+    if (newInp) newInp.focus();
+  }
+
+  const quickBtns = document.querySelectorAll("[data-quick-tag]");
+  for (const btn of quickBtns) {
+    const tagName = btn.dataset.quickTag;
+    const isSel = currentTags.includes(tagName);
+    btn.classList.toggle("selected", isSel);
+    const countMatch = btn.textContent.match(/\(\d+\)/);
+    const countSuffix = countMatch ? ` ${countMatch[0]}` : "";
+    btn.textContent = (isSel ? "✓ " : "+ ") + tagName + countSuffix;
+  }
+  markDirty();
+}
+
+function addTag(name) {
+  const clean = String(name || "").trim().replace(/^,+|,+$/g, "");
+  if (!clean || !state.editing) return;
+  if (!Array.isArray(state.editing.currentTags)) state.editing.currentTags = [];
+  if (!state.editing.currentTags.includes(clean)) {
+    state.editing.currentTags.push(clean);
+    refreshTagsUi();
+  }
+}
+
+function removeTag(name) {
+  if (!state.editing || !Array.isArray(state.editing.currentTags)) return;
+  state.editing.currentTags = state.editing.currentTags.filter((t) => t !== name);
+  refreshTagsUi();
+}
+
+function toggleTag(name) {
+  if (!state.editing) return;
+  if (!Array.isArray(state.editing.currentTags)) state.editing.currentTags = [];
+  if (state.editing.currentTags.includes(name)) {
+    removeTag(name);
+  } else {
+    addTag(name);
   }
 }
 
@@ -350,8 +558,8 @@ document.addEventListener("click", async (e) => {
   if (n) { newContent(n.dataset.new); return; }
   const ed = e.target.closest("[data-edit]");
   if (ed) {
-    const [t, id] = ed.dataset.edit.split("|");
-    editContent(t, id);
+    const [editType, id] = ed.dataset.edit.split("|");
+    editContent(editType, id);
     return;
   }
   const add = e.target.closest("[data-block]");
@@ -385,15 +593,93 @@ document.addEventListener("click", async (e) => {
     mutate(removeItemAt, p, k, Number(i));
     return;
   }
+
+  // Tags interactive delegation
+  const tagBox = e.target.closest("#tag-box");
+  if (tagBox && !e.target.closest(".tag-chip-remove") && !e.target.closest(".tag-suggestion-item")) {
+    const inp = tagBox.querySelector("#tag-input-field");
+    if (inp && e.target !== inp) inp.focus();
+  }
+  const rmTag = e.target.closest("[data-remove-tag]");
+  if (rmTag) {
+    removeTag(rmTag.dataset.removeTag);
+    return;
+  }
+  const qTag = e.target.closest("[data-quick-tag]");
+  if (qTag) {
+    toggleTag(qTag.dataset.quickTag);
+    return;
+  }
+  const suggItem = e.target.closest("[data-suggest-tag]");
+  if (suggItem) {
+    addTag(suggItem.dataset.suggestTag);
+    const suggBox = document.querySelector("#tag-suggestions");
+    if (suggBox) { suggBox.style.display = "none"; suggBox.innerHTML = ""; }
+    return;
+  }
+  if (!e.target.closest("#tag-box")) {
+    const suggBox = document.querySelector("#tag-suggestions");
+    if (suggBox) { suggBox.style.display = "none"; suggBox.innerHTML = ""; }
+  }
+
   const back = e.target.closest("[data-back]");
   // No explicit stop here: `go()` stops the autosave, so Back and the sidebar
   // take the same path. Two cleanup paths is how one of them gets forgotten.
   if (back) { go(state.page); return; }
   const act = e.target.closest("[data-action]");
   if (!act) return;
+  if (act.dataset.action === "toggle-quick-cat") {
+    const qb = document.querySelector("#quick-cat-box");
+    if (qb) qb.style.display = qb.style.display === "none" ? "block" : "none";
+    return;
+  }
+  if (act.dataset.action === "submit-quick-cat") {
+    const nameInp = document.querySelector("#quick-cat-name");
+    const name = nameInp?.value.trim();
+    if (!name) return;
+    const parent_id = document.querySelector("#quick-cat-parent")?.value.trim() || null;
+    try {
+      const res = await api(scoped("taxonomies/category/terms"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, parent_id }),
+      });
+      if (res?.item?.id && state.editing) {
+        if (!Array.isArray(state.editing.currentCategories)) state.editing.currentCategories = [];
+        state.editing.currentCategories.push(res.item.id);
+      }
+      toast(t("core.tags.created", "Category created"));
+      render();
+    } catch (err) {
+      toast(err.message || "Failed to create category", "error");
+    }
+    return;
+  }
   if (act.dataset.action === "save-content") saveContent();
   if (act.dataset.action === "revisions") showRevisions();
   if (act.dataset.action === "delete-content") deleteContent();
+});
+
+document.addEventListener("keydown", (e) => {
+  const inp = e.target.closest("#tag-input-field");
+  if (!inp) return;
+  if (e.key === "Enter" || e.key === "," || e.key === "，") {
+    e.preventDefault();
+    const val = inp.value.trim();
+    if (val) {
+      addTag(val);
+      inp.value = "";
+    }
+    const suggBox = document.querySelector("#tag-suggestions");
+    if (suggBox) { suggBox.style.display = "none"; suggBox.innerHTML = ""; }
+    return;
+  }
+  if (e.key === "Backspace" && !inp.value) {
+    const tags = state.editing?.currentTags || [];
+    if (tags.length > 0) {
+      removeTag(tags[tags.length - 1]);
+    }
+  }
 });
 
 /**
@@ -405,11 +691,56 @@ document.addEventListener("click", async (e) => {
  * silently fails in the rest.)
  */
 document.addEventListener("change", (e) => {
+  const catCheck = e.target.closest("[data-cat-check]");
+  if (catCheck && state.editing) {
+    const cid = catCheck.dataset.catCheck;
+    if (!Array.isArray(state.editing.currentCategories)) state.editing.currentCategories = [];
+    if (catCheck.checked) {
+      if (!state.editing.currentCategories.includes(cid)) state.editing.currentCategories.push(cid);
+    } else {
+      state.editing.currentCategories = state.editing.currentCategories.filter((id) => id !== cid);
+    }
+    markDirty();
+    return;
+  }
   const loc = e.target.closest("#locale");
-  if (loc && state.editing) { state.editing.locale = loc.value; markDirty(); }
+  if (loc && state.editing) { state.editing.locale = loc.value; markDirty(); return; }
+  const tplSelect = e.target.closest("#template");
+  if (tplSelect && state.editing) { state.editing.template = tplSelect.value; markDirty(); return; }
 });
 
 document.addEventListener("input", (e) => {
+  // Autocomplete for tag input
+  const tagInp = e.target.closest("#tag-input-field");
+  if (tagInp) {
+    const val = tagInp.value.trim().toLowerCase();
+    const suggBox = document.querySelector("#tag-suggestions");
+    if (suggBox) {
+      if (!val) {
+        suggBox.style.display = "none";
+        suggBox.innerHTML = "";
+      } else {
+        const cur = state.editing?.currentTags || [];
+        const matches = (state.siteTags || [])
+          .filter((t) => t.name.toLowerCase().includes(val) && !cur.includes(t.name))
+          .slice(0, 6);
+        if (matches.length > 0) {
+          suggBox.innerHTML = matches.map((m) => `
+            <div class="tag-suggestion-item" data-suggest-tag="${attr(m.name)}">
+              <span>${esc(m.name)}</span>
+              <span class="muted text-sm">${m.count > 0 ? `(${m.count})` : ""}</span>
+            </div>
+          `).join("");
+          suggBox.style.display = "block";
+        } else {
+          suggBox.style.display = "none";
+          suggBox.innerHTML = "";
+        }
+      }
+    }
+    return;
+  }
+
   // ⚠️ The item branch is checked **first**: a `media-list` row carries both
   // `data-block-attr` (which attribute it belongs to) and `data-block-item`
   // (which entry). Reading it as a scalar attribute would write the item's text
@@ -425,7 +756,7 @@ document.addEventListener("input", (e) => {
   // image stores its URL under `url` rather than `text`.
   const field = e.target.closest("[data-block-attr]");
   if (field) { setAttrAt(state.blocks, field.dataset.blockPath, field.dataset.blockAttr, field.value); markDirty(); return; }
-  if (e.target.closest("#title, #excerpt, #locale, #slug, #status")) markDirty();
+  if (e.target.closest("#title, #excerpt, #locale, #slug, #status, #template")) markDirty();
 });
 
 async function doAutosave() {
@@ -466,6 +797,17 @@ export async function saveContent() {
     titleEl.focus();
     return;
   }
+  // Flush any leftover text in inline tag input into currentTags
+  const inlineInp = document.querySelector("#tag-input-field");
+  if (inlineInp && inlineInp.value.trim()) {
+    const leftVal = inlineInp.value.trim();
+    if (state.editing && Array.isArray(state.editing.currentTags) && !state.editing.currentTags.includes(leftVal)) {
+      state.editing.currentTags.push(leftVal);
+    }
+  }
+  const finalTags = state.editing?.currentTags || (document.querySelector("#tags")?.value ? document.querySelector("#tags").value.split(",").map((s) => s.trim()).filter(Boolean) : undefined);
+  const finalCategories = state.editing?.currentCategories || [];
+
   const body = {
     title: titleEl.value,
     excerpt: document.querySelector("#excerpt").value,
@@ -480,6 +822,9 @@ export async function saveContent() {
     publish_at: fromLocalInput(document.querySelector("#publishAt")?.value),
     content: state.blocks,
     meta: collectMeta(),
+    categories: finalCategories,
+    tags: finalTags,
+    ...((state.type === "page" || state.type === "pages") ? { template: document.querySelector("#template")?.value || state.editing?.template || "none" } : (state.editing?.template ? { template: state.editing.template } : {})),
   };
   try {
     await api(scoped(contentPath(state.type) + (state.editing.id ? "/" + state.editing.id : "")), {

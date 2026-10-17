@@ -1,0 +1,91 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+<section class="section" data-od-id="about-intro">
+  <div class="wrap">
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:clamp(24px,4vw,44px);align-items:center">
+      <div aria-hidden="true" style="width:120px;height:120px;border-radius:50%;background:var(--fg);color:var(--bg);display:grid;place-items:center;font-family:var(--font-serif);font-size:52px;font-weight:600;transform:rotate(-3deg)">手</div>
+      <div>
+        <p class="eyebrow">{{default(theme.strings.about.eyebrow, "About")}}</p>
+        <h1 class="display" style="margin:12px 0 10px;font-size:clamp(28px,3.6vw,40px)">{{default(theme.strings.about.title, "一个独立开发者的长跑记录")}}</h1>
+        <p class="lede">{{default(theme.strings.about.lede, "白天写产品，晚上写这些。这里不发新闻，只发我自己踩过、验证过的东西。")}}</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section class="section" data-od-id="about-body">
+  <div class="wrap" style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:clamp(32px,5vw,64px);align-items:start">
+    <div class="prose">
+      <p>这个博客从 2015 年开始，中间断过，2025 年重新开张。名字叫「手记」，是因为写的时候确实是用手一个键一个键敲出来的——不追求更新频率，只追求每次写之前先想清楚。</p>
+      <h2>我写什么</h2>
+      <p>主要是独立开发中那些没有标准答案的判断：架构要不要拆、定价怎么定、性能优化值不值得做、文档写给谁看。它们很少是纯粹的技术问题，也很少能靠搜索解决。我把当时怎么权衡、事后有没有后悔，都尽量记下来。</p>
+      <h2>我不写什么</h2>
+      <ul>
+        <li>转述官方文档就能查到的东西；</li>
+        <li>我自己没用过、只是「听说」的工具；</li>
+        <li>为了显得很厉害而编出来的数据和结论。</li>
+      </ul>
+      <p>如果一篇文章里没有我自己的取舍，那它多半不该发出来。</p>
+      <h2>信仰</h2>
+      <p>我是基督徒，写博客也是做工。<em>「你们的光也当这样照在人前，叫他们看见你们的好行为，便将荣耀归给你们在天上的父。」</em>（马太福音 5:16）——站里到处是光，大概就是这个原因。<span class="cross" aria-hidden="true">✝</span></p>
+    </div>
+
+    <aside style="display:grid;gap:20px">
+      <div style="border:1px solid var(--border);border-radius:var(--radius);padding:24px;background:var(--surface)" data-od-id="about-now">
+        <p class="eyebrow" style="margin:0 0 14px">{{default(theme.strings.about.nowTitle, "Now · 此刻在做")}}</p>
+        <ul style="list-style:none;margin:0;padding:0;display:grid;gap:12px;font-size:14.5px">
+          <li style="display:flex;gap:10px"><span style="color:var(--success)">●</span> 给笔记应用做本地优先同步层</li>
+          <li style="display:flex;gap:10px"><span style="color:var(--warn)">●</span> 把构建时间继续压到 15 秒以内</li>
+          <li style="display:flex;gap:10px"><span style="color:var(--muted)">○</span> 读《Designing Data-Intensive Applications》</li>
+        </ul>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:var(--radius);padding:24px" data-od-id="about-stack">
+        <p class="eyebrow" style="margin:0 0 14px">{{default(theme.strings.about.toolsTitle, "常用工具")}}</p>
+        <div class="tag-row">
+          <span class="tag">TypeScript</span><span class="tag">Go</span><span class="tag">SQLite</span>
+          <span class="tag">Postgres</span><span class="tag">Neovim</span><span class="tag">Cloudflare</span>
+        </div>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section class="section" data-od-id="about-contact" id="contact">
+  <div class="wrap">
+    <p class="eyebrow">Contact</p>
+    <h2 class="display" style="font-size:26px;margin:12px 0 26px">{{default(theme.strings.about.contactHeading, "想聊点什么？")}}</h2>
+    <div class="post-list" data-reveal>
+      <a class="post-item" href="mailto:hi@notes.indie.dev" style="text-decoration:none">
+        <div class="date">{{default(theme.strings.home.email, "邮箱")}}</div>
+        <div>
+          <h3 style="margin:0 0 4px">hi@notes.indie.dev</h3>
+          <p>{{default(theme.strings.about.emailDesc, "关于文章内容、错误指正或合作，直接发邮件，我基本都会回。")}}</p>
+        </div>
+        <span class="arrow">→</span>
+      </a>
+      <a class="post-item" href="/{{locale}}/feed.xml" style="text-decoration:none">
+        <div class="date">RSS</div>
+        <div>
+          <h3 style="margin:0 0 4px">{{default(theme.strings.home.rssTitle, "订阅更新")}}</h3>
+          <p>{{default(theme.strings.about.rssDesc, "不想错过新文章？加进阅读器就好，不占用邮箱。")}}</p>
+        </div>
+        <span class="arrow">→</span>
+      </a>
+      <a class="post-item" href="/{{locale}}/archive" style="text-decoration:none">
+        <div class="date">{{default(theme.strings.nav.archive, "归档")}}</div>
+        <div>
+          <h3 style="margin:0 0 4px">{{default(theme.strings.about.archiveTitle, "从头读起")}}</h3>
+          <p>{{default(theme.strings.about.archiveDesc, "按时间倒序浏览全部 10 篇文章。")}}</p>
+        </div>
+        <span class="arrow">→</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+{{/section}}

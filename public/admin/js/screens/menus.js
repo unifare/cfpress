@@ -41,14 +41,21 @@ export default async function menus(c) {
   if (!selectedMenuId || !items.some((m) => m.id === selectedMenuId)) selectedMenuId = items[0]?.id ?? null;
   const sel = items.find((m) => m.id === selectedMenuId) || null;
 
-  const menuRows = items.map((m) => `<tr data-menu-id="${attr(m.id)}" style="cursor:pointer${m.id === selectedMenuId ? ";background:var(--bg-soft,rgba(0,0,0,.04))" : ""}">
-      <td style="font-weight:500">${esc(m.name)}</td>
+  const menuRows = items.map((m) => {
+    let themeBadge = `<span class="badge outline" style="font-size:11px">${esc(t("core.menus.themeDefault", "默认 / 通用"))}</span>`;
+    if (m.id.startsWith("ctblog_") || m.name.includes("手记")) {
+      themeBadge = `<span class="badge" style="background:#f59e0b;color:#000;font-size:11px;font-weight:600">${esc(t("core.menus.themeCtblog", "手记 (ctblog)"))}</span>`;
+    }
+    return `<tr data-menu-id="${attr(m.id)}" style="cursor:pointer${m.id === selectedMenuId ? ";background:var(--bg-soft,rgba(0,0,0,.04))" : ""}">
+      <td><div style="font-weight:500">${esc(m.name)}</div></td>
       <td><span class="badge outline">${esc(m.location || "—")}</span></td>
+      <td>${themeBadge}</td>
       <td class="actions">
         <button class="btn outline sm" data-menu-edit="${attr(m.id)}">${icon("pencil")}</button>
         <button class="btn outline danger sm" data-menu-del="${attr(m.id)}">${icon("trash")}</button>
       </td>
-    </tr>`).join("");
+    </tr>`;
+  }).join("");
 
   let itemRows = "";
   if (sel) {
@@ -65,16 +72,21 @@ export default async function menus(c) {
     </tr>`).join("");
   }
 
+  const isCtblogActive = locs.theme === "ctblog";
+  const seedBtn = isCtblogActive
+    ? `<button class="btn outline" data-action="seed-ctblog-menus" style="margin-right:.5rem">${icon("sparkles")}${esc(t("core.menus.seedCtblog", "初始化手记主题菜单"))}</button>`
+    : "";
+
   c.innerHTML = `${pageHead({
     title: t("core.nav.menus", "Menus"),
     sub: t("core.menus.sub", "Navigation menus for this site"),
-    actions: `<button class="btn primary" data-action="new-menu">${icon("plus")}${esc(t("core.menus.new", "New menu"))}</button>`,
+    actions: `${seedBtn}<button class="btn primary" data-action="new-menu">${icon("plus")}${esc(t("core.menus.new", "New menu"))}</button>`,
     crumbs: [{ label: t("core.nav.appearance", "Appearance") }, { label: t("core.nav.menus", "Menus") }],
   })}
   <div style="display:grid;grid-template-columns:1fr 2fr;gap:1rem;align-items:start">
     <div class="table-wrap"><table class="table">
-      <thead><tr><th>${esc(t("core.menus.colMenu", "Menu"))}</th><th>${esc(t("core.menus.colLocation", "Location"))}</th><th></th></tr></thead>
-      <tbody>${menuRows || emptyRow(3, t("core.menus.none", "No menus for this site yet."))}</tbody>
+      <thead><tr><th>${esc(t("core.menus.colMenu", "Menu"))}</th><th>${esc(t("core.menus.colLocation", "Location"))}</th><th>${esc(t("core.menus.colTheme", "Theme"))}</th><th></th></tr></thead>
+      <tbody>${menuRows || emptyRow(4, t("core.menus.none", "No menus for this site yet."))}</tbody>
     </table></div>
     <div class="table-wrap"><table class="table">
       <thead><tr><th colspan="4">${esc(t("core.menus.items", "Menu items"))}${sel ? ` — ${esc(sel.name)}` : ""}
@@ -189,6 +201,17 @@ document.addEventListener("click", async (e) => {
   const pickMenu = e.target.closest("tr[data-menu-id]");
   if (pickMenu && !e.target.closest("button")) {
     selectedMenuId = pickMenu.dataset.menuId;
+    render();
+    return;
+  }
+
+  if (e.target.closest("[data-action=seed-ctblog-menus]")) {
+    const res = await api(scoped("theme/seed-menus"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ theme: "ctblog" }),
+    });
+    toast(res.ok ? t("core.action.saved", "Saved") : (res.error || "Failed"));
     render();
     return;
   }

@@ -571,6 +571,15 @@ function validateThemeManifest(m: any) {
     }
   }
 
+  for (const pt of asArray(m.presetTags ?? m.preset_tags)) {
+    if (!pt || typeof pt !== "object") fail("presetTags entries must be objects");
+    const name = String(pt.name || "").trim();
+    if (!name) fail("presetTags entries need a name");
+    if (pt.locale !== undefined && pt.locale !== "" && !LOCALE_CODE_RE.test(String(pt.locale))) {
+      fail(`Invalid locale code in presetTags: "${pt.locale}"`);
+    }
+  }
+
   if (m.runtime !== undefined && !["declarative", "worker"].includes(String(m.runtime))) {
     fail(`Unsupported runtime: ${m.runtime}`);
   }

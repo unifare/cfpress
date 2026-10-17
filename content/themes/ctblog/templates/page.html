@@ -1,0 +1,33 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+{{#if post}}
+<article data-article>
+  <header class="section" style="padding-bottom:0">
+    <div class="wrap narrow">
+      <div class="article-head">
+        <p class="eyebrow">{{default(theme.strings.nav.about, "页面")}}</p>
+        <h1>{{post.title}}</h1>
+        {{#if post.excerpt}}<p class="lede">{{post.excerpt}}</p>{{/if}}
+      </div>
+    </div>
+  </header>
+
+  <div class="section" style="padding-top:34px">
+    <div class="wrap narrow">
+      <div class="prose">
+        {{#if post.html}}
+          {{{post.html}}}
+        {{/if}}
+      </div>
+      <div style="margin-top:40px">
+        <a class="btn" href="/{{locale}}">← {{default(theme.strings.notFound.back, "返回首页")}}</a>
+      </div>
+    </div>
+  </div>
+</article>
+{{else}}
+<div class="wrap narrow"><p class="center-empty">{{default(theme.strings.articles.empty, "Nothing published yet.")}}</p></div>
+{{/if}}
+
+{{/section}}

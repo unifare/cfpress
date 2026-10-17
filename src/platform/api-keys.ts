@@ -146,12 +146,16 @@ export async function createApiKey(
 /**
  * List API keys (without secret tokens) for the current user or superadmin.
  */
-export async function listApiKeys(env: Env, userId?: string): Promise<Omit<ApiKeyRecord, "key_hash">[]> {
+export async function listApiKeys(env: Env, userId?: string, status = "active"): Promise<Omit<ApiKeyRecord, "key_hash">[]> {
   const query = userId
-    ? "SELECT id, user_id, name, key_prefix, scopes, sites, status, expires_at, last_used_at, created_at FROM api_keys WHERE user_id=? ORDER BY created_at DESC"
-    : "SELECT id, user_id, name, key_prefix, scopes, sites, status, expires_at, last_used_at, created_at FROM api_keys ORDER BY created_at DESC";
+    ? (status ? "SELECT id, user_id, name, key_prefix, scopes, sites, status, expires_at, last_used_at, created_at FROM api_keys WHERE user_id=? AND status=? ORDER BY created_at DESC"
+              : "SELECT id, user_id, name, key_prefix, scopes, sites, status, expires_at, last_used_at, created_at FROM api_keys WHERE user_id=? ORDER BY created_at DESC")
+    : (status ? "SELECT id, user_id, name, key_prefix, scopes, sites, status, expires_at, last_used_at, created_at FROM api_keys WHERE status=? ORDER BY created_at DESC"
+              : "SELECT id, user_id, name, key_prefix, scopes, sites, status, expires_at, last_used_at, created_at FROM api_keys ORDER BY created_at DESC");
 
-  const stmt = userId ? env.DB.prepare(query).bind(userId) : env.DB.prepare(query);
+  const stmt = userId
+    ? (status ? env.DB.prepare(query).bind(userId, status) : env.DB.prepare(query).bind(userId))
+    : (status ? env.DB.prepare(query).bind(status) : env.DB.prepare(query));
   const rows = await stmt.all<any>();
   return (rows.results as any[]) ?? [];
 }
@@ -160,11 +164,15 @@ export async function listApiKeys(env: Env, userId?: string): Promise<Omit<ApiKe
  * Revoke an API key.
  */
 export async function revokeApiKey(env: Env, keyId: string, userId?: string): Promise<boolean> {
-  const query = userId
+  const checkQuery = userId
+    ? "SELECT id, status FROM api_keys WHERE id=? AND user_id=? LIMIT 1"
+    : "SELECT id, status FROM api_keys WHERE id=? LIMIT 1";
+  const row = await (userId ? env.DB.prepare(checkQuery).bind(keyId, userId) : env.DB.prepare(checkQuery).bind(keyId)).first<any>();
+  if (!row) return false;
+
+  const updateQuery = userId
     ? "UPDATE api_keys SET status='revoked' WHERE id=? AND user_id=?"
     : "UPDATE api_keys SET status='revoked' WHERE id=?";
-
-  const stmt = userId ? env.DB.prepare(query).bind(keyId, userId) : env.DB.prepare(query).bind(keyId);
-  const res = await stmt.run();
-  return (res.meta?.changes ?? 0) > 0;
+  await (userId ? env.DB.prepare(updateQuery).bind(keyId, userId) : env.DB.prepare(updateQuery).bind(keyId)).run();
+  return true;
 }

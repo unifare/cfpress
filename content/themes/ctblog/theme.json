@@ -1,0 +1,261 @@
+{
+  "name": "ctblog",
+  "title": "手记 SHOUJI",
+  "version": "1.0.0",
+  "author": "CFPress",
+  "description": "独立开发者的技术随笔主题：产品、架构与性能。双语个人开场、旋转星环、横滑书架与循环播放，冷色调黑黄高反差，鼠标跟随背景光晕与粒子特效。全站原生无依赖，订阅走标准 RSS。",
+  "supports": [
+    "blocks",
+    "menus",
+    "widgets"
+  ],
+  "presetTags": [
+    { "name": "独立开发", "slug": "independent-dev", "locale": "", "description": "独立产品、一人公司与全栈开发实践" },
+    { "name": "产品", "slug": "product", "locale": "", "description": "产品设计、用户体验与商业化探索" },
+    { "name": "架构", "slug": "architecture", "locale": "", "description": "系统架构、边缘计算与分布式设计" },
+    { "name": "性能", "slug": "performance", "locale": "", "description": "Web 性能优化、无依赖与极致加载体验" },
+    { "name": "开源", "slug": "open-source", "locale": "", "description": "开源生态、项目维护与开发者社区" },
+    { "name": "后端", "slug": "backend", "locale": "", "description": "服务端接口、数据库与中间件设计" },
+    { "name": "同步", "slug": "sync", "locale": "", "description": "状态同步、数据一致性与分布式协作" },
+    { "name": "CRDT", "slug": "crdt", "locale": "", "description": "无冲突复制数据类型与离线优先架构" },
+    { "name": "社区", "slug": "community", "locale": "", "description": "开发者社区、反馈驱动与用户交流" },
+    { "name": "构建", "slug": "build", "locale": "", "description": "前端工程化、打包工具与发布流程" },
+    { "name": "工具", "slug": "tools", "locale": "", "description": "效率工具、自动化脚本与工作流" },
+    { "name": "CLI", "slug": "cli", "locale": "", "description": "命令行界面工具、脚本与终端效率" },
+    { "name": "定价", "slug": "pricing", "locale": "", "description": "产品定价、订阅制与价值验证" },
+    { "name": "商业", "slug": "business", "locale": "", "description": "商业模式、现金流与独立创业" },
+    { "name": "设计", "slug": "design", "locale": "", "description": "界面视觉、排版美学与交互细节" },
+    { "name": "数据库", "slug": "database", "locale": "", "description": "数据存储、关系型数据库与查询优化" },
+    { "name": "SQLite", "slug": "sqlite", "locale": "", "description": "嵌入式轻量数据库与 D1 边缘存储实践" },
+    { "name": "写作", "slug": "writing", "locale": "", "description": "技术写作、思维复盘与内容输出" },
+    { "name": "文档", "slug": "docs", "locale": "", "description": "开发者文档、知识库与说明体系" },
+    { "name": "复盘", "slug": "review", "locale": "", "description": "项目复盘、踩坑经验与经验提炼" },
+    { "name": "Cloudflare", "slug": "cloudflare", "locale": "", "description": "Workers, Pages, D1 与边缘基础设施生态" },
+    { "name": "AI 探索", "slug": "ai", "locale": "", "description": "大语言模型、智能体 Agent 与开发实践" }
+  ],
+  "presetCategories": [
+    { "name": "随笔", "slug": "essay", "locale": "", "description": "产品与独立开发的现场记录，踩坑和复盘都在这里。" },
+    { "name": "架构", "slug": "architecture", "locale": "", "description": "单体、微服务、模块边界的取舍，写给一个人也扛得动的架构。" },
+    { "name": "性能", "slug": "performance", "locale": "", "description": "构建时间、同步延迟、查询开销——能测量出来的优化才值得做。" },
+    { "name": "工具", "slug": "tools", "locale": "", "description": "自己写的 CLI、脚本和编辑器配置，都是被重复劳动逼出来的。" },
+    { "name": "产品", "slug": "product", "locale": "", "description": "定价、支付流程与第一个付费用户，独立产品绕不开的商业判断。" },
+    { "name": "数据库", "slug": "database", "locale": "", "description": "为什么 SQLite 成了我的默认选择，以及它什么时候真的不够用。" },
+    { "name": "写作", "slug": "writing", "locale": "", "description": "写文档、写周记、写给自己看的笔记——写作是省时间的投资。" }
+  ],
+  "menuLocations": [
+    {
+      "id": "header",
+      "label": "Header"
+    },
+    {
+      "id": "footer",
+      "label": "Footer"
+    }
+  ],
+  "sidebars": [
+    {
+      "id": "sidebar",
+      "label": "Sidebar"
+    },
+    {
+      "id": "footer",
+      "label": "Footer"
+    }
+  ],
+  "templates": [
+    "index",
+    "home",
+    "single",
+    "page",
+    "archive",
+    "tags",
+    "search",
+    "about",
+    "404",
+    "login",
+    "register",
+    "account",
+    "compose"
+  ],
+  "parts": [
+    "layout",
+    "styles",
+    "scripts",
+    "header",
+    "footer",
+    "player"
+  ],
+  "locales": [
+    "zh-CN",
+    "en"
+  ],
+  "routes": [
+    {
+      "path": "/archive",
+      "template": "archive",
+      "title": "Archive",
+      "query": {
+        "type": "post",
+        "limit": 100,
+        "order": "created_at desc"
+      }
+    },
+    {
+      "path": "/blog",
+      "template": "archive",
+      "title": "Blog",
+      "query": {
+        "type": "post",
+        "limit": 100,
+        "order": "created_at desc"
+      }
+    },
+    {
+      "path": "/blog/:slug",
+      "template": "single",
+      "resolve": {
+        "type": "post",
+        "by": "slug"
+      }
+    },
+    {
+      "path": "/tags",
+      "template": "tags",
+      "title": "Tags",
+      "query": {
+        "type": "post",
+        "limit": 100,
+        "order": "created_at desc"
+      }
+    },
+    {
+      "path": "/search",
+      "template": "search",
+      "title": "Search",
+      "query": {
+        "type": "post",
+        "limit": 100,
+        "order": "created_at desc"
+      }
+    },
+    {
+      "path": "/about",
+      "template": "about",
+      "title": "About"
+    },
+    {
+      "path": "/login",
+      "template": "login",
+      "title": "Sign in"
+    },
+    {
+      "path": "/register",
+      "template": "register",
+      "title": "Create an account"
+    },
+    {
+      "path": "/account",
+      "template": "account",
+      "title": "Account"
+    },
+    {
+      "path": "/compose",
+      "template": "compose",
+      "title": "Write a story"
+    }
+  ],
+  "fields": [
+    {
+      "key": "category",
+      "type": "text",
+      "label": "分类",
+      "postTypes": [
+        "post"
+      ]
+    },
+    {
+      "key": "tags",
+      "type": "text",
+      "label": "标签（逗号分隔）",
+      "postTypes": [
+        "post"
+      ]
+    }
+  ],
+  "tables": [
+    {
+      "name": "rotations",
+      "label": "循环播放",
+      "translatable": ["title", "artist", "glyph", "code", "audio_url"],
+      "fields": [
+        { "key": "title", "type": "text", "label": "专辑/曲目", "required": true },
+        { "key": "artist", "type": "text", "label": "艺术家/乐队/赞美诗", "required": true },
+        { "key": "glyph", "type": "text", "label": "封面字符" },
+        { "key": "code", "type": "text", "label": "编号 (如 M·01)" },
+        { "key": "audio_url", "type": "text", "label": "音频播放地址 (MP3/OGG URL)" },
+        { "key": "sort_order", "type": "number", "label": "排序" }
+      ]
+    },
+    {
+      "name": "books",
+      "label": "精选书架",
+      "translatable": ["title", "author", "glyph", "code", "url"],
+      "fields": [
+        { "key": "title", "type": "text", "label": "书名", "required": true },
+        { "key": "author", "type": "text", "label": "作者/译者", "required": true },
+        { "key": "glyph", "type": "text", "label": "封面字符" },
+        { "key": "code", "type": "text", "label": "编号 (如 B·01)" },
+        { "key": "url", "type": "text", "label": "跳转链接" },
+        { "key": "sort_order", "type": "number", "label": "排序" }
+      ]
+    }
+  ],
+  "adminMenus": [
+    {
+      "id": "ctblog-settings",
+      "label": "手记设置",
+      "label_key": "theme.ctblog.menu.settings",
+      "icon": "settings",
+      "screen": "theme-settings",
+      "sortOrder": 19
+    },
+    {
+      "id": "ctblog-rotations",
+      "label": "循环播放",
+      "label_key": "theme.ctblog.menu.rotations",
+      "icon": "sparkles",
+      "screen": "table-list",
+      "args": { "table": "rotations" },
+      "sortOrder": 20
+    },
+    {
+      "id": "ctblog-books",
+      "label": "精选书架",
+      "label_key": "theme.ctblog.menu.books",
+      "icon": "files",
+      "screen": "table-list",
+      "args": { "table": "books" },
+      "sortOrder": 21
+    }
+  ],
+  "settings": [
+    { "key": "author_name", "label": "作者称谓", "type": "text", "default": "阿手" },
+    { "key": "author_sub", "label": "作者头衔/副标", "type": "text", "default": "独立开发技术随笔 / indie dev notes" },
+    { "key": "hello", "label": "个人问候 (中文)", "type": "text", "default": "你好，我是阿手。" },
+    { "key": "hello_en", "label": "个人问候 (英文)", "type": "text", "default": "Hi, I'm A Shou — an indie hacker writing notes to myself." },
+    { "key": "orbit_text", "label": "旋转星环文案", "type": "text", "default": "独立开发 · INDIE DEV · 手记 · NOTES ·" },
+    { "key": "hero_h1", "label": "大标语 H1", "type": "text", "default": "一个人做产品，把没人对答案的事写下来" },
+    { "key": "hero_lede", "label": "主页导语描述", "type": "text", "default": "白天写代码，晚上写这些。这里记录独立开发里的产品、架构、性能与定价判断——通常是先踩坑，再想明白，错了就下一篇改。" },
+    { "key": "now_status", "label": "此刻状态胶囊", "type": "text", "default": "正在做 · 本地优先的笔记同步" },
+    { "key": "social_github", "label": "GitHub 链接", "type": "text", "default": "https://github.com" },
+    { "key": "social_x", "label": "X / Twitter 链接", "type": "text", "default": "https://x.com" },
+    { "key": "social_telegram", "label": "Telegram 链接", "type": "text", "default": "https://t.me" },
+    { "key": "social_email", "label": "邮箱地址", "type": "text", "default": "hi@notes.indie.dev" },
+    { "key": "now_do_title", "label": "此刻 · 做 (标题)", "type": "text", "default": "给笔记应用做本地优先同步层" },
+    { "key": "now_do_desc", "label": "此刻 · 做 (描述)", "type": "text", "default": "CRDT 解决了冲突，难的是让用户感知不到同步。" },
+    { "key": "now_read_title", "label": "此刻 · 读 (标题)", "type": "text", "default": "《忏悔录》· 圣奥古斯丁" },
+    { "key": "now_read_desc", "label": "此刻 · 读 (描述)", "type": "text", "default": "“祢为自己造了我们，我们的心若不安息在祢里面，便不得安宁。”" },
+    { "key": "now_play_title", "label": "此刻 · 玩 (标题)", "type": "text", "default": "巴赫《G弦上的咏叹调》与圣诗《奇异恩典》" },
+    { "key": "now_play_desc", "label": "此刻 · 玩 (描述)", "type": "text", "default": "古典管弦与灵性赞美，在纯净而辽阔的声部中写下每一行文字。" }
+  ]
+}

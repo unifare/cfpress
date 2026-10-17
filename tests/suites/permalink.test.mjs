@@ -11,6 +11,9 @@ import {
   compilePermalinkPattern,
   buildPermalink,
   matchPermalink,
+  resolvePostUrl,
+  resolveTaxonomyUrl,
+  groupPostsByYear,
 } from "../../src/platform/permalink.ts";
 
 let pass = 0;
@@ -140,6 +143,41 @@ async function main() {
     buildPermalink(PRESET_PERMALINKS.DAY_NAME, post, { locale: "en", isDefaultLocale: true }),
     "/2026/03/22/my-first-post/"
   );
+
+  // 9. resolvePostUrl with fallback & alwaysPrefixLocale
+  check(
+    "resolvePostUrl: uses DEFAULT_PERMALINK_STRUCTURE when empty",
+    resolvePostUrl(null, post, { locale: "en", alwaysPrefixLocale: true }),
+    "/en/blog/my-first-post"
+  );
+  check(
+    "resolvePostUrl: custom structure with locale",
+    resolvePostUrl("/articles/%postname%", post, { locale: "zh-CN", alwaysPrefixLocale: true }),
+    "/zh-CN/articles/my-first-post"
+  );
+
+  // 10. resolveTaxonomyUrl
+  check(
+    "resolveTaxonomyUrl: category with locale",
+    resolveTaxonomyUrl("category", "tech", { locale: "zh-CN", alwaysPrefixLocale: true }),
+    "/zh-CN/category/tech"
+  );
+  check(
+    "resolveTaxonomyUrl: custom tag_base",
+    resolveTaxonomyUrl("tag", "sqlite", { locale: "en", base: "topics", alwaysPrefixLocale: true }),
+    "/en/topics/sqlite"
+  );
+
+  // 11. groupPostsByYear
+  const samplePosts = [
+    { title: "P1", created_at: 1774180800 }, // 2026
+    { title: "P2", created_at: 1742644800 }, // 2025
+    { title: "P3", created_at: 1775000000 }, // 2026
+  ];
+  const grouped = groupPostsByYear(samplePosts);
+  check("groupPostsByYear: sorted years descending", grouped.map(g => g.year), ["2026", "2025"]);
+  check("groupPostsByYear: count in 2026", grouped[0].count, 2);
+  check("groupPostsByYear: count in 2025", grouped[1].count, 1);
 
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail) {

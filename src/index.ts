@@ -1,4 +1,4 @@
-import{Env}from "./shared/types";import{handleApi,handleFrontApi,maybeSeedDemoContent}from "./api";import{findContent,findContentById,contentAlternates,siteInfo,locales,defaultLocale}from "./platform/frontend";import{robots,sitemap,feed}from "./platform/seo";import{seedBundledExtensions,bootPluginRuntime,doAction,applyFilters,renderShortcodes}from "./extensions/plugin/runtime";import{setPluginTableSync}from "./extensions/plugin/menus";import{syncOwnerTables}from "./extensions/theme/tables";import{setHostHooks}from "./extensions/contract/hooks";import{renderThemePage,runThemeQuery,activeTheme,type ThemeRenderOptions}from "./extensions/theme/runtime-declarative";import{tryRenderWithThemeWorker,handleThemeApi}from "./extensions/theme/runtime-worker";import{processScheduled}from "./shared/scheduler";import{resolveSite,siteListMemo,listSites,resetSiteListMemo,type ResolvedSite}from "./platform/sites";import{buildPermalink,matchPermalink,PRESET_PERMALINKS}from "./platform/permalink";import{getSetting}from "./platform/settings";
+import{Env}from "./shared/types";import{handleApi,handleFrontApi,maybeSeedDemoContent}from "./api";import{findContent,findContentById,contentAlternates,siteInfo,locales,defaultLocale}from "./platform/frontend";import{robots,sitemap,feed}from "./platform/seo";import{seedBundledExtensions,bootPluginRuntime,doAction,applyFilters,renderShortcodes}from "./extensions/plugin/runtime";import{setPluginTableSync}from "./extensions/plugin/menus";import{syncOwnerTables}from "./extensions/theme/tables";import{setHostHooks}from "./extensions/contract/hooks";import{renderThemePage,runThemeQuery,activeTheme,groupPostsByYear,type ThemeRenderOptions}from "./extensions/theme/runtime-declarative";import{tryRenderWithThemeWorker,handleThemeApi}from "./extensions/theme/runtime-worker";import{processScheduled}from "./shared/scheduler";import{resolveSite,siteListMemo,listSites,resetSiteListMemo,type ResolvedSite}from "./platform/sites";import{buildPermalink,matchPermalink,PRESET_PERMALINKS,resolvePostUrl,resolveTaxonomyUrl,DEFAULT_PERMALINK_STRUCTURE}from "./platform/permalink";import{getSetting}from "./platform/settings";
 // The media read path's three gates (tenant / session / owner) live in one
 // module so this route and the admin media API cannot answer differently.
 import{currentUser,loginRequest}from "./platform/auth";import{adminPath,resetAdminPathMemo}from "./platform/settings";import{readMediaPolicy,mediaReadDecision}from "./platform/media-policy";import{isRemoteObjectKey}from "./platform/media-hosts";import{listRoutes,findPostTypeBySlug,listPostTypes}from "./extensions/theme/capabilities";
@@ -305,7 +305,7 @@ export default{async fetch(request:Request,env:Env,ctx:ExecutionContext){
    const subReq=new Request(subUrl.toString(),{headers:request.headers});
    return handleFrontRequest(env,subReq,ctx,subUrl,previewSite,true);
  }
- if(p.startsWith(adminBase+"/api/"))return handleApi(env,new Request(new URL(p.slice(adminBase.length)+u.search,u.origin),request));
+ if(p.startsWith(adminBase+"/api/"))return handleApi(env,new Request(new URL(p.slice(adminBase.length)+u.search,u.origin),{method:request.method,headers:request.headers,body:(request.method!=="GET"&&request.method!=="HEAD"&&request.body)?request.body:null,duplex:"half"} as any));
  if(p.startsWith(adminBase+"/"))return env.ASSETS.fetch(new Request(new URL("/admin"+p.slice(adminBase.length),u.origin),request));
  // ⚠️ 旧入口与旧登录端点一律 404：重定向会把新路径交给扫描器。
  // （admin.path 仍是 /admin 时二者就是本尊，此条不适用。）
@@ -452,9 +452,32 @@ async function handleFrontRequest(env:Env,request:Request,ctx:ExecutionContext,u
    // instead of the site's. One listing path means the front page and an
    // archive can never disagree about what a post carries.
    const ps=await runThemeQuery(env,{type:"post",limit:10,order:"created_at desc"},{locale},siteId) as any[];
+   const permalinkSetting=(await getSetting(env,siteId,"permalink.structure"))||DEFAULT_PERMALINK_STRUCTURE;
+   const finalPosts=ps.map((p:any)=>({...p,url:p.url||resolvePostUrl(permalinkSetting,p,{locale,alwaysPrefixLocale:true})}));
+   let rotations: any[] | undefined;
+   let books: any[] | undefined;
+   try {
+     const rotDef = await resolveTableForSite(env, siteId, "rotations");
+     if (rotDef) {
+       const rRows = await tableList(env, rotDef, { locale, limit: 50 });
+       if (rRows?.length) rotations = rRows;
+     }
+   } catch {}
+   try {
+     const bkDef = await resolveTableForSite(env, siteId, "books");
+     if (bkDef) {
+       const bRows = await tableList(env, bkDef, { locale, limit: 50 });
+       if (bRows?.length) books = bRows;
+     }
+   } catch {}
    const r=await render({
      siteId,locale,path:u.pathname,kind:"home",title:site.title,description:site.description,
-     extra:{posts:ps.map((p:any)=>({...p,url:`/${locale}/blog/${p.slug}`}))}
+     extra:{
+       posts:finalPosts,
+       posts_by_year:groupPostsByYear(finalPosts),
+       ...(rotations ? { rotations } : {}),
+       ...(books ? { books } : {}),
+     }
    });
    return respond(r.html,r.template,r.status);
  };
@@ -575,6 +598,22 @@ async function handleFrontRequest(env:Env,request:Request,ctx:ExecutionContext,u
   const routeBase="/"+rp.split("/").filter(s=>s&&!s.startsWith(":")).join("/");
   const itemUrl=(slug:string)=>`/${locale}${routeBase==="/"?"":routeBase}/${slug}`;
 
+  const isPostListing=(!postType||postType==="post")&&(!resolveTable);
+  const permalinkSetting=(await getSetting(env,siteId,"permalink.structure"))||DEFAULT_PERMALINK_STRUCTURE;
+  const hasPairedSingle=routes.some(r=>{
+    const rPath=String(r.path||"").replace(/^\//,"");
+    return rPath.startsWith(rp+"/:")||rPath.startsWith(rp+"/{");
+  });
+
+  const getRowUrl=(p:any)=>{
+    if(isPostListing&&!hasPairedSingle){
+      return p.url||resolvePostUrl(permalinkSetting,p,{locale,alwaysPrefixLocale:true});
+    }
+    return itemUrl(String(p.slug??""));
+  };
+
+  const finalRows=rows.map(p=>({...p,url:getRowUrl(p)}));
+
   const r=await render({
     siteId,locale,path:u.pathname,kind,postType,slug:rt.params.slug,
     // The template the route named outranks the hierarchy. Without this a table
@@ -589,7 +628,8 @@ async function handleFrontRequest(env:Env,request:Request,ctx:ExecutionContext,u
     extra:{
       route:{path:route.path,params:rt.params,query},
       ...(resolveTable&&post?{[resolveTable]:post}:{}),
-      [listVar]:rows.map(p=>({...p,url:itemUrl(String(p.slug??""))})),
+      [listVar]:finalRows,
+      posts_by_year:groupPostsByYear(finalRows),
     }
   });
   return respond(r.html,r.template,r.status);
@@ -600,7 +640,7 @@ async function handleFrontRequest(env:Env,request:Request,ctx:ExecutionContext,u
  if(!rest)return home();
 
  // Built-in & dynamic post permalink matching
- const permalinkPattern = (await getSetting(env, siteId, "permalink.structure")) || "/posts/%postname%/";
+ const permalinkPattern = (await getSetting(env, siteId, "permalink.structure")) || DEFAULT_PERMALINK_STRUCTURE;
  const permMatch = matchPermalink(permalinkPattern, "/" + rest);
  if (permMatch.matched) {
    let x: any = null;
@@ -655,10 +695,79 @@ async function handleFrontRequest(env:Env,request:Request,ctx:ExecutionContext,u
    }
  }
 
+ // Taxonomy archive matching (category & tag)
+ const catBase = ((await getSetting(env, siteId, "permalink.category_base")) || "category").replace(/^\/+|\/+$/g, "");
+ const tagBase = ((await getSetting(env, siteId, "permalink.tag_base")) || "tag").replace(/^\/+|\/+$/g, "");
+ const isCat = rest.startsWith(catBase + "/");
+ const isTag = rest.startsWith(tagBase + "/");
+ if (isCat || isTag) {
+   const rawTerm = rest.slice((isCat ? catBase : tagBase).length + 1).split("/")[0];
+   if (rawTerm) {
+     const term = decodeURIComponent(rawTerm);
+     const taxName = isCat ? "category" : "tag";
+     const termRow = await env.DB.prepare(
+       "SELECT id, name, slug, description, taxonomy, locale, lang_group FROM terms WHERE site_id=? AND (taxonomy=? OR taxonomy='tag' OR taxonomy='post_tag') AND slug=? AND (locale=? OR locale='') ORDER BY CASE WHEN locale=? THEN 0 ELSE 1 END LIMIT 1"
+     ).bind(siteId, taxName, term, locale, locale).first<any>().catch(() => null);
+
+     let filtered: any[] = [];
+     if (termRow?.id) {
+       const relRows = await env.DB.prepare(`
+         SELECT p.*, t.locale, t.title, t.excerpt, t.content, COALESCE(t.slug, p.slug) AS slug
+         FROM posts p
+         JOIN post_translations t ON t.post_id=p.id AND t.locale=?
+         JOIN term_relationships r ON r.post_id=p.id
+         WHERE p.site_id=? AND r.term_id=? AND p.status='published'
+         ORDER BY p.created_at DESC LIMIT 100
+       `).bind(locale, siteId, termRow.id).all<any>().catch(() => ({ results: [] }));
+       filtered = (relRows.results as any[]) ?? [];
+     }
+     if (filtered.length === 0) {
+       const allPosts = (await runThemeQuery(env, { type: "post", limit: 100, order: "created_at desc" }, { locale }, siteId)) as any[];
+       filtered = allPosts.filter((p: any) => {
+         if (isCat) {
+           const catVal = String(p.meta?.category || p.category || "");
+           return catVal.toLowerCase() === term.toLowerCase();
+         } else {
+           const tagsStr = String(p.meta?.tags || p.tags || "");
+           const tags = tagsStr.split(",").map((s: string) => s.trim().toLowerCase());
+           return tags.includes(term.toLowerCase());
+         }
+       });
+     }
+     const tplName = isCat ? "archive-category" : "archive-tag";
+     const termDisplayName = termRow?.name || term;
+     const archiveTitle = `${isCat ? "Category" : "Tag"}: ${termDisplayName}`;
+     const r = await render({
+       siteId,
+       locale,
+       path: u.pathname,
+       kind: "archive",
+       postType: "post",
+       template: tplName,
+       title: archiveTitle,
+       extra: {
+         term,
+         term_obj: termRow || { name: term, slug: term, taxonomy: taxName },
+         taxonomy: taxName,
+         posts: filtered,
+         posts_by_year: groupPostsByYear(filtered),
+       },
+     });
+     return respond(r.html, r.template, r.status);
+   }
+ }
+
  // Static page
  const page=await findContent(env,"page",rest,locale,siteId);
  if(page){
-   const r=await render({siteId,locale,path:u.pathname,kind:"page",postType:"page",slug:rest,title:page.title,description:page.excerpt,post:page});
+   const tpl=(page.template||"").trim();
+   if(!tpl||tpl==="none"){
+     let rawHtml=page.html||"";
+     rawHtml=await renderShortcodes(env,rawHtml,siteId);
+     rawHtml=await applyFilters("html",{env,siteId},rawHtml);
+     return respond(rawHtml,"__none__",200);
+   }
+   const r=await render({siteId,locale,path:u.pathname,kind:"page",postType:"page",slug:rest,template:tpl==="default"||tpl==="page"?undefined:tpl,title:page.title,description:page.excerpt,post:page});
    return respond(r.html,r.template,r.status);
  }
 
@@ -673,7 +782,14 @@ async function handleFrontRequest(env:Env,request:Request,ctx:ExecutionContext,u
      if(code===locale)continue;
      const alt=await findContent(env,"page",rest,code,siteId);
      if(alt){
-       const r=await render({siteId,locale:code,path:u.pathname,kind:"page",postType:"page",slug:rest,title:alt.title,description:alt.excerpt,post:alt});
+       const tpl=(alt.template||"").trim();
+       if(!tpl||tpl==="none"){
+         let rawHtml=alt.html||"";
+         rawHtml=await renderShortcodes(env,rawHtml,siteId);
+         rawHtml=await applyFilters("html",{env,siteId},rawHtml);
+         return respond(rawHtml,"__none__",200);
+       }
+       const r=await render({siteId,locale:code,path:u.pathname,kind:"page",postType:"page",slug:rest,template:tpl==="default"||tpl==="page"?undefined:tpl,title:alt.title,description:alt.excerpt,post:alt});
        return respond(r.html,r.template,r.status);
      }
    }

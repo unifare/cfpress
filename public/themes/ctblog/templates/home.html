@@ -1,0 +1,255 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+<!-- hero · 个人开场 -->
+<section class="section" data-od-id="hero">
+  <div class="wrap narrow grid-bg">
+    <div class="me">
+      <div class="me-top rise">
+        <p class="hello">{{default(theme.settings.hello, default(theme.strings.home.hello, "你好，我是阿手。"))}} <span class="en">{{default(theme.settings.hello_en, default(theme.strings.home.helloEn, "Hi, I'm A Shou — an indie hacker writing notes to myself."))}}</span><span class="caret" aria-hidden="true"></span></p>
+        <div class="orbit" aria-hidden="true">
+          <svg class="ring" viewBox="0 0 120 120">
+            <defs><path id="orbit-circle" d="M60,60 m-46,0 a46,46 0 1,1 92,0 a46,46 0 1,1 -92,0" fill="none"/></defs>
+            <text><textPath href="#orbit-circle" textLength="288" lengthAdjust="spacing">{{default(theme.settings.orbit_text, "独立开发 · INDIE DEV · 手记 · NOTES ·")}}</textPath></text>
+          </svg>
+          <span class="orbit-core"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 3h4v6h6v4h-6v8h-4v-8H4V9h6V3Z"/></svg></span>
+        </div>
+      </div>
+      <h1 class="display rise-2" style="max-width:16ch;margin-top:16px">
+        {{{default(theme.settings.hero_h1, default(theme.strings.home.heroH1, "一个人做产品，把<span class=\"shimmer\">没人对答案的事</span>写下来"))}}}
+      </h1>
+      <p class="lede mt-m">{{default(theme.settings.hero_lede, default(theme.strings.home.heroLede, "白天写代码，晚上写这些。这里记录独立开发里的产品、架构、性能与定价判断——通常是先踩坑，再想明白，错了就下一篇改。"))}}</p>
+      <div class="me-row">
+        <span class="tag" data-od-id="now-status"><span class="status-dot"></span> {{default(theme.settings.now_status, default(theme.strings.home.nowStatus, "正在做 · 本地优先的笔记同步"))}}</span>
+        <div class="social" aria-label="{{default(theme.strings.footer.contact, "社交链接")}}">
+          <a href="{{default(theme.settings.social_github, "https://github.com")}}" target="_blank" rel="noopener" aria-label="GitHub" title="GitHub"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12 12 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg></a>
+          <a href="{{default(theme.settings.social_x, "https://x.com")}}" target="_blank" rel="noopener" aria-label="X" title="X"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 4l16 16M20 4 4 20"/></svg></a>
+          <a href="{{default(theme.settings.social_telegram, "https://t.me")}}" target="_blank" rel="noopener" aria-label="Telegram" title="Telegram"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4 3 11l6 2 2 6 4-5 6-10Z"/><path d="m9 13 8-6"/></svg></a>
+          <a href="mailto:{{default(theme.settings.social_email, "hi@notes.indie.dev")}}" aria-label="{{default(theme.strings.home.email, "邮箱")}}" title="{{default(theme.strings.home.email, "邮箱")}}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/></svg></a>
+          <a href="/{{locale}}/feed.xml" aria-label="RSS" title="RSS"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 12a7 7 0 0 1 7 7M5 5a14 14 0 0 1 14 14"/><circle cx="5" cy="19" r="1.2" fill="currentColor" stroke="none"/></svg></a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 01 写作 -->
+<section class="section" style="padding-top:0" data-od-id="latest-posts">
+  <div class="wrap narrow">
+    <div class="sec-head" style="margin-bottom:8px">
+      <span class="no">01</span>
+      <h2>{{default(theme.strings.home.secWriting, "写作")}} <span class="en">Writing</span></h2>
+      <a href="/{{locale}}/archive" class="more">{{default(theme.strings.home.allArchive, "全部归档 →")}}</a>
+    </div>
+    <div class="post-list timeline" data-reveal>
+      {{#each posts as post}}
+        <article class="post-item" data-od-id="post-card">
+          <div class="date">{{#if @first}}{{default(theme.strings.home.latestBadge, "最新")}}{{else}}{{#if post.date_display}}{{post.date_display}}{{else}}{{date(post.created_at)}}{{/if}}{{/if}}</div>
+          <div>
+            <h3><a href="{{post.url}}">{{post.title}}</a></h3>
+            {{#if post.excerpt}}<p>{{post.excerpt}}</p>{{/if}}
+            <div class="meta">
+              {{#if post.meta.category}}<span>#{{post.meta.category}}</span>{{/if}}
+              {{#if post.meta.tags}}<span>#{{post.meta.tags}}</span>{{/if}}
+              {{#if post.reading_time}}<span>· {{post.reading_time}}</span>{{/if}}
+            </div>
+          </div>
+          <a class="arrow" href="{{post.url}}" aria-hidden="true">→</a>
+        </article>
+      {{/each}}
+      {{#unless posts}}
+        <article class="post-item" data-od-id="post-card-zero-to-one">
+          <div class="date">{{default(theme.strings.home.latestBadge, "最新")}}</div>
+          <div>
+            <h3><a href="/{{locale}}/archive">从 0 到 1 做一个独立产品：18 个月踩过的坑全在这</a></h3>
+            <p>从选技术栈、定价，到第一个付费用户和第一次退款，以及三个差点让我放弃产品的判断失误。</p>
+            <div class="meta"><span>#随笔</span><span>#独立开发</span><span>#复盘</span><span>· 14 分钟</span></div>
+          </div>
+          <a class="arrow" href="/{{locale}}/archive" aria-hidden="true">→</a>
+        </article>
+      {{/unless}}
+    </div>
+  </div>
+</section>
+
+<!-- 02 此刻 -->
+<section class="section" style="padding-top:0" data-od-id="now">
+  <div class="wrap narrow">
+    <div class="sec-head">
+      <span class="no">02</span>
+      <h2>{{default(theme.strings.home.secNow, "此刻")}} <span class="en">Now</span></h2>
+    </div>
+    <div class="post-list">
+      <div class="post-item">
+        <div class="date">做</div>
+        <div>
+          <h3 style="font-size:17px;margin:0 0 4px">{{default(theme.settings.now_do_title, default(theme.strings.home.nowDoTitle, "给笔记应用做本地优先同步层"))}}</h3>
+          <p>{{default(theme.settings.now_do_desc, default(theme.strings.home.nowDoDesc, "CRDT 解决了冲突，难的是让用户感知不到同步。"))}}</p>
+        </div>
+      </div>
+      <div class="post-item">
+        <div class="date">读</div>
+        <div>
+          <h3 style="font-size:17px;margin:0 0 4px">{{default(theme.settings.now_read_title, default(theme.strings.home.nowReadTitle, "《Designing Data-Intensive Applications》"))}}</h3>
+          <p>{{default(theme.settings.now_read_desc, default(theme.strings.home.nowReadDesc, "看到第三章，一致性模型比想象中更值得慢读。"))}}</p>
+        </div>
+      </div>
+      <div class="post-item">
+        <div class="date">玩</div>
+        <div>
+          <h3 style="font-size:17px;margin:0 0 4px">{{default(theme.settings.now_play_title, default(theme.strings.home.nowPlayTitle, "把构建时间压到 15 秒以内"))}}</h3>
+          <p>{{default(theme.settings.now_play_desc, default(theme.strings.home.nowPlayDesc, "已经 26 秒了，还差一口气。"))}}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 03 循环播放 -->
+<section class="section" style="padding-top:0" data-od-id="rotation">
+  <div class="wrap narrow">
+    <div class="sec-head">
+      <span class="no">03</span>
+      <h2>{{default(theme.strings.home.secRotation, "循环播放")}} <span class="en">On rotation</span></h2>
+    </div>
+    <p style="margin:0 0 14px;font-size:14.5px;color:var(--muted)">{{default(theme.strings.home.rotationDesc, "写东西时单曲循环的几张专辑，横滑看看")}} <span class="en">— what I loop while writing.</span></p>
+    <div class="rail" data-reveal>
+      {{#if rotations}}
+        {{#each rotations as r}}
+          <div class="rail-card music-card" data-audio="{{r.audio_url}}" title="点击播放 / 暂停">
+            <div class="rail-art">
+              <span class="glyph">{{#if r.glyph}}{{r.glyph}}{{else}}♫{{/if}}</span>
+              <span class="idx">{{#if r.code}}{{r.code}}{{else}}M·{{@index}}{{/if}}</span>
+              <div class="music-equalizer"><span></span><span></span><span></span><span></span></div>
+              <button class="music-play-btn" type="button" aria-label="Play or Pause">
+                <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+                <svg class="icon-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+              </button>
+            </div>
+            <div class="rail-meta">
+              <div class="t">{{r.title}}</div>
+              <div class="a">{{r.artist}}</div>
+            </div>
+          </div>
+        {{/each}}
+      {{else}}
+        <div class="rail-card music-card" data-audio="https://upload.wikimedia.org/wikipedia/commons/4/4e/Amazing_Grace_-_brass.ogg" title="点击播放 / 暂停">
+          <div class="rail-art">
+            <span class="glyph">恩</span><span class="idx">M·01</span>
+            <div class="music-equalizer"><span></span><span></span><span></span><span></span></div>
+            <button class="music-play-btn" type="button" aria-label="Play or Pause">
+              <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+              <svg class="icon-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            </button>
+          </div>
+          <div class="rail-meta"><div class="t">奇异恩典 (Amazing Grace)</div><div class="a">传统赞美诗 · 铜管与合唱</div></div>
+        </div>
+        <div class="rail-card music-card" data-audio="https://upload.wikimedia.org/wikipedia/commons/d/dd/Bach_Air_on_the_G_string.ogg" title="点击播放 / 暂停">
+          <div class="rail-art">
+            <span class="glyph">巴</span><span class="idx">M·02</span>
+            <div class="music-equalizer"><span></span><span></span><span></span><span></span></div>
+            <button class="music-play-btn" type="button" aria-label="Play or Pause">
+              <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+              <svg class="icon-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            </button>
+          </div>
+          <div class="rail-meta"><div class="t">G弦上的咏叹调 (Air on G)</div><div class="a">J.S. 巴赫 · 管弦乐组曲 No. 3</div></div>
+        </div>
+        <div class="rail-card music-card" data-audio="https://upload.wikimedia.org/wikipedia/commons/e/eb/Beethoven_Moonlight_1st_movement.ogg" title="点击播放 / 暂停">
+          <div class="rail-art">
+            <span class="glyph">月</span><span class="idx">M·03</span>
+            <div class="music-equalizer"><span></span><span></span><span></span><span></span></div>
+            <button class="music-play-btn" type="button" aria-label="Play or Pause">
+              <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+              <svg class="icon-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            </button>
+          </div>
+          <div class="rail-meta"><div class="t">月光奏鸣曲 第一乐章</div><div class="a">贝多芬 · 升C小调钢琴奏鸣曲</div></div>
+        </div>
+        <div class="rail-card music-card" data-audio="https://upload.wikimedia.org/wikipedia/commons/1/15/Handel_-_messiah_-_44_hallelujah.ogg" title="点击播放 / 暂停">
+          <div class="rail-art">
+            <span class="glyph">赞</span><span class="idx">M·04</span>
+            <div class="music-equalizer"><span></span><span></span><span></span><span></span></div>
+            <button class="music-play-btn" type="button" aria-label="Play or Pause">
+              <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+              <svg class="icon-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            </button>
+          </div>
+          <div class="rail-meta"><div class="t">哈利路亚大合唱 (Hallelujah)</div><div class="a">亨德尔 · 清唱剧《弥赛亚》</div></div>
+        </div>
+        <div class="rail-card music-card" data-audio="https://upload.wikimedia.org/wikipedia/commons/a/aa/Chopin_Nocturne_Op_9_No_2.ogg" title="点击播放 / 暂停">
+          <div class="rail-art">
+            <span class="glyph">夜</span><span class="idx">M·05</span>
+            <div class="music-equalizer"><span></span><span></span><span></span><span></span></div>
+            <button class="music-play-btn" type="button" aria-label="Play or Pause">
+              <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+              <svg class="icon-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            </button>
+          </div>
+          <div class="rail-meta"><div class="t">降E大调夜曲 Op. 9 No. 2</div><div class="a">肖邦 · 钢琴独奏</div></div>
+        </div>
+      {{/if}}
+    </div>
+  </div>
+</section>
+
+<!-- 04 书架 -->
+<section class="section" style="padding-top:0" data-od-id="bookshelf">
+  <div class="wrap narrow">
+    <div class="sec-head">
+      <span class="no">04</span>
+      <h2>{{default(theme.strings.home.secBookshelf, "书架")}} <span class="en">Bookshelf</span></h2>
+    </div>
+    <p style="margin:0 0 14px;font-size:14.5px;color:var(--muted)">{{default(theme.strings.home.bookshelfDesc, "翻得最旧的几本，折角最多的就是常摊开的那几页")}} <span class="en">— most re-read.</span></p>
+    <div class="rail" data-reveal>
+      {{#if books}}
+        {{#each books as b}}
+          <div class="rail-card">
+            <div class="rail-art"><span class="glyph">{{#if b.glyph}}{{b.glyph}}{{else}}书{{/if}}</span><span class="idx">{{#if b.code}}{{b.code}}{{else}}B·{{@index}}{{/if}}</span></div>
+            <div class="rail-meta">
+              <div class="t">{{#if b.url}}<a href="{{b.url}}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">{{b.title}}</a>{{else}}{{b.title}}{{/if}}</div>
+              <div class="a">{{b.author}}</div>
+            </div>
+          </div>
+        {{/each}}
+      {{else}}
+        <div class="rail-card"><div class="rail-art"><span class="glyph">忏</span><span class="idx">B·01</span></div><div class="rail-meta"><div class="t">忏悔录 (Confessions)</div><div class="a">圣奥古斯丁 · 灵修哲学</div></div></div>
+        <div class="rail-card"><div class="rail-art"><span class="glyph">天</span><span class="idx">B·02</span></div><div class="rail-meta"><div class="t">天路历程 (Pilgrim's Progress)</div><div class="a">约翰·班扬 · 灵性朝圣寓言</div></div></div>
+        <div class="rail-card"><div class="rail-art"><span class="glyph">神</span><span class="idx">B·03</span></div><div class="rail-meta"><div class="t">神曲 (The Divine Comedy)</div><div class="a">但丁 · 意大利古典史诗</div></div></div>
+        <div class="rail-card"><div class="rail-art"><span class="glyph">思</span><span class="idx">B·04</span></div><div class="rail-meta"><div class="t">沉思录 (Meditations)</div><div class="a">马可·奥勒留 · 斯多葛哲学</div></div></div>
+        <div class="rail-card"><div class="rail-art"><span class="glyph">效</span><span class="idx">B·05</span></div><div class="rail-meta"><div class="t">效法基督 (Imitation of Christ)</div><div class="a">托马斯·肯皮斯 · 灵修经典</div></div></div>
+        <div class="rail-card"><div class="rail-art"><span class="glyph">复</span><span class="idx">B·06</span></div><div class="rail-meta"><div class="t">复活 (Resurrection)</div><div class="a">列夫·托尔斯泰 · 经典小说</div></div></div>
+      {{/if}}
+    </div>
+  </div>
+</section>
+
+<!-- 05 联系 -->
+<section class="section" style="padding-top:0" data-od-id="contact">
+  <div class="wrap narrow">
+    <div class="sec-head">
+      <span class="no">05</span>
+      <h2>{{default(theme.strings.home.secContact, "联系")}} <span class="en">Contact</span></h2>
+    </div>
+    <div class="post-list">
+      <a class="post-item" href="mailto:{{default(theme.settings.social_email, "hi@notes.indie.dev")}}" style="text-decoration:none">
+        <div class="date">{{default(theme.strings.home.email, "邮箱")}}</div>
+        <div>
+          <h3 style="margin:0 0 4px">{{default(theme.settings.social_email, "hi@notes.indie.dev")}}</h3>
+          <p>{{default(theme.strings.home.emailDesc, "关于文章、纠错或合作，直接发邮件，基本都会回。")}}</p>
+        </div>
+        <span class="arrow">→</span>
+      </a>
+      <a class="post-item" href="/{{locale}}/feed.xml" style="text-decoration:none">
+        <div class="date">{{default(theme.strings.home.rss, "RSS")}}</div>
+        <div>
+          <h3 style="margin:0 0 4px">{{default(theme.strings.home.rss, "订阅更新")}}</h3>
+          <p>{{default(theme.strings.home.rssDesc, "一个月两三篇，没有算法，没有推送。")}}</p>
+        </div>
+        <span class="arrow">→</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+{{/section}}

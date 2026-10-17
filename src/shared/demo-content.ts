@@ -547,3 +547,39 @@ export const DEMO_MENUS: DemoMenu[] = [
     ],
   },
 ];
+
+export const CTBLOG_MENUS: DemoMenu[] = [
+  {
+    id: "header",
+    name: "手记 · 顶部主导航",
+    location: "header",
+    items: [
+      { title: "首页", url: "/zh-CN", locale: "zh-CN" },
+      { title: "归档", url: "/zh-CN/archive", locale: "zh-CN" },
+      { title: "标签", url: "/zh-CN/tags", locale: "zh-CN" },
+      { title: "关于", url: "/zh-CN/about", locale: "zh-CN" },
+      { title: "Home", url: "/en", locale: "en" },
+      { title: "Archive", url: "/en/archive", locale: "en" },
+      { title: "Tags", url: "/en/tags", locale: "en" },
+      { title: "About", url: "/en/about", locale: "en" },
+    ],
+  },
+  {
+    id: "footer",
+    name: "手记 · 页脚索引",
+    location: "footer",
+    items: [
+      { title: "首页", url: "/zh-CN", locale: "zh-CN" },
+      { title: "全部文章", url: "/zh-CN/archive", locale: "zh-CN" },
+      { title: "主题分类", url: "/zh-CN/tags", locale: "zh-CN" },
+      { title: "关于作者", url: "/zh-CN/about", locale: "zh-CN" },
+      { title: "文章搜索", url: "/zh-CN/search", locale: "zh-CN" },
+      { title: "Home", url: "/en", locale: "en" },
+      { title: "Archive", url: "/en/archive", locale: "en" },
+      { title: "Tags", url: "/en/tags", locale: "en" },
+      { title: "About", url: "/en/about", locale: "en" },
+      { title: "Search", url: "/en/search", locale: "en" },
+    ],
+  },
+];
+

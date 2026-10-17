@@ -720,6 +720,15 @@ if (modules && !bootError) {
     newHtml.match(/<input id="publishAt"[^>]*>/)?.[0] || "no publishAt input");
   modules.state.stopAutosave();
 
+  await modules.editor.newContent("pages");
+  await settle();
+  const newPageHtml = contentEl.innerHTML;
+  check("a new page renders the template dropdown",
+    newPageHtml.includes('id="template"'), newPageHtml.slice(0, 160));
+  check("and defaults to no template",
+    /<option value="none"[^>]*selected/.test(newPageHtml),
+    newPageHtml.match(/<select id="template"[\s\S]*?<\/select>/)?.[0] || "no template select");
+
   contentEl.innerHTML = "";
   // Surfaced rather than swallowed: an exception here means the screen never
   // rendered, and every assertion below would then be reading the *list* markup

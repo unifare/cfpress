@@ -1,0 +1,38 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+<div class="auth">
+  <div class="auth-card">
+    <div class="kicker">{{default(theme.strings.auth.accountKicker, "账户")}}</div>
+    <h1>{{default(theme.strings.auth.createOne, "立即注册")}}</h1>
+    <p class="lede">{{default(theme.strings.auth.loginLede, "创建一个读者账号。")}}</p>
+
+    <form method="post" action="/api/v1/front/auth/register" class="auth-form">
+      <label class="field">
+        <span>{{default(theme.strings.auth.username, "用户名")}}</span>
+        <input name="username" type="text" autocomplete="username" required>
+      </label>
+      <label class="field">
+        <span>昵称 / Display name</span>
+        <input name="display_name" type="text" autocomplete="name" required>
+      </label>
+      <label class="field">
+        <span>{{default(theme.strings.account.email, "邮箱")}}</span>
+        <input name="email" type="email" autocomplete="email">
+      </label>
+      <label class="field">
+        <span>{{default(theme.strings.auth.password, "密码")}}</span>
+        <input name="password" type="password" autocomplete="new-password" required>
+      </label>
+      <input type="hidden" name="redirect" value="/{{locale}}/account">
+      <button class="btn btn-primary" type="submit">{{default(theme.strings.auth.createOne, "注册")}}</button>
+    </form>
+
+    <p class="auth-alt">
+      已有账号？
+      <a href="/{{locale}}/login">{{default(theme.strings.auth.signIn, "直接登录")}}</a>
+    </p>
+  </div>
+</div>
+
+{{/section}}

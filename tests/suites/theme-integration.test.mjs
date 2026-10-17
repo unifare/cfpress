@@ -1018,7 +1018,7 @@ async function main() {
   // 13. Visual Canvas & Widget Types API
   const typesRes = await (await req(worker, env, "/api/v1/widgets/types", { headers: authHeaders })).json();
   check("widget types catalog returned", Array.isArray(typesRes.items) && typesRes.items.length >= 4, true);
-  check("core widget type 'text' present in types catalog", typesRes.items.some((x) => x.type === "text"), true);
+  check("core widget type 'text' present in types catalog", typesRes.items.some((x) => x.type === "text" || x.type === "core.text"), true);
 
   // Canvas preview requires admin session
   const unauthPreview = await req(worker, env, "/admin/preview?path=/widgetest/&site=widgetest");

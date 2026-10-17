@@ -1193,7 +1193,7 @@ check(
   // Themes must expose lifecycle hook points so plugins can contribute to
   // `<head>` and `</body>`. Verify that every theme layout contains `hook("head")`
   // and `hook("footer")`.
-  const themeDirs = ["default", "prism", "showcase", "fixture"];
+  const themeDirs = ["default", "prism", "showcase", "ctblog", "fixture"];
   const missingHooks = [];
   for (const t of themeDirs) {
     const layoutPath = join(ROOT, "content/themes", t, "templates/parts/layout.html");

@@ -42,10 +42,11 @@ export const PRESET_PERMALINKS = {
   MONTH_NAME: "/%year%/%monthnum%/%postname%/",
   NUMERIC: "/archives/%post_id%",
   POST_NAME: "/posts/%postname%/",
+  BLOG_NAME: "/blog/%postname%",
   CUSTOM: "",
 } as const;
 
-export const DEFAULT_PERMALINK_STRUCTURE = PRESET_PERMALINKS.POST_NAME;
+export const DEFAULT_PERMALINK_STRUCTURE = PRESET_PERMALINKS.BLOG_NAME;
 
 const TOKEN_REGEX_MAP: Record<string, string> = {
   "%year%": "(?<year>\\d{4})",
@@ -234,12 +235,50 @@ export function buildPermalink(
   // Clean double slashes
   urlPath = urlPath.replace(/\/+/g, "/");
 
-  // Prepend locale if specified and not default
-  if (options?.locale && !options.isDefaultLocale) {
+  // Prepend locale if specified and not default (or if explicitly requested)
+  if (options?.locale && (!options.isDefaultLocale || (options as any)?.alwaysPrefixLocale)) {
     urlPath = `/${options.locale}${urlPath.startsWith("/") ? "" : "/"}${urlPath}`;
   }
 
   return urlPath;
+}
+
+/**
+ * Resolves the canonical URL for a post using the site pattern.
+ */
+export function resolvePostUrl(
+  pattern: string | undefined | null,
+  post: PermalinkContext,
+  options?: {
+    locale?: string;
+    isDefaultLocale?: boolean;
+    alwaysPrefixLocale?: boolean;
+  }
+): string {
+  const pat = (pattern || "").trim() || DEFAULT_PERMALINK_STRUCTURE;
+  return buildPermalink(pat, post, options);
+}
+
+/**
+ * Builds the canonical URL for a taxonomy term (category or tag).
+ */
+export function resolveTaxonomyUrl(
+  taxonomy: "category" | "tag",
+  slug: string,
+  options?: {
+    locale?: string;
+    isDefaultLocale?: boolean;
+    alwaysPrefixLocale?: boolean;
+    base?: string;
+  }
+): string {
+  const base = (options?.base || (taxonomy === "category" ? "category" : "tag")).trim().replace(/^\/+|\/+$/g, "");
+  const cleanSlug = encodeURI(String(slug || "").trim().replace(/^\/+|\/+$/g, ""));
+  let url = `/${base}/${cleanSlug}`;
+  if (options?.locale && (!options.isDefaultLocale || options.alwaysPrefixLocale)) {
+    url = `/${options.locale}${url}`;
+  }
+  return url.replace(/\/+/g, "/");
 }
 
 export interface PermalinkMatchResult {
@@ -297,4 +336,27 @@ export function matchPermalink(pattern: string, pathname: string): PermalinkMatc
     matched: true,
     params,
   };
+}
+
+/**
+ * Group post items by publication year in descending order.
+ */
+export function groupPostsByYear(items: any[]): Array<{ year: string; count: number; posts: any[] }> {
+  const map = new Map<string, any[]>();
+  for (const it of (items || [])) {
+    let yr = it.year;
+    if (!yr && it.created_at) {
+      const d = new Date(Number(it.created_at) > 1e11 ? Number(it.created_at) : Number(it.created_at) * 1000);
+      yr = String(d.getUTCFullYear());
+    }
+    const key = String(yr || "Recent");
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(it);
+  }
+  const result: Array<{ year: string; count: number; posts: any[] }> = [];
+  for (const [year, posts] of map.entries()) {
+    result.push({ year, count: posts.length, posts });
+  }
+  result.sort((a, b) => b.year.localeCompare(a.year));
+  return result;
 }

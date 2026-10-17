@@ -89,6 +89,7 @@ export function baseGroups() {
         { key: "posts", title: t("core.nav.posts", "Posts"), icon: "file-text", active: core("posts") },
         { key: "pages", title: t("core.nav.pages", "Pages"), icon: "files", active: core("pages") },
         { key: "media", title: t("core.nav.media", "Media"), icon: "image", active: core("media") },
+        { key: "tags", title: t("core.nav.tags", "Tags"), icon: "tag", active: core("tags") },
         ...cptItems,
       ],
     },

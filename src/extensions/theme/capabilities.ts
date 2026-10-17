@@ -33,6 +33,7 @@ export interface ApplyResult {
   blocks: number;
   settings: number;
   tables: number;
+  presetTags: number;
 }
 
 /**
@@ -55,6 +56,7 @@ export async function applyThemeCapabilities(
     blocks: 0,
     settings: 0,
     tables: 0,
+    presetTags: 0,
   };
 
   // Re-declaring from the same theme is idempotent: clear its previous
@@ -209,6 +211,45 @@ export async function applyThemeCapabilities(
     result.settings++;
   }
 
+  // Preset taxonomy terms (tags and categories) declared by theme
+  const presetTagsList = [
+    ...(Array.isArray(manifest.presetTags ?? (manifest as any).preset_tags)
+      ? (manifest.presetTags ?? (manifest as any).preset_tags).map((t: any) => ({ ...t, taxonomy: t.taxonomy || "tag" }))
+      : []),
+    ...(Array.isArray((manifest as any).presetCategories ?? (manifest as any).preset_categories)
+      ? ((manifest as any).presetCategories ?? (manifest as any).preset_categories).map((c: any) => ({ ...c, taxonomy: c.taxonomy || "category" }))
+      : []),
+    ...(Array.isArray((manifest as any).presetTerms ?? (manifest as any).preset_terms)
+      ? (manifest as any).presetTerms ?? (manifest as any).preset_terms
+      : []),
+  ];
+  for (const pt of presetTagsList) {
+    const name = String(pt.name || "").trim();
+    if (!name) continue;
+    const tax = String(pt.taxonomy || "tag").trim();
+    const loc = String(pt.locale || "").trim();
+    const rawSlug = String(pt.slug || name).toLowerCase().trim();
+    const cleanSlug = rawSlug.replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || `term-${await randomId()}`;
+    const desc = pt.description ? String(pt.description) : null;
+
+    const existing = await env.DB.prepare(
+      "SELECT id, declared_by_theme, count FROM terms WHERE site_id=? AND taxonomy=? AND (locale=? OR locale='') AND (slug=? OR name=?) LIMIT 1"
+    ).bind(siteId, tax, loc, cleanSlug, name).first<any>().catch(() => null);
+
+    if (existing) {
+      if (!existing.declared_by_theme && Number(existing.count || 0) === 0) {
+        await env.DB.prepare("UPDATE terms SET declared_by_theme=?, updated_at=? WHERE id=?")
+          .bind(themeName, ts, existing.id).run().catch(() => {});
+      }
+    } else {
+      const newId = "term_" + await randomId();
+      await env.DB.prepare(
+        "INSERT INTO terms(id, site_id, taxonomy, slug, name, description, parent_id, count, locale, lang_group, declared_by_theme, created_at, updated_at) VALUES(?,?,?,?,?,?,?,0,?,?,?,?,?)"
+      ).bind(newId, siteId, tax, cleanSlug, name, desc, null, loc, newId, themeName, ts, ts).run().catch(() => {});
+      result.presetTags++;
+    }
+  }
+
   // Theme-owned business tables (§2.5.2). The DDL is generated from the
   // declaration, never written by the theme; the `_i18n` companion is created
   // only when this site serves more than one language.
@@ -226,11 +267,11 @@ export async function applyThemeCapabilities(
  * Mark everything a theme declared as inactive. Data rows (posts, terms,
  * meta) are deliberately left intact so reactivating restores the site.
  *
- * Theme-owned business tables (§2.5.2) are not in this list, and that is not an
- * oversight. Neither the generated tables nor their `theme_table_defs` rows are
- * touched: the rows are how the platform remembers which generated name a
- * logical name resolved to, and without them a re-activation would have to
- * guess. Switching a theme away hides its data; it never destroys it.
+ * Theme preset tags:
+ *   - Used terms (count > 0) are kept permanently by unbinding declared_by_theme
+ *     so published post permalinks, SEO archives and associations never break.
+ *   - Unused preset terms (count = 0) are cleaned up so deactivating or switching
+ *     a theme leaves no orphaned, unused tags in the site's taxonomy.
  */
 export async function clearThemeCapabilities(
   env: Env,
@@ -244,6 +285,10 @@ export async function clearThemeCapabilities(
     env.DB.prepare("DELETE FROM field_defs WHERE site_id=? AND declared_by_theme=?").bind(siteId, themeName),
     env.DB.prepare("DELETE FROM theme_routes WHERE site_id=? AND declared_by_theme=?").bind(siteId, themeName),
     env.DB.prepare("DELETE FROM theme_blocks WHERE site_id=? AND declared_by_theme=?").bind(siteId, themeName),
+    // 1. Used preset tags: promote to site-generic tags so post links never break
+    env.DB.prepare("UPDATE terms SET declared_by_theme=NULL, updated_at=? WHERE site_id=? AND declared_by_theme=? AND count > 0").bind(ts, siteId, themeName),
+    // 2. Unused preset tags: purge cleanly
+    env.DB.prepare("DELETE FROM terms WHERE site_id=? AND declared_by_theme=? AND count = 0").bind(siteId, themeName),
   ];
   for (const s of statements) await s.run().catch(() => {});
   // Menus live in the shared registry, so they are cleared through its API

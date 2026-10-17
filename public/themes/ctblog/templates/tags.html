@@ -1,0 +1,43 @@
+{{@extends "parts/layout"}}
+{{@section "content"}}
+
+<section class="section" data-od-id="tags-intro">
+  <div class="wrap">
+    <p class="eyebrow">{{default(theme.strings.tags.eyebrow, "Tags & Topics")}}</p>
+    <h1 class="display" style="margin:14px 0 16px">{{default(theme.strings.tags.title, "标签与分类")}}</h1>
+    <p class="lede">{{default(theme.strings.tags.desc, "字号越大表示写得越多。点任意标签，进入该主题下的全部文章。")}}</p>
+  </div>
+</section>
+
+<section class="section" style="padding-top:0" data-od-id="tag-cloud">
+  <div class="wrap">
+    <div class="tag-cloud" data-reveal>
+      {{#each tags as tag}}
+      <a href="{{tag.url}}" style="font-size:{{tag.font_size}}px">{{tag.name}}<span class="c">{{tag.count}}</span></a>
+      {{/each}}
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section class="section" data-od-id="categories">
+  <div class="wrap">
+    <p class="eyebrow" style="margin-bottom:8px">{{default(theme.strings.tags.catEyebrow, "主题分类")}}</p>
+    <h2 class="display" style="font-size:26px;margin-bottom:28px">{{default(theme.strings.tags.catTitle, "话题与分类")}}</h2>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px">
+      {{#each categories as cat}}
+      <a class="feature" href="{{cat.url}}" style="display:block;padding:24px" data-od-id="category-{{cat.slug}}">
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <h3 style="font-family:var(--font-serif);font-size:20px;margin:0">{{cat.name}}</h3>
+          <span class="eyebrow">{{cat.count}} 篇</span>
+        </div>
+        {{#if cat.description}}<p style="margin:10px 0 0;font-size:14px;color:var(--muted);line-height:1.65">{{cat.description}}</p>{{/if}}
+      </a>
+      {{/each}}
+    </div>
+  </div>
+</section>
+
+{{/section}}

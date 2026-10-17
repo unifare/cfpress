@@ -1,0 +1,55 @@
+<!-- 全站精致悬浮播放器组件 (Sticky Mini Audio Player) -->
+<div id="ctblog-player-dock" class="cfp-player-dock" data-collapsed="false" aria-label="Audio Player">
+  <!-- 顶部极细可点击/拖动进度条 -->
+  <div class="cfp-player-progress" id="cfp-player-progress" title="点击调整播放进度">
+    <div class="cfp-player-progress-bar" id="cfp-player-bar"></div>
+  </div>
+  
+  <div class="cfp-player-body">
+    <!-- 唱片 / 封面微动效果 -->
+    <div class="cfp-player-disc" id="cfp-player-disc" role="button" tabindex="0" title="点击切换播放 / 暂停">
+      <div class="cfp-disc-vinyl">
+        <div class="cfp-disc-grooves"></div>
+        <div class="cfp-disc-center">
+          <span class="cfp-disc-glyph" id="cfp-disc-glyph">恩</span>
+        </div>
+      </div>
+      <div class="cfp-disc-eq" id="cfp-disc-eq">
+        <span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+
+    <!-- 曲目元信息 -->
+    <div class="cfp-player-meta" id="cfp-player-meta">
+      <div class="cfp-player-title-wrap">
+        <span class="cfp-player-title" id="cfp-player-title">奇异恩典 (Amazing Grace)</span>
+      </div>
+      <div class="cfp-player-sub">
+        <span class="cfp-player-artist" id="cfp-player-artist">传统赞美诗</span>
+        <span class="cfp-player-dot">·</span>
+        <span class="cfp-player-time" id="cfp-player-time">00:00 / 00:00</span>
+      </div>
+    </div>
+
+    <!-- 播放控制按键群 -->
+    <div class="cfp-player-controls">
+      <button class="cfp-ctrl-btn" type="button" id="cfp-btn-prev" aria-label="上一首" title="上一首">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+      </button>
+      
+      <button class="cfp-ctrl-btn cfp-ctrl-play" type="button" id="cfp-btn-toggle" aria-label="播放/暂停" title="播放 / 暂停">
+        <svg class="cfp-icon-play" viewBox="0 0 24 24" fill="currentColor"><polygon points="7 4 19 12 7 20 7 4"/></svg>
+        <svg class="cfp-icon-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+      </button>
+
+      <button class="cfp-ctrl-btn" type="button" id="cfp-btn-next" aria-label="下一首" title="下一首">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+      </button>
+
+      <button class="cfp-ctrl-btn cfp-ctrl-fold" type="button" id="cfp-btn-minimize" aria-label="收起/展开播放器" title="收起 / 展开">
+        <svg class="cfp-icon-fold" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        <svg class="cfp-icon-unfold" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"/></svg>
+      </button>
+    </div>
+  </div>
+</div>

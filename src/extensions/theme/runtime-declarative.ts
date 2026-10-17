@@ -19,6 +19,9 @@ import { resolveTemplate, templateCandidates, type TemplateContext } from "../..
 import { resolveContentLocale } from "../../platform/i18n/locale-registry";
 import { renderTemplateSource, TemplateError, type RenderOptions } from "../../rendering/template-engine";
 import { NULL_HOOKS, hostHooks, type HostHooks } from "../contract/hooks";
+import { resolvePostUrl, DEFAULT_PERMALINK_STRUCTURE, groupPostsByYear } from "../../platform/permalink";
+import { renderSeoHead } from "../../platform/seo";
+export { groupPostsByYear };
 
 // ---------------------------------------------------------------------------
 // Theme discovery
@@ -59,8 +62,18 @@ export interface ThemeManifest {
   adminMenus?: ThemeAdminMenu[];
   blocks?: ThemeBlock[];
   settings?: ThemeSettingDef[];
+  presetTags?: ThemePresetTag[];
+  preset_tags?: ThemePresetTag[];
   capabilities?: string[];
   runtime?: "declarative" | "worker";
+}
+
+export interface ThemePresetTag {
+  name: string;
+  slug?: string;
+  locale?: string;
+  description?: string;
+  taxonomy?: string;
 }
 
 export interface ThemePostType {
@@ -308,63 +321,34 @@ export async function runThemeQuery(
   const rows = await env.DB.prepare(sql).bind(...binds).all();
   const items = (rows.results as any[]) ?? [];
   await attachMeta(env, items, locale, await defaultLocale(env, siteId));
-  deriveListingFields(items, locale);
+  const permalinkStructure = await setting(env, "permalink.structure", DEFAULT_PERMALINK_STRUCTURE, siteId);
+  deriveListingFields(items, locale, permalinkStructure);
   return items as QueryRow[];
 }
 
 /**
- * The three fields every listing card shows, derived from the row it already
- * has.
- *
- * One definition, two readers (`runThemeQuery` for anything a route lists,
- * `memberPosts` for the account screen): a route-based archive should not be
- * the one page where a cover is missing, and "my posts" should not be the one
- * where the reading time is. `attachMeta` has just rendered `html`, so the
- * reading time is a string scan on that, not a second render pass.
- *
- * Deliberately does **not** set `url`: that is the one field the two callers
- * disagree about. A listing is linked through its route's base; a member's own
- * posts are linked through the built-in permalink, because the account page is
- * not where they live.
+ * Derives common listing card fields (date, cover, reading time, canonical url, date_short).
  */
-function deriveListingFields(items: any[], locale: string): void {
+export function deriveListingFields(items: any[], locale: string, permalinkSetting?: string): void {
   for (const it of items) {
     it.date_display = formatDate(it.created_at, locale);
+    const d = new Date(Number(it.created_at) > 1e11 ? Number(it.created_at) : Number(it.created_at) * 1000);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    it.date_short = `${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+    it.year = String(d.getUTCFullYear());
     it.cover = coverFrom(it.content);
     it.reading_time = readingTime(String(it.html ?? ""), 220, locale);
+    if (!it.url) {
+      it.url = resolvePostUrl(permalinkSetting || DEFAULT_PERMALINK_STRUCTURE, it, {
+        locale,
+        alwaysPrefixLocale: true,
+      });
+    }
   }
 }
 
 /**
  * A member's own posts, for the account screen.
- *
- * Three things make this *not* just `runThemeQuery` with an extra filter, and
- * each is a way the naive version silently answers the wrong question:
- *
- * 1. **Every status, not just `published`.** A member opens their account to
- *    see what they have written, and most of it is not live yet. The template
- *    prints a status badge (`{{post.status}}`) — a query that filtered to
- *    `published` would make that badge a constant, i.e. decoration. So this
- *    reads drafts and pending rows too. (The *public* listing is the one that
- *    filters to `published`; that is `runThemeQuery`.)
- *
- * 2. **`site_id` AND `author_member_id`, never the id alone.** A member id is
- *    unique per site, so `author_member_id=?` *happens* to be unambiguous
- *    today — which is exactly the coincidence rule 6 forbids relying on. If a
- *    future migration ever makes member ids global, the site-blind query would
- *    start returning another site's posts, and nothing would notice. Match on
- *    both, the way migration 0024 documents.
- *
- * 3. **One row per post, in this language only.** The join is the translation
- *    row for the locale being rendered, so a member who wrote a post in both
- *    languages sees it once — in the language they are reading the account
- *    page in — not twice.
- *
- * The `url` is built from the **built-in post permalink** (`/{locale}/blog/…`),
- * deliberately *not* from the route this page is served under. The account page
- * lives at `/account`, so reusing the route base would link every post to
- * `/account/<slug>` and 404 on click — the caller passes the rule in rather
- * than the callee reaching for `scope`.
  */
 async function memberPosts(env: Env, siteId: string, memberId: string, locale: string): Promise<QueryRow[]> {
   const rows = await env.DB.prepare(
@@ -378,10 +362,9 @@ async function memberPosts(env: Env, siteId: string, memberId: string, locale: s
     .all();
   const items = (rows.results as any[]) ?? [];
   await attachMeta(env, items, locale, await defaultLocale(env, siteId));
-  deriveListingFields(items, locale);
+  const permalinkStructure = await setting(env, "permalink.structure", DEFAULT_PERMALINK_STRUCTURE, siteId);
+  deriveListingFields(items, locale, permalinkStructure);
   for (const it of items) {
-    // The built-in permalink, not the current route's base. A member's post
-    // always lives at `/{locale}/blog/{slug}` regardless of which page lists it.
     it.url = `/${locale}/blog/${it.slug}`;
   }
   return items as QueryRow[];
@@ -666,7 +649,17 @@ export async function buildScope(
   let hookHead = "";
   let hookFooter = "";
   try {
-    hookHead = (await hooks.applyFilters("head", { env, siteId }, "")) ?? "";
+    const seoHead = await renderSeoHead(env, siteId, {
+      origin: o.origin,
+      path: o.path,
+      locale: o.locale,
+      title: o.title,
+      description: o.description,
+      kind: o.kind,
+      post: o.post,
+      site: s,
+    });
+    hookHead = (await hooks.applyFilters("head", { env, siteId }, seoHead)) ?? seoHead;
   } catch {
     /* a failing filter leaves empty hook */
   }
@@ -686,7 +679,50 @@ export async function buildScope(
       default: a.locale === siteDefault,
     }));
   }
+  let themeSettings: Record<string, string> = {};
+  try {
+    const defRows = await env.DB.prepare("SELECT key, default_value FROM theme_setting_defs WHERE theme_name=?").bind(theme.name).all().catch(() => ({ results: [] }));
+    const valRows = await env.DB.prepare("SELECT key, value FROM theme_settings WHERE theme_name=?").bind(theme.name).all().catch(() => ({ results: [] }));
+    const valMap = Object.fromEntries(((valRows.results as any[]) ?? []).map((v) => [v.key, v.value]));
+    themeSettings = Object.fromEntries(((defRows.results as any[]) ?? []).map((d: any) => [d.key, valMap[d.key] ?? d.default_value ?? ""]));
+  } catch {}
+
+  let siteTags: any[] = [];
+  let siteCategories: any[] = [];
+  try {
+    const tagBase = (await setting(env, "permalink.tag_base", "tag", siteId)).replace(/^\/+|\/+$/g, "");
+    const catBase = (await setting(env, "permalink.category_base", "category", siteId)).replace(/^\/+|\/+$/g, "");
+    const termRows = await env.DB.prepare(
+      "SELECT id, taxonomy, slug, name, description, count FROM terms WHERE site_id=? AND (locale='' OR locale=?) ORDER BY count DESC, name ASC"
+    ).bind(siteId, o.locale).all<any>().catch(() => ({ results: [] }));
+    const terms = (termRows.results as any[]) ?? [];
+    const rawTags = terms.filter((t) => t.taxonomy === "tag" || t.taxonomy === "post_tag");
+    const counts = rawTags.map((t) => Number(t.count || 0));
+    const maxC = Math.max(1, ...counts);
+    const minC = Math.min(0, ...counts);
+    const spread = maxC - minC || 1;
+    siteTags = rawTags.map((t) => {
+      const c = Number(t.count || 0);
+      const fontSize = 18 + Math.round(((c - minC) / spread) * 8);
+      return {
+        ...t,
+        count: c,
+        font_size: fontSize,
+        url: `/${o.locale}/${tagBase}/${encodeURIComponent(t.slug || t.name)}`,
+      };
+    });
+    siteCategories = terms
+      .filter((t) => t.taxonomy === "category")
+      .map((t) => ({
+        ...t,
+        count: Number(t.count || 0),
+        url: `/${o.locale}/${catBase}/${encodeURIComponent(t.slug || t.name)}`,
+      }));
+  } catch {}
+
   return {
+    tags: siteTags,
+    categories: siteCategories,
     site: { title: s.title, description: s.description, robots: s.robots, locale: o.locale, url: o.origin ?? "" },
     page: {
       title: o.title,
@@ -728,7 +764,7 @@ export async function buildScope(
     // `lang_nav` — a monolingual site has no switcher, so it gets no current
     // entry either rather than a control that lists one language.
     lang_current: langNavRows.length > 1 ? langCurrent : null,
-    theme: { name: theme.name, version: theme.version, title: theme.manifest.title, strings },
+    theme: { name: theme.name, version: theme.version, title: theme.manifest.title, strings, settings: themeSettings },
     "@hooks": {
       head: hookHead,
       footer: hookFooter,
@@ -852,7 +888,7 @@ const CANVAS_BRIDGE_JS = `
         var wType=m?m[1]:'widget';
         var ov=document.createElement('div');
         ov.className='widget-actions-overlay';
-        ov.innerHTML='<span class="widget-type-badge">'+wType+'</span><button type="button" class="widget-action-btn btn-edit" title="Edit" data-action="edit">⚙</button><button type="button" class="widget-action-btn btn-delete" title="Delete" data-action="delete">🗑</button>';
+        ov.innerHTML='<span class="widget-type-badge">'+wType+'</span><button type="button" class="widget-action-btn btn-up" title="Move Up" data-action="up">↑</button><button type="button" class="widget-action-btn btn-down" title="Move Down" data-action="down">↓</button><button type="button" class="widget-action-btn btn-edit" title="Edit" data-action="edit">⚙</button><button type="button" class="widget-action-btn btn-delete" title="Delete" data-action="delete">🗑</button>';
         wel.insertBefore(ov,wel.firstChild);
       }
     }
@@ -922,6 +958,24 @@ const CANVAS_BRIDGE_JS = `
     });
 
     document.addEventListener('click',function(e){
+      var upBtn=e.target.closest('.widget-action-btn[data-action="up"]');
+      if(upBtn){
+        e.preventDefault();e.stopPropagation();
+        var wrapper=upBtn.closest('[data-widget]');
+        var wid=wrapper?wrapper.getAttribute('data-widget'):'';
+        var slot=wrapper?wrapper.getAttribute('data-slot'):'';
+        if(wid)window.parent.postMessage({action:'widget:move',widgetId:wid,slot:slot,direction:-1},'*');
+        return;
+      }
+      var downBtn=e.target.closest('.widget-action-btn[data-action="down"]');
+      if(downBtn){
+        e.preventDefault();e.stopPropagation();
+        var wrapper=downBtn.closest('[data-widget]');
+        var wid=wrapper?wrapper.getAttribute('data-widget'):'';
+        var slot=wrapper?wrapper.getAttribute('data-slot'):'';
+        if(wid)window.parent.postMessage({action:'widget:move',widgetId:wid,slot:slot,direction:1},'*');
+        return;
+      }
       var editBtn=e.target.closest('.widget-action-btn[data-action="edit"]');
       if(editBtn){
         e.preventDefault();e.stopPropagation();

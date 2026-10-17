@@ -96,7 +96,7 @@ export const PLATFORM_SCHEMA = [
   { table: "settings", tenant: "site", locale: null, onSiteDelete: "purge", note: "site settings (UNIQUE(site_id,key))" },
   { table: "site_locales", tenant: "site", locale: null, onSiteDelete: "purge", note: "which languages this site serves" },
   { table: "taxonomies", tenant: "site", locale: null, onSiteDelete: "purge", note: "taxonomy registration is per site" },
-  { table: "terms", tenant: "site", locale: null, onSiteDelete: "purge", note: "terms are per site" },
+  { table: "terms", tenant: "site", locale: { kind: "column" }, onSiteDelete: "purge", note: "terms are per site and carry a locale column (with lang_group for translations since migration 0028)" },
   { table: "theme_blocks", tenant: "site", locale: null, onSiteDelete: "purge", note: "declared blocks are per site" },
   { table: "theme_routes", tenant: "site", locale: null, onSiteDelete: "purge", note: "front-end routes are per site; the 404-on-theme-switch defect lived here" },
   { table: "theme_table_defs", tenant: "site", locale: null, onSiteDelete: "purge", note: "logical→physical table map is per site" },

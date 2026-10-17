@@ -31,6 +31,7 @@ import { themeAssetsScreen } from "./theme-assets.js";
 import apiKeys from "./api-keys.js";
 import adinsert from "./adinsert.js";
 import tags from "./tags.js";
+import backup from "./backup.js";
 
 export const SCREENS = {
   dashboard,
@@ -53,6 +54,7 @@ export const SCREENS = {
   urls,
   settings,
   features,
+  backup,
   "api-keys": apiKeys,
 
   // Targets of the dynamic `cpt:` / `menu:` / `table:` prefixes, resolved by

@@ -29,6 +29,7 @@ import { registerMember, loginMember, logoutMember, requireMember } from "./plat
 import { resolveMetaByPost } from "./platform/post-meta";
 import { defaultLocale } from "./platform/frontend";
 import { resolvePostUrl, DEFAULT_PERMALINK_STRUCTURE } from "./platform/permalink";
+import { exportSiteBackup, inspectBackup, restoreSiteBackup, createSnapshot, listSnapshots, getSnapshot, deleteSnapshot } from "./platform/backup";
 // Media access policy — the same module the front-end `/media/<key>` read path
 // uses, so the library a user can list is the library they can fetch.
 import { readMediaPolicy, mediaOwnerClause } from "./platform/media-policy";
@@ -2016,7 +2017,7 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
   }
   if (path === "media" && method === "POST" && !(await requirePermission(env, user, "media.write", siteId))) return ok({ error: "Forbidden" }, 403);
 
-  if (method === "GET" && /^(posts|pages|content\/|search|media|settings|features|dashboard|stats|taxonomies|terms|tables|widgets|menus|menu_items|redirects|rewrites|locales|theme\/|theme-tables|i18n\/(locales|overrides|translations|messages|ui-locale))/.test(path)) {
+  if (method === "GET" && /^(posts|pages|content\/|search|media|settings|features|dashboard|stats|taxonomies|terms|tables|widgets|menus|menu_items|redirects|rewrites|locales|theme\/|theme-tables|backup|i18n\/(locales|overrides|translations|messages|ui-locale))/.test(path)) {
     if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
   }
 
@@ -2050,6 +2051,9 @@ async function routeApi(env: Env, request: Request): Promise<Response> {
 
   const resSettings = await dispatchSettingsAdminRoutes(env, request, user, siteId, path, method, url);
   if (resSettings) return resSettings;
+
+  const resBackup = await dispatchBackupAdminRoutes(env, request, user, siteId, path, method, url);
+  if (resBackup) return resBackup;
 
   const resNav = await dispatchNavAndWidgetRoutes(env, request, user, siteId, path, method, url);
   if (resNav) return resNav;
@@ -3067,6 +3071,99 @@ async function dispatchSettingsAdminRoutes(
   if (path === "features" && method === "POST") {
     if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
     return saveFeature(env, user.id, await jsonBody(request), siteId);
+  }
+
+  return null;
+}
+
+async function dispatchBackupAdminRoutes(
+  env: Env,
+  request: Request,
+  user: SessionUser,
+  siteId: string,
+  path: string,
+  method: string,
+  url: URL
+): Promise<Response | null> {
+  if (path === "backup/export" && method === "POST") {
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const backup = await exportSiteBackup(env, siteId);
+    const filename = `cfpress-backup-${siteId}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    await activity(env, user.id, "export", "backup", siteId, { summary: backup.summary });
+    return ok({ ok: true, filename, backup });
+  }
+
+  if (path === "backup/inspect" && method === "POST") {
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const b = await jsonBody(request);
+    const res = await inspectBackup(env, siteId, b.payload || b);
+    return ok(res);
+  }
+
+  if (path === "backup/restore" && method === "POST") {
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const b = await jsonBody(request);
+    const payload = b.payload || b;
+    const opts = (b.options && typeof b.options === "object") ? b.options : {};
+    const mode = (opts.mode || b.mode) === "clean" ? "clean" : "merge";
+    const autoSnapshot = (opts.autoSnapshot !== undefined ? opts.autoSnapshot : b.autoSnapshot) !== false;
+    const res = await restoreSiteBackup(env, siteId, payload, {
+      mode,
+      autoSnapshot,
+      name: (opts.name || b.name) ? String(opts.name || b.name) : undefined,
+    });
+    await activity(env, user.id, "restore", "backup", siteId, { mode, restored: res.restored, snapshot_id: res.snapshot_id });
+    return ok(res);
+  }
+
+  if (path === "backup/snapshots" && method === "GET") {
+    if (!(await requireSiteAccess(env, user, siteId))) return ok({ error: "Forbidden" }, 403);
+    const items = await listSnapshots(env, siteId);
+    return ok({ items, site: siteId });
+  }
+
+  if (path === "backup/snapshots" && method === "POST") {
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const b = await jsonBody(request);
+    const name = String(b.name || "").trim() || "手动安全快照";
+    const snap = await createSnapshot(env, siteId, name, "manual");
+    await activity(env, user.id, "create", "snapshot", snap.id, { siteId, name });
+    return ok({ ok: true, snapshot: snap }, 201);
+  }
+
+  const snapRestMatch = path.match(/^backup\/snapshots\/([^/]+)\/restore$/);
+  if (snapRestMatch && method === "POST") {
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const snapId = decodeURIComponent(snapRestMatch[1]);
+    const snapData = await getSnapshot(env, siteId, snapId);
+    if (!snapData) return ok({ error: "Snapshot not found" }, 404);
+    const res = await restoreSiteBackup(env, siteId, snapData, {
+      mode: "clean",
+      autoSnapshot: true,
+      name: `回滚快照前自动备份 (${snapId})`,
+    });
+    await activity(env, user.id, "rollback", "snapshot", snapId, { siteId });
+    return ok(res);
+  }
+
+  const snapDelMatch = path.match(/^backup\/snapshots\/([^/]+)$/);
+  if (snapDelMatch && method === "DELETE") {
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const snapId = decodeURIComponent(snapDelMatch[1]);
+    const success = await deleteSnapshot(env, siteId, snapId);
+    if (!success) return ok({ error: "Snapshot not found" }, 404);
+    await activity(env, user.id, "delete", "snapshot", snapId, { siteId });
+    return ok({ ok: true });
+  }
+
+  const snapDlMatch = path.match(/^backup\/snapshots\/([^/]+)\/download$/);
+  if (snapDlMatch && method === "GET") {
+    if (!(await requirePermission(env, user, "settings.manage", siteId))) return ok({ error: "Forbidden" }, 403);
+    const snapId = decodeURIComponent(snapDlMatch[1]);
+    const snapData = await getSnapshot(env, siteId, snapId);
+    if (!snapData) return ok({ error: "Snapshot not found" }, 404);
+    const filename = `cfpress-snapshot-${siteId}-${snapId}.json`;
+    return ok({ ok: true, filename, backup: snapData });
   }
 
   return null;
